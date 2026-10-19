@@ -316,7 +316,7 @@ export function buildHub(r: Renderer): HubWorld {
 
   return {
     terrain: r.upload(t.build()),
-    terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-cartoon-v2.png"),
+    terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-stylized-v3.png"),
     shadow: r.upload(shadow.build()),
     props,
     glow: r.upload(glow.build()),
