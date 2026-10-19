@@ -39,18 +39,19 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   // Body (pivot at feet level).
   // Use a denser, rounded silhouette for the hero character. The rest of the world
   // stays deliberately low-poly, so every beaver reads as soft and collectible.
-  b.body.sphere(compose(0, 0.78, 0, 0, 0, 0, 0.6, 0.62, 0.54), fur, 10, 18);
+  b.body.sphere(compose(0, 0.76, 0, 0, 0, 0, 0.59, 0.61, 0.53), fur, 10, 18);
   b.body.sphere(compose(0, 0.72, 0.29, 0, 0, 0, 0.43, 0.48, 0.31), furLight, 10, 18);
 
   // Head (pivot at neck: subtract 1.15 in y).
   const H = (y: number) => y - 1.15;
-  b.head.sphere(compose(0, H(1.5), 0.02, 0, 0, 0, 0.58, 0.53, 0.52), fur, 12, 20);
+  // Slightly oversized head and wide-set eyes give the beavers a classic all-ages cartoon read.
+  b.head.sphere(compose(0, H(1.52), 0.02, 0, 0, 0, 0.63, 0.57, 0.56), fur, 12, 20);
   b.head.sphere(compose(0, H(1.38), 0.42, 0, 0, 0, 0.32, 0.23, 0.21), furLight, 10, 16);
   b.head.sphere(compose(0, H(1.47), 0.61, 0, 0, 0, 0.105, 0.08, 0.075), "#3a2218", 8, 12);
   b.head.box(compose(-0.045, H(1.22), 0.535, 0, 0.1, 0, 0.08, 0.15, 0.04), "#fffaf0");
   b.head.box(compose(0.045, H(1.22), 0.535, 0, 0.1, 0, 0.08, 0.15, 0.04), "#fffaf0");
   for (const s of [1, -1]) {
-    b.head.sphere(compose(0.2 * s, H(1.58), 0.4, 0, 0, 0, 0.078, 0.095, 0.065), "#1d120c", 8, 12);
+    b.head.sphere(compose(0.23 * s, H(1.61), 0.46, 0, 0, 0, 0.085, 0.105, 0.07), "#1d120c", 8, 12);
     b.head.sphere(compose(0.18 * s, H(1.62), 0.45, 0, 0, 0, 0.028), "#ffffff", 3, 5);
     b.head.sphere(compose(0.34 * s, H(1.4), 0.3, 0, 0, 0, 0.09, 0.06, 0.04), "#f39a8a", 7, 10);
     b.head.sphere(compose(0.38 * s, H(1.86), -0.02, 0, 0, 0, 0.125, 0.125, 0.085), furDark, 9, 14);

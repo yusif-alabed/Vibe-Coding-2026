@@ -60,8 +60,9 @@ void main() {
     float sunKiss = pow(max(dot(n, halfDir), 0.0), 26.0) * 0.18;
     col = base * (band * vec3(1.0, 0.97, 0.9) * 0.82 + ambient) + rim * vec3(1.0, 0.95, 0.85) + sunKiss * vec3(1.0, 0.86, 0.58);
     // Gentle filmic roll-off stops saturated snow and water highlights from clipping.
-    col = col / (col + vec3(0.45));
-    col = pow(col, vec3(0.88));
+    // Preserve bold, toy-like colour instead of washing the scene into grey.
+    col = col / (col + vec3(0.16));
+    col = pow(col, vec3(0.82));
   }
   float d = length(uCamPos - vWorld);
   float f = clamp((d - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);

@@ -1,7 +1,7 @@
-/** UI styles: chunky "sticker card" look — cream panels, thick ink borders, hard drop shadows. */
+/** UI styles: rounded storybook stickers — clean, friendly, and easy to read at a glance. */
 export const CSS = `
 :root {
-  --ink: #2e1c12; --cream: #fff7e8; --cream-2: #f6e7cc; --teal: #1fb5ad; --teal-dk: #15918a;
+  --ink: #3b251b; --cream: #fffaf0; --cream-2: #f7e8c9; --teal: #31bbb8; --teal-dk: #178c98;
   --orange: #ff8a3d; --red: #e2483d; --gold: #f5c242; --sky: #4f9be0; --muted: #7a6656;
   --pine: #286a51; --lake: #35c6c7; --shadow: rgba(46,28,18,.18);
   --font-display: "Fredoka", "Baloo 2", ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif;
@@ -12,9 +12,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #ffd9b0; fon
 #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
 #ui .pe { pointer-events: auto; }
-.card { background: linear-gradient(145deg, #fffdf6, var(--cream)); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink), 0 15px 35px var(--shadow); }
-.btn { font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: .2px; color: #fff; background: var(--teal);
-  border: 3px solid var(--ink); border-radius: 14px; padding: 10px 16px; box-shadow: 0 4px 0 var(--ink); cursor: pointer;
+.card { background: linear-gradient(145deg, #fffefb, var(--cream)); border: 3px solid var(--ink); border-radius: 24px; box-shadow: 0 5px 0 var(--ink), 0 15px 35px var(--shadow); }
+.btn { font-family: var(--font-display); font-weight: 700; font-size: 17px; letter-spacing: .2px; color: #fff; background: var(--teal);
+  border: 3px solid var(--ink); border-radius: 999px; padding: 10px 16px; box-shadow: 0 4px 0 var(--ink); cursor: pointer;
   transition: transform .06s, box-shadow .06s, filter .15s; white-space: nowrap; }
 .btn:hover { filter: brightness(1.06); }
 .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
@@ -35,7 +35,8 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
 .tagline { font-weight: 700; color: var(--muted); margin: 6px 0 16px; }
 .label { font-family: var(--font-display); font-weight: 600; text-align: left; margin: 12px 0 6px; font-size: 15px; }
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-.swatch { width: 38px; height: 38px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; box-shadow: 0 3px 0 var(--ink); }
+.swatch { width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; box-shadow: 0 3px 0 var(--ink); transition: transform .12s; }
+.swatch:hover { transform: translateY(-2px) rotate(-4deg); }
 .swatch.on { outline: 3px solid var(--gold); outline-offset: 2px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .stack { display: grid; gap: 10px; margin-top: 16px; }
@@ -60,10 +61,10 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
 .quick button:hover, .emotes button:hover { background: #fff2cc; }
 
 /* World labels */
-.tag { position: absolute; transform: translate(-50%, -100%); font-family: var(--font-display); font-weight: 600; font-size: 14px; color: #fff;
+.tag { position: absolute; transform: translate(-50%, -100%); font-family: var(--font-display); font-weight: 700; font-size: 14px; color: #fff;
   -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; white-space: nowrap; pointer-events: none; }
 .tag.me { color: var(--gold); }
-.place { position: absolute; transform: translate(-50%, -100%); background: var(--cream); border: 2.5px solid var(--ink); border-radius: 10px; padding: 2px 9px; font: 600 13px var(--font-display); box-shadow: 0 3px 0 var(--ink); white-space: nowrap; pointer-events: none; }
+.place { position: absolute; transform: translate(-50%, -100%); background: var(--cream); border: 2.5px solid var(--ink); border-radius: 999px; padding: 3px 11px; font: 700 13px var(--font-display); box-shadow: 0 3px 0 var(--ink); white-space: nowrap; pointer-events: none; }
 .bubble { position: absolute; transform: translate(-50%, -100%); background: #fff; border: 2.5px solid var(--ink); border-radius: 14px; padding: 5px 10px; font-weight: 700; font-size: 14px; max-width: 220px; text-align: center; box-shadow: 0 3px 0 var(--ink); pointer-events: none; animation: pop .18s ease-out; }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -9px; width: 12px; height: 12px; background: #fff; border-right: 2.5px solid var(--ink); border-bottom: 2.5px solid var(--ink); transform: translateX(-50%) rotate(45deg); }
 .emote { position: absolute; transform: translate(-50%, -100%); font-size: 34px; pointer-events: none; animation: float 1.6s ease-out forwards; }
