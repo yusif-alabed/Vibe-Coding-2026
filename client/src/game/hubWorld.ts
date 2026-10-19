@@ -262,7 +262,7 @@ export function buildHub(r: Renderer): HubWorld {
     glow: r.upload(glow.build()),
     water: r.upload(w.build()),
     mountains: buildMountains(r, 3, [150, 230], 16),
-    sky: buildSky(r, "#3f9fdd", "#dff3ff", "#fff4b8"),
+    sky: buildSky(r, "#287fb8", "#b9dce9", "#ffe39b"),
     portal: r.upload(portal.build()),
     steam: r.upload(steam.build()),
     labels: [
