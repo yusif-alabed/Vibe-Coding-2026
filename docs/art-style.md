@@ -43,14 +43,14 @@ Built in code in `client/src/game/beaver.ts` from parts (body, head, arms, feet,
 
 ### Faces and expressions
 
-The face is built from swappable pieces (eye whites, pupils with two highlights, brows, mouth) so one model can show many moods:
+The face is built from swappable pieces (big glossy button eyes with two sparkle highlights, brows, mouth) so one model can show many moods. Keep eyes dark with no whites and highlights up-and-out: eye whites with small pupils read as staring and creepy.
 
 | Expression | Eyes | Brows | Mouth | When it shows |
 |---|---|---|---|---|
-| Neutral | Open, blinking, glancing around | Level | Small smile | Default |
-| Happy | Closed "^ ^" | Soft, raised | Smile | 👋 ❤️ 🦫 emotes, swimming, waving |
-| Excited | Closed "^ ^" | Raised | Open, tongue | 🎉 ⛄ emotes, speed boost |
-| Surprised | Wide, small pupils | High | Open | 😮 emote |
+| Neutral | Open, blinking | Hidden | Soft "w" smile | Default |
+| Happy | Closed "^ ^" | Hidden | Smile | 👋 ❤️ 🦫 emotes, swimming, waving |
+| Excited | Closed "^ ^" | Hidden | Open, tongue | 🎉 ⛄ emotes, speed boost |
+| Surprised | Bigger | High | Small "o" | 😮 emote |
 | Dizzy | Spinning "X" | Worried | Half open | Hitting an obstacle (+ circling stars) |
 | Determined | Narrowed | Angled down | Smile | Race countdown |
 

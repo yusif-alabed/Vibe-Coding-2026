@@ -34,8 +34,8 @@ const PIVOTS: Record<PartName, [number, number, number]> = {
 // Head geometry, in head-local space (pivot at the neck).
 const HEAD_C: Vec3 = [0, 0.39, 0.03];
 const HEAD_R: Vec3 = [0.66, 0.6, 0.59];
-const EYE_Y = 0.49;
-const EYE_X = 0.23;
+const EYE_Y = 0.52;
+const EYE_X = 0.25;
 /** How far the muzzle sits forward of its original design (follows the head size). */
 const MZ = 0.04;
 
@@ -83,7 +83,7 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   b.head.sphere(compose(0, 0.36, 0.63 + MZ, 0, 0, 0, 0.11, 0.08, 0.075), "#3a2218", 8, 12);
   b.head.sphere(compose(0.035, 0.39, 0.69 + MZ, 0, 0, 0, 0.03, 0.018, 0.015), "#c9a493", 4, 6);
   // The signature buck teeth: two chunky, slightly splayed tiles.
-  for (const s of [1, -1]) b.head.box(compose(0.05 * s, 0.05, 0.56 + MZ, 0.06 * s, 0.12, 0.03 * s, 0.09, 0.17, 0.05), "#fffaf0");
+  for (const s of [1, -1]) b.head.box(compose(0.043 * s, 0.08, 0.57 + MZ, 0.05 * s, 0.12, 0.02 * s, 0.075, 0.12, 0.045), "#fffaf0");
   // Round ears with a soft inner colour.
   for (const s of [1, -1]) {
     b.head.sphere(compose(0.42 * s, 0.88, -0.04, 0, 0, -0.3 * s, 0.14, 0.13, 0.09), furDark, 9, 14);
@@ -139,27 +139,30 @@ function faceBuilders(look: Look): Record<FacePart, MeshBuilder> {
   };
   for (const s of [1, -1]) {
     const x = EYE_X * s, z = surf(EYE_X, EYE_Y);
-    // Eye whites (centred on EYE_Y so blinking squashes toward the middle).
-    f.eyes.sphere(compose(x, 0, z - 0.035, 0, 0, 0, 0.12, 0.14, 0.07), "#fffdf7", 9, 14);
-    // Pupils with two highlights for that sparkly cartoon look.
-    f.pupils.sphere(compose(x, -0.012, z + 0.012, 0, 0, 0, 0.078, 0.095, 0.04), "#1c0f08", 8, 12);
-    f.pupils.sphere(compose(x + 0.028, 0.03, z + 0.05, 0, 0, 0, 0.028, 0.03, 0.012), "#ffffff", 4, 6);
-    f.pupils.sphere(compose(x - 0.025, -0.04, z + 0.048, 0, 0, 0, 0.013), "#ffffff", 3, 5);
+    // Big glossy button eyes (no whites), centred on EYE_Y so blinking squashes toward the middle.
+    f.eyes.sphere(compose(x, 0, z - 0.02, 0, 0, 0, 0.105, 0.125, 0.06), "#1d110b", 10, 14);
+    // Sparkle highlights: one big, one small, both up-and-out so the beaver looks bright and friendly.
+    f.pupils.sphere(compose(x + 0.035 * s, 0.042, z + 0.036, 0, 0, 0, 0.04, 0.045, 0.014), "#ffffff", 6, 8);
+    f.pupils.sphere(compose(x - 0.028 * s, -0.045, z + 0.034, 0, 0, 0, 0.018), "#ffffff", 4, 6);
     // Happy eyes: upside-down "U" arcs.
     for (let k = 0; k <= 6; k++) {
       const a = Math.PI * (0.12 + (0.76 * k) / 6);
-      f.eyesHappy.box(compose(x + Math.cos(a) * 0.075, Math.sin(a) * 0.06 - 0.02, z + 0.015, 0, 0, a - Math.PI / 2, 0.042, 0.032, 0.03), INK);
+      f.eyesHappy.box(compose(x + Math.cos(a) * 0.07, Math.sin(a) * 0.055 - 0.02, z + 0.012, 0, 0, a - Math.PI / 2, 0.036, 0.026, 0.026), INK);
     }
     // Dizzy eyes: little crosses.
-    for (const r of [Math.PI / 4, -Math.PI / 4]) f.eyesDizzy.box(compose(x, 0, z + 0.015, 0, 0, r, 0.15, 0.032, 0.03), INK);
+    for (const r of [Math.PI / 4, -Math.PI / 4]) f.eyesDizzy.box(compose(x, 0, z + 0.012, 0, 0, r, 0.13, 0.026, 0.026), INK);
   }
   // Brows are built at their own origin; drawBeaver places, raises and tilts them.
-  f.browL.box(compose(0, 0, 0, 0, 0, 0, 0.15, 0.04, 0.045), furDark);
-  f.browR.box(compose(0, 0, 0, 0, 0, 0, 0.15, 0.04, 0.045), furDark);
+  // Soft rounded brows (flattened capsules), only shown when an expression needs them.
+  f.browL.sphere(compose(0, 0, 0, 0, 0, 0, 0.075, 0.018, 0.02), furDark, 5, 8);
+  f.browR.sphere(compose(0, 0, 0, 0, 0, 0, 0.075, 0.018, 0.02), furDark, 5, 8);
   // Small smile under the nose.
-  for (let k = 0; k <= 4; k++) {
-    const a = Math.PI * (1.2 + (0.6 * k) / 4);
-    f.mouthSmile.box(compose(Math.cos(a) * 0.07, 0.2 + Math.sin(a) * 0.045 + 0.045, 0.635 + MZ, 0, 0, a + Math.PI / 2, 0.035, 0.02, 0.02), INK);
+  // A soft "w" smile: two little arcs meeting under the nose, like a cartoon animal muzzle.
+  for (const s of [1, -1]) {
+    for (let k = 0; k <= 5; k++) {
+      const a = Math.PI * (1.05 + (0.9 * k) / 5);
+      f.mouthSmile.box(compose(0.045 * s + Math.cos(a) * 0.045, 0.235 + Math.sin(a) * 0.03, 0.632 + MZ, 0, 0, a + Math.PI / 2, 0.022, 0.014, 0.014), INK);
+    }
   }
   // Open mouth (behind the teeth) with a pink tongue.
   f.mouthOpen.sphere(compose(0, 0.12, 0.575 + MZ, 0, 0, 0, 0.12, 0.1, 0.04), "#3b1410", 8, 12);
@@ -357,9 +360,8 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
 
 function drawFace(
   r: Renderer, m: BeaverMeshes, head: Mat4, expr: Expression,
-  t: number, seed: number, talk: number, look: number, tint?: [number, number, number, number],
+  t: number, seed: number, talk: number, _look: number, tint?: [number, number, number, number],
 ) {
-  const thin = { outline: 0.01, tint };
   const flat = { tint };
   // Blink every few seconds (sometimes twice), never in sync with other beavers.
   const phase = ((t + seed * 7.31) % 3.9) / 3.9;
@@ -373,10 +375,8 @@ function drawFace(
   } else {
     const big = expr === "surprised" ? 1.15 : 1;
     const squint = expr === "determined" ? 0.72 : 1;
-    r.draw(m.face.eyes, eyesAt(blink * squint, big), thin);
-    // Pupils drift with the idle look and shrink when startled.
-    const pScale = expr === "surprised" ? 0.8 : 1;
-    r.draw(m.face.pupils, multiply(eyesAt(blink * squint, big), compose(look * 0.025, 0, 0.002, 0, 0, 0, pScale, pScale, 1)), flat);
+    r.draw(m.face.eyes, eyesAt(blink * squint, big), flat);
+    if (blink > 0.5) r.draw(m.face.pupils, eyesAt(squint, big), flat);
   }
 
   // Brows: raise, lower and tilt per expression.
@@ -389,17 +389,18 @@ function drawFace(
     determined: [-0.03, 0.35],
   };
   const [raise, tilt] = browPose[expr];
-  for (const [part, s] of [["browL", 1], ["browR", -1]] as const) {
+  const showBrows = expr === "surprised" || expr === "dizzy" || expr === "determined";
+  for (const [part, s] of showBrows ? ([["browL", 1], ["browR", -1]] as const) : []) {
     const x = EYE_X * s;
-    const y = EYE_Y + 0.15 + raise;
-    r.draw(m.face[part], multiply(head, compose(x, y, surf(EYE_X, EYE_Y + 0.15) + 0.005, 0, -0.25, tilt * s)), flat);
+    const y = EYE_Y + 0.14 + raise;
+    r.draw(m.face[part], multiply(head, compose(x, y, surf(EYE_X, EYE_Y + 0.14) + 0.004, 0, -0.25, tilt * s)), flat);
   }
 
   // Mouth: open when excited/surprised/dizzy or while talking, otherwise a little smile.
   const talking = talk > 0 && Math.sin(t * 18) > 0;
   const open = expr === "excited" || expr === "surprised" || talking ? 1 : expr === "dizzy" ? 0.6 : 0;
   if (open > 0) {
-    const o = expr === "surprised" ? 1.15 : open;
+    const o = (expr === "surprised" ? 0.85 : open) * 0.8;
     r.draw(m.face.mouthOpen, multiply(head, compose(0, 0.13, 0, 0, 0, 0, o, o, 1)), flat);
   } else {
     r.draw(m.face.mouthSmile, multiply(head, compose(0, 0, 0)), flat);
