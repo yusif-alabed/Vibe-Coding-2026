@@ -163,6 +163,7 @@ function renderTitleBackdrop(dt: number) {
   r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
   r.draw(hub.mountains, I, { outline: 0.6 });
   r.draw(hub.terrain, I, { texture: hub.terrainTexture, textureScale: 0.04, textureStrength: 0.14 });
+  r.draw(hub.surfaces, I);
   r.draw(hub.grass, I);
   for (const prop of hub.props) r.draw(prop, I, { outline: 0.07 });
   r.draw(hub.glow, I, { unlit: true });

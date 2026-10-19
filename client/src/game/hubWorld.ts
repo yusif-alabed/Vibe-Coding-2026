@@ -75,10 +75,8 @@ function groundColor(x: number, y: number, z: number): Vec3 {
   if (y > 8) return mixRgb(rgb(P.rock), rgb(P.rockDark), n);
   if (y < WATER_Y - 0.05) return mixRgb(rgb(P.lakebed), rgb(P.glacierDeep), n);
   if (y < 0.05 && (riverDist(x, z) < 5.4 || Math.hypot(x - PL.lake.x, z - PL.lake.z) < 20)) return rgb(P.sand);
-  // The plaza uses a calm pale paving/snow mix rather than a checkerboard of
-  // terrain cells, which looked like accidental stripes from the camera.
-  if (r < 10.5) return mixRgb(rgb(P.paving), rgb(P.snowShade), n * 0.12);
-  if (pathDist(x, z) < 1.8) return mixRgb(rgb(P.dirt), rgb(P.sand), n * 0.4);
+  // Paths and the plaza are separate, smooth surface meshes below. Keeping the
+  // base terrain grass here avoids jagged colour interpolation at their edges.
   const g = n < 0.33 ? P.grassA : n < 0.66 ? P.grassB : P.grassC;
   return y > 3 ? mixRgb(rgb(g), rgb(P.meadowDark), Math.min(1, (y - 3) / 5)) : rgb(g);
 }
@@ -86,6 +84,7 @@ function groundColor(x: number, y: number, z: number): Vec3 {
 export interface HubWorld {
   terrain: GpuMesh;
   terrainTexture: WebGLTexture;
+  surfaces: GpuMesh;
   grass: GpuMesh;
   shadow: GpuMesh;
   props: GpuMesh[];
@@ -157,6 +156,38 @@ export function buildHub(r: Renderer): HubWorld {
       t.triSmooth(a, b, c, terrainCol, na, nb, nc);
       t.triSmooth(a, c, d, terrainCol, na, nc, nd);
     }
+  }
+
+  // Hand-built plaza and trail surfaces sit just over the terrain. They have
+  // clean continuous edges rather than being inferred from terrain vertex colour.
+  const surfaces = new MeshBuilder();
+  const flatUp: Vec3 = [0, 1, 0];
+  const plazaRadius = 10.35;
+  for (let i = 0; i < 64; i++) {
+    const a = i / 64 * Math.PI * 2, b = (i + 1) / 64 * Math.PI * 2;
+    const center: Vec3 = [0, heightAt(0, 0) + 0.035, 0];
+    const pa: Vec3 = [Math.cos(a) * plazaRadius, heightAt(Math.cos(a) * plazaRadius, Math.sin(a) * plazaRadius) + 0.035, Math.sin(a) * plazaRadius];
+    const pb: Vec3 = [Math.cos(b) * plazaRadius, heightAt(Math.cos(b) * plazaRadius, Math.sin(b) * plazaRadius) + 0.035, Math.sin(b) * plazaRadius];
+    surfaces.triSmooth(center, pa, pb, "#dbecef", flatUp, flatUp, flatUp);
+  }
+  const ribbon = (ax: number, az: number, bx: number, bz: number, half: number, lift: number, color: string) => {
+    const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len * half, nz = dx / len * half;
+    const steps = Math.max(2, Math.ceil(len / 0.55));
+    for (let i = 0; i < steps; i++) {
+      const t0 = i / steps, t1 = (i + 1) / steps;
+      const x0 = ax + dx * t0, z0 = az + dz * t0, x1 = ax + dx * t1, z1 = az + dz * t1;
+      const a: Vec3 = [x0 + nx, heightAt(x0 + nx, z0 + nz) + lift, z0 + nz];
+      const b: Vec3 = [x0 - nx, heightAt(x0 - nx, z0 - nz) + lift, z0 - nz];
+      const c: Vec3 = [x1 - nx, heightAt(x1 - nx, z1 - nz) + lift, z1 - nz];
+      const d: Vec3 = [x1 + nx, heightAt(x1 + nx, z1 + nz) + lift, z1 + nz];
+      surfaces.triSmooth(a, b, c, color, flatUp, flatUp, flatUp);
+      surfaces.triSmooth(a, c, d, color, flatUp, flatUp, flatUp);
+    }
+  };
+  for (const [ax, az, bx, bz] of PATHS) {
+    ribbon(ax, az, bx, bz, 2.08, 0.026, "#9b6d3d"); // packed-earth border
+    ribbon(ax, az, bx, bz, 1.68, 0.047, "#d2a45f"); // warm walkable centre
   }
 
   // Physical grass, built from individual bent blade strips rather than cones
@@ -357,6 +388,7 @@ export function buildHub(r: Renderer): HubWorld {
   return {
     terrain: r.upload(t.build()),
     terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-stylized-v3.png"),
+    surfaces: r.upload(surfaces.build()),
     grass: r.upload(grass.build()),
     shadow: r.upload(shadow.build()),
     props,

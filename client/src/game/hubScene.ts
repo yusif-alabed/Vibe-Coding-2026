@@ -555,6 +555,7 @@ export class HubScene implements Scene {
     r.draw(this.world.sky, compose(cx, 0, cz), { unlit: true, noFog: true });
     r.draw(this.world.mountains, I, { outline: 0.6 });
     r.draw(this.world.terrain, I, { texture: this.world.terrainTexture, textureScale: 0.04, textureStrength: 0.14 });
+    r.draw(this.world.surfaces, I);
     r.draw(this.world.grass, I);
     for (const prop of this.world.props) r.draw(prop, I, { outline: 0.07 });
     r.draw(this.world.glow, I, { unlit: true });
