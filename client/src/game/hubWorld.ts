@@ -100,7 +100,7 @@ export function buildSky(r: Renderer, top: string, horizon: string, glowCol: str
     const k = Math.max(0, y / 900);
     const sun = Math.max(0, (x * 0.5 - z * 0.6) / 900);
     return mixRgb(mixRgb(h, t, Math.pow(k, 0.55)), g, Math.pow(sun, 3) * (1 - k) * 0.8);
-  }, 12, 18);
+  }, 20, 32);
   return r.upload(m.build());
 }
 
@@ -118,9 +118,9 @@ export function buildMountains(r: Renderer, seed: number, ring: [number, number]
       if (y > snowLine - 6 && hash2(Math.floor(_x), Math.floor(y)) > 0.5) return rgb(P.snowShade);
       return mixRgb(rgb(P.rockDark), rgb(P.rock), Math.min(1, y / snowLine));
     };
-    m.cone(compose(x, h / 2 - 8, z, a * 3, 0, 0, w, h, w * 0.8), col, 6, 0.12);
+    m.cone(compose(x, h / 2 - 8, z, a * 3, 0, 0, w, h, w * 0.8), col, 10, 0.12);
     // A shoulder peak for a craggier silhouette.
-    m.cone(compose(x + Math.cos(a + 1.6) * w * 0.4, h * 0.32 - 8, z + Math.sin(a + 1.6) * w * 0.4, a, 0, 0, w * 0.7, h * 0.65, w * 0.6), col, 5, 0.12);
+    m.cone(compose(x + Math.cos(a + 1.6) * w * 0.4, h * 0.32 - 8, z + Math.sin(a + 1.6) * w * 0.4, a, 0, 0, w * 0.7, h * 0.65, w * 0.6), col, 8, 0.12);
     // Forested foothill.
     m.cone(compose(x - Math.cos(a) * w * 0.45, 6, z - Math.sin(a) * w * 0.45, a, 0, 0, w * 0.9, 30, w * 0.7), mixRgb(rgb(P.pineDark), rgb(P.pine), hash2(i, 9)), 6, 0.1);
   }
@@ -130,7 +130,7 @@ export function buildMountains(r: Renderer, seed: number, ring: [number, number]
 export function buildHub(r: Renderer): HubWorld {
   // --- Terrain ---
   const t = new MeshBuilder();
-  const S = 3, R = 120;
+  const S = 2.4, R = 120;
   for (let x = -R; x < R; x += S) {
     for (let z = -R; z < R; z += S) {
       const a: Vec3 = [x, heightAt(x, z), z];

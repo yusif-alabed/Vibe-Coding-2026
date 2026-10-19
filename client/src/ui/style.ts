@@ -3,6 +3,7 @@ export const CSS = `
 :root {
   --ink: #2e1c12; --cream: #fff7e8; --cream-2: #f6e7cc; --teal: #1fb5ad; --teal-dk: #15918a;
   --orange: #ff8a3d; --red: #e2483d; --gold: #f5c242; --sky: #4f9be0; --muted: #7a6656;
+  --pine: #286a51; --lake: #35c6c7; --shadow: rgba(46,28,18,.18);
   --font-display: "Fredoka", "Baloo 2", ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif;
   --font-body: "Nunito", ui-rounded, system-ui, sans-serif;
 }
@@ -11,7 +12,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #ffd9b0; fon
 #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
 #ui .pe { pointer-events: auto; }
-.card { background: var(--cream); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink); }
+.card { background: linear-gradient(145deg, #fffdf6, var(--cream)); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink), 0 15px 35px var(--shadow); }
 .btn { font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: .2px; color: #fff; background: var(--teal);
   border: 3px solid var(--ink); border-radius: 14px; padding: 10px 16px; box-shadow: 0 4px 0 var(--ink); cursor: pointer;
   transition: transform .06s, box-shadow .06s, filter .15s; white-space: nowrap; }
@@ -26,10 +27,10 @@ input.field { font: 600 17px var(--font-body); color: var(--ink); background: #f
 input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
 
 /* Title screen */
-.title { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; background: linear-gradient(180deg, rgba(79,155,224,.15), rgba(46,28,18,.25)); }
+.title { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; background: radial-gradient(circle at 50% 20%, rgba(255,255,255,.22), transparent 38%), linear-gradient(180deg, rgba(79,155,224,.08), rgba(18,43,45,.32)); }
 .title .card { width: min(440px, 100%); padding: 22px 22px 20px; text-align: center; }
 .logo { font-family: var(--font-display); font-weight: 700; font-size: clamp(40px, 9vw, 58px); line-height: .95; margin: 0 0 4px;
-  color: #fff; -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 0 5px 0 var(--ink); letter-spacing: 1px; }
+  color: #fff; -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 0 5px 0 var(--ink), 0 12px 22px rgba(46,28,18,.25); letter-spacing: 1px; }
 .logo span { color: var(--gold); }
 .tagline { font-weight: 700; color: var(--muted); margin: 6px 0 16px; }
 .label { font-family: var(--font-display); font-weight: 600; text-align: left; margin: 12px 0 6px; font-size: 15px; }
@@ -43,7 +44,7 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
 
 /* HUD */
 .hud-top { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
-.pill { font-family: var(--font-display); font-weight: 600; background: var(--cream); border: 3px solid var(--ink); border-radius: 999px; padding: 6px 14px; box-shadow: 0 4px 0 var(--ink); font-size: 15px; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
+.pill { font-family: var(--font-display); font-weight: 600; background: linear-gradient(145deg, #fffdf7, var(--cream)); border: 3px solid var(--ink); border-radius: 999px; padding: 6px 14px; box-shadow: 0 4px 0 var(--ink), 0 7px 18px var(--shadow); font-size: 15px; display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }
 .pill.coins { background: var(--gold); font-size: 18px; }
 .hud-bottom { position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 8px; align-items: flex-end; }
 .chatbar { flex: 1; display: flex; gap: 8px; max-width: 560px; }
