@@ -75,7 +75,9 @@ function groundColor(x: number, y: number, z: number): Vec3 {
   if (y > 8) return mixRgb(rgb(P.rock), rgb(P.rockDark), n);
   if (y < WATER_Y - 0.05) return mixRgb(rgb(P.lakebed), rgb(P.glacierDeep), n);
   if (y < 0.05 && (riverDist(x, z) < 5.4 || Math.hypot(x - PL.lake.x, z - PL.lake.z) < 20)) return rgb(P.sand);
-  if (r < 10.5) return (Math.floor(x / 1.6) + Math.floor(z / 1.6)) % 2 ? rgb(P.snow) : rgb(P.snowShade);
+  // The plaza uses a calm pale paving/snow mix rather than a checkerboard of
+  // terrain cells, which looked like accidental stripes from the camera.
+  if (r < 10.5) return mixRgb(rgb(P.paving), rgb(P.snowShade), n * 0.12);
   if (pathDist(x, z) < 1.8) return mixRgb(rgb(P.dirt), rgb(P.sand), n * 0.4);
   const g = n < 0.33 ? P.grassA : n < 0.66 ? P.grassB : P.grassC;
   return y > 3 ? mixRgb(rgb(g), rgb(P.meadowDark), Math.min(1, (y - 3) / 5)) : rgb(g);
@@ -84,6 +86,7 @@ function groundColor(x: number, y: number, z: number): Vec3 {
 export interface HubWorld {
   terrain: GpuMesh;
   terrainTexture: WebGLTexture;
+  grass: GpuMesh;
   shadow: GpuMesh;
   props: GpuMesh[];
   glow: GpuMesh;
@@ -152,6 +155,22 @@ export function buildHub(r: Renderer): HubWorld {
       const nc = groundNormal(c[0], c[2]), nd = groundNormal(d[0], d[2]);
       t.triSmooth(a, b, c, terrainCol, na, nb, nc);
       t.triSmooth(a, c, d, terrainCol, na, nc, nd);
+    }
+  }
+
+  // Physical grass, not a billboard carpet. Small 3-sided tufts are scattered
+  // only over open meadow, conform to slopes, and leave paths/shores readable.
+  const grass = new MeshBuilder();
+  for (let x = -58; x <= 58; x += 1.55) {
+    for (let z = -58; z <= 58; z += 1.55) {
+      const jx = x + (hash2(x, z) - 0.5) * 0.9, jz = z + (hash2(z, x) - 0.5) * 0.9;
+      const d = Math.hypot(jx, jz), y = heightAt(jx, jz);
+      if (d < 12 || y < 0.04 || pathDist(jx, jz) < 2.6 || riverDist(jx, jz) < 5.3 || hash2(jx * 4, jz * 3) > 0.30) continue;
+      if (Object.values(PL).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 5.5)) continue;
+      const s = 0.14 + hash2(jz, jx) * 0.12;
+      const h = 0.34 + hash2(jx * 2, jz) * 0.34;
+      const col = hash2(jx, jz * 5) > 0.58 ? P.pineLight : hash2(jx * 2, jz) > 0.48 ? P.grassA : P.meadowDark;
+      grass.cone(compose(jx, y + h * 0.48, jz, hash2(jx, jz) * Math.PI * 2, 0, 0, s, h, s), col, 3);
     }
   }
 
@@ -321,6 +340,7 @@ export function buildHub(r: Renderer): HubWorld {
   return {
     terrain: r.upload(t.build()),
     terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-stylized-v3.png"),
+    grass: r.upload(grass.build()),
     shadow: r.upload(shadow.build()),
     props,
     glow: r.upload(glow.build()),

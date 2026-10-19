@@ -34,7 +34,7 @@ uniform vec3 uLightDir; uniform vec3 uCamPos;
 uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform vec3 uGround;
 uniform float uFogNear; uniform float uFogFar;
 uniform vec4 uTint; uniform float uUnlit; uniform float uNoFog; uniform float uOutline; uniform vec3 uInk; uniform float uAlpha;
-uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength;
+uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength; uniform float uWave; uniform float uTime;
 out vec4 outColor;
 void main() {
   vec3 viewDir = normalize(uCamPos - vWorld);
@@ -52,6 +52,13 @@ void main() {
   float grassness = smoothstep(0.045, 0.16, vCol.g - max(vCol.r, vCol.b));
   vec3 materialCol = mix(vCol, textureCol, uUseTexture * uTextureStrength * grassness);
   vec3 base = mix(materialCol, uTint.rgb, uTint.a);
+  if (uWave > 0.5) {
+    // Broad moving highlights make lakes and fountains feel like water, rather
+    // than a static cyan plane. The waves stay graphic and readable at distance.
+    float ripple = sin(vWorld.x * 0.72 + vWorld.z * 0.31 + uTime * 1.8) * 0.5 + 0.5;
+    ripple *= sin(vWorld.z * 1.05 - uTime * 1.25) * 0.5 + 0.5;
+    base = mix(base, vec3(0.78, 0.98, 1.0), ripple * 0.20);
+  }
   vec3 col;
   if (uUnlit > 0.5) {
     col = base;
