@@ -159,8 +159,9 @@ export function bakeBeaver(into: MeshBuilder, look: Look, m: Mat4) {
       tris.push(Array.from(d.positions.slice(i * 3, i * 3 + 9)).map((v, k) => v + [px, py, pz][k % 3]));
     }
     into.addTris(tris, m, (x, y, z) => {
-      const s = 0.55 + 0.1 * Math.sin(x * 3 + y * 2 + z);
-      return [s * 0.95, s * 0.92, s * 0.86];
+      // A deliberate carved-cedar monument, not a desaturated copy of a player.
+      const s = 0.52 + 0.12 * Math.sin(x * 3 + y * 2 + z);
+      return [s * 0.72, s * 0.43, s * 0.2];
     });
   }
 }
@@ -185,7 +186,7 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const swimDrop = -0.85 * pose.swim;
   const sledDrop = -0.25 * pose.sled;
   const base = multiply(root, compose(0, bob + swimDrop + sledDrop, 0, 0, 0, sway, 1, 1 - pose.jump * 0.08 + Math.sin(t * 2.2) * 0.01, 1));
-  const opts = { outline: 0.035, tint };
+  const opts = { outline: 0.045, tint };
   const part = (name: PartName, rx: number, ry: number, rz: number) => {
     const [px, py, pz] = PIVOTS[name];
     r.draw(meshes.parts[name], multiply(base, compose(px, py, pz, ry, rx, rz)), opts);

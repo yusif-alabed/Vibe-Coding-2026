@@ -75,7 +75,7 @@ function groundColor(x: number, y: number, z: number): Vec3 {
   if (y > 8) return mixRgb(rgb(P.rock), rgb(P.rockDark), n);
   if (y < WATER_Y - 0.05) return mixRgb(rgb(P.lakebed), rgb(P.glacierDeep), n);
   if (y < 0.05 && (riverDist(x, z) < 5.4 || Math.hypot(x - PL.lake.x, z - PL.lake.z) < 20)) return rgb(P.sand);
-  if (r < 10.5) return (Math.floor(x / 1.6) + Math.floor(z / 1.6)) % 2 ? rgb(P.paving) : rgb(P.pavingDark);
+  if (r < 10.5) return (Math.floor(x / 1.6) + Math.floor(z / 1.6)) % 2 ? rgb(P.snow) : rgb(P.snowShade);
   if (pathDist(x, z) < 1.8) return mixRgb(rgb(P.dirt), rgb(P.sand), n * 0.4);
   const g = n < 0.33 ? P.grassA : n < 0.66 ? P.grassB : P.grassC;
   return y > 3 ? mixRgb(rgb(g), rgb(P.meadowDark), Math.min(1, (y - 3) / 5)) : rgb(g);
@@ -262,7 +262,7 @@ export function buildHub(r: Renderer): HubWorld {
     glow: r.upload(glow.build()),
     water: r.upload(w.build()),
     mountains: buildMountains(r, 3, [150, 230], 16),
-    sky: buildSky(r, "#4f9be0", "#ffd9b0", "#fff1c4"),
+    sky: buildSky(r, "#3f9fdd", "#dff3ff", "#fff4b8"),
     portal: r.upload(portal.build()),
     steam: r.upload(steam.build()),
     labels: [

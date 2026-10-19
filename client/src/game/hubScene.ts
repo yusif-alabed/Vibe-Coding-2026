@@ -515,8 +515,9 @@ export class HubScene implements Scene {
     r.time = this.time;
     r.env.fogNear = 90;
     r.env.fogFar = 420;
-    r.env.skyHorizon = [1.0, 0.85, 0.69];
-    r.env.skyTop = [0.31, 0.61, 0.88];
+    // Match the painted sky mesh: a clear cold-blue Banff day, not a peach fog filter.
+    r.env.skyHorizon = [0.88, 0.95, 1.0];
+    r.env.skyTop = [0.25, 0.62, 0.87];
     const py = this.groundY(me);
     const pitch = 0.42 + (this.dist - 7) * 0.008;
     let cx = me.x + Math.sin(this.yaw) * Math.cos(pitch) * this.dist;

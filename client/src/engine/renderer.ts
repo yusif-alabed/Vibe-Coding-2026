@@ -53,16 +53,15 @@ void main() {
     // Soft, postcard-like daylight. The half-Lambert term preserves detail in
     // rounded faces while the bands retain the illustrated Alpine-toon style.
     float halfLambert = ndl * 0.5 + 0.5;
-    float band = halfLambert > 0.76 ? 1.08 : halfLambert > 0.48 ? 0.9 : 0.7;
-    vec3 ambient = mix(uGround, uSkyTop, n.y * 0.5 + 0.5) * 0.28;
-    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.2) * 0.22;
+    float band = halfLambert > 0.76 ? 1.12 : halfLambert > 0.48 ? 0.88 : 0.64;
+    vec3 ambient = mix(uGround, uSkyTop, n.y * 0.5 + 0.5) * 0.18;
+    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.2) * 0.14;
     vec3 halfDir = normalize(normalize(uLightDir) + viewDir);
     float sunKiss = pow(max(dot(n, halfDir), 0.0), 26.0) * 0.18;
-    col = base * (band * vec3(1.0, 0.97, 0.9) * 0.82 + ambient) + rim * vec3(1.0, 0.95, 0.85) + sunKiss * vec3(1.0, 0.86, 0.58);
-    // Gentle filmic roll-off stops saturated snow and water highlights from clipping.
-    // Preserve bold, toy-like colour instead of washing the scene into grey.
-    col = col / (col + vec3(0.16));
-    col = pow(col, vec3(0.82));
+    col = base * (band * vec3(1.0, 0.97, 0.9) * 0.94 + ambient) + rim * vec3(1.0, 0.95, 0.85) + sunKiss * vec3(1.0, 0.86, 0.58);
+    // Keep the vertex palette intact. The former filmic division here compressed every
+    // colour toward grey, which made the whole village look foggy even at noon.
+    col = clamp(col, 0.0, 1.0);
   }
   float d = length(uCamPos - vWorld);
   float f = clamp((d - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
