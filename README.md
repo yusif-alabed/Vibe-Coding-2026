@@ -1,1 +1,72 @@
-# Vibe-Coding-2026
+# 🦫 Beaver Banff
+
+A cozy 3D multiplayer social game set in a Banff-inspired mountain village. Explore pine forests, turquoise lakes and timber cabins as an original chibi beaver, meet friends, race toboggans, earn coins and dress up.
+
+> Everything here is original: no names, characters, art or music from any other game.
+
+## What works today
+
+- 🏔️ **3D village** — plaza fountain, lodge café, outfitter, riverside arcade, lake dock, river with bridge, hot springs, trailhead portal, forest and snowy peaks.
+- 🦫 **Beaver avatars** — 6 fur colours, hats, scarves, backpacks and trails. Waddle, swim, wave and hop.
+- 👥 **Multiplayer** — public villages (up to 50 beavers each) and private cabins with a share code.
+- 💬 **Safe chat** — filtered text chat, quick-chat phrases, emotes, block and report.
+- 🛷 **Toboggan Rush** — 4-racer downhill race, bots fill empty seats, server-calculated results.
+- 🪙 **Coins & shop** — earn coins racing, spend them on cosmetics (no pay-to-win).
+- 🎮 **Solo mode** — the whole game also runs in the browser with friendly bot beavers.
+
+## Quick start
+
+You need **Node.js 20+**.
+
+```bash
+npm install
+npm run dev
+```
+
+Then open **http://localhost:5173**. That starts the game server (`ws://localhost:2567`) and the client together. Open a second browser window to see two beavers in the same village.
+
+Other commands:
+
+| Command | What it does |
+|---|---|
+| `npm test` | Run all tests (game rules + live server tests) |
+| `npm run typecheck` | Type-check every package |
+| `npm run dev:server` | Game server only |
+| `npm run dev:client` | Client only |
+| `npm run build` | Production client in `client/dist/` (set `GAME_SERVER_URL=wss://your-server`) |
+| `npm run build:preview` | One self-contained `client/dist/beaver-banff.html` (solo mode) to share |
+
+### Accounts API + database (optional for now)
+
+```bash
+docker compose up -d db          # PostgreSQL on localhost:5432
+npm run migrate --workspace api  # create tables + load the cosmetic catalog
+npm run dev:api                  # http://localhost:3001
+```
+
+Or run everything in Docker: `docker compose up`.
+
+Copy `.env.example` to `.env` to change ports and URLs.
+
+## Project layout
+
+```text
+Vibe-Coding-2026/
+  client/        Browser game: WebGL toon renderer, scenes, UI (TypeScript, esbuild)
+  game-server/   Real-time rooms over WebSocket (village + races), server-authoritative
+  api/           Accounts, profiles, inventory, moderation (Node + PostgreSQL)
+  shared/        Game rules used by both sides: protocol, race sim, rewards, chat filter
+  assets/        Future sounds/models (current art is generated in code)
+  docs/          Game design, art style, architecture, team guide
+```
+
+## Docs
+
+- [Game design](docs/game-design.md) — loop, places, minigame rules, rewards, safety, decisions
+- [Art style](docs/art-style.md) — "Chunky Alpine Toon" palette and rules
+- [Architecture](docs/architecture.md) — how client, server and API fit together
+- [Team guide](docs/team-guide.md) — how the three of us split the work
+
+## Controls
+
+**Walk** WASD / arrows or tap the ground · **Camera** drag, Q/E, scroll · **Chat** Enter · **Hop** Space · **Use place** F · **Steer toboggan** A/D or ←/→ (phones: hold left/right side)

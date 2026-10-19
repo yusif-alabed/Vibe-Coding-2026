@@ -1,0 +1,29 @@
+{
+  "name": "beaver-banff",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Beaver Banff — a cozy, original 3D multiplayer social game set in a Banff-inspired mountain world.",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "game-server",
+    "api",
+    "client"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev --workspace game-server",
+    "dev:client": "npm run dev --workspace client",
+    "dev:api": "npm run dev --workspace api",
+    "build": "npm run build --workspace client",
+    "build:preview": "npm run build:preview --workspace client",
+    "test": "tsx --test \"shared/src/**/*.test.ts\" \"game-server/src/**/*.test.ts\" \"api/src/**/*.test.ts\"",
+    "typecheck": "tsc -p shared && tsc -p game-server && tsc -p client"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,38 @@
+# Local development stack: PostgreSQL + API + game server.
+# The client dev server runs on your machine with `npm run dev:client`.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: beaver
+      POSTGRES_PASSWORD: beaver
+      POSTGRES_DB: beaver_banff
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beaver"]
+      interval: 3s
+      retries: 20
+
+  api:
+    build: { context: ., dockerfile: api/Dockerfile }
+    environment:
+      DATABASE_URL: postgres://beaver:beaver@db:5432/beaver_banff
+      API_PORT: 3001
+      SESSION_SECRET: dev-secret-change-me
+    ports:
+      - "3001:3001"
+    depends_on:
+      db: { condition: service_healthy }
+
+  game-server:
+    build: { context: ., dockerfile: game-server/Dockerfile }
+    environment:
+      GAME_SERVER_PORT: 2567
+    ports:
+      - "2567:2567"
+
+volumes:
+  db-data:
