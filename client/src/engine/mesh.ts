@@ -103,7 +103,7 @@ export class MeshBuilder {
   }
 
   /** Adds triangles (local coords) transformed by `m`. Colour can vary per vertex (in world space). */
-  addTris(tris: Tri[], m: Mat4, color: ColorLike | ColorFn, jitter = 0, orient: "center" | "up" = "center"): this {
+  addTris(tris: Tri[], m: Mat4, color: ColorLike | ColorFn, jitter = 0, orient: "center" | "up" = "center", smoothLighting = false): this {
     const base: Vec3 | null = typeof color === "function" ? null : typeof color === "string" ? hexToRgb(color) : color;
     for (const t of tris) {
       const w: number[] = [];
@@ -130,7 +130,10 @@ export class MeshBuilder {
       const j = jitter ? 1 + (Math.sin(w[0] * 12.9898 + w[2] * 78.233) * 0.5) * jitter : 1;
       for (let k = 0; k < 3; k++) {
         this.pos.push(w[k * 3], w[k * 3 + 1], w[k * 3 + 2]);
-        this.nrm.push(nx, ny, nz);
+        // Rounded assets use interpolated normals, while roofs, terrain and boxes
+        // retain their deliberate hand-built edges.
+        if (smoothLighting) this.nrm.push(sm[k * 3], sm[k * 3 + 1], sm[k * 3 + 2]);
+        else this.nrm.push(nx, ny, nz);
         this.smo.push(sm[k * 3], sm[k * 3 + 1], sm[k * 3 + 2]);
         const c = base ?? (color as ColorFn)(w[k * 3], w[k * 3 + 1], w[k * 3 + 2]);
         this.col.push(c[0] * j, c[1] * j, c[2] * j);
@@ -149,7 +152,7 @@ export class MeshBuilder {
     return this.addTris(prim(`cone${seg}`, () => unitCylinder(seg, 0, 0.5)), m, color, jitter);
   }
   sphere(m: Mat4, color: ColorLike | ColorFn, lat = 6, lon = 8, jitter = 0) {
-    return this.addTris(prim(`sph${lat}-${lon}`, () => unitSphere(lat, lon)), m, color, jitter);
+    return this.addTris(prim(`sph${lat}-${lon}`, () => unitSphere(lat, lon)), m, color, jitter, "center", true);
   }
   torus(m: Mat4, color: ColorLike | ColorFn, R = 1, r = 0.2, seg = 16, side = 6) {
     return this.addTris(prim(`tor${R}-${r}-${seg}-${side}`, () => unitTorus(R, r, seg, side)), m, color);

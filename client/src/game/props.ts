@@ -2,23 +2,23 @@ import { compose, hash2, hexToRgb, mixRgb, type Vec3 } from "../engine/math";
 import type { MeshBuilder } from "../engine/mesh";
 import { P } from "./palette";
 
-/** Reusable low-poly props in the Beaver Banff style. All take world position + optional rotation. */
+/** Reusable rounded 3D props in the Beaver Banff style. All take world position + optional rotation. */
 
 export function pine(m: MeshBuilder, x: number, y: number, z: number, s = 1, seed = 0) {
   const tint = 0.9 + hash2(x, z) * 0.2;
   const g = (h: string): Vec3 => hexToRgb(h).map((c) => c * tint) as Vec3;
-  m.cylinder(compose(x, y + 0.6 * s, z, 0, 0, 0, 0.35 * s, 1.2 * s, 0.35 * s), P.trunk, 8);
+  m.cylinder(compose(x, y + 0.6 * s, z, 0, 0, 0, 0.35 * s, 1.2 * s, 0.35 * s), P.trunk, 12);
   const layers = 3 + (seed % 2);
   for (let i = 0; i < layers; i++) {
     const k = 1 - i / (layers + 0.5);
     const col = i === layers - 1 ? g(P.pineLight) : i % 2 ? g(P.pine) : g(P.pineDark);
-    m.cone(compose(x, y + (1.5 + i * 1.25) * s, z, seed + i, 0, 0, 3.2 * k * s, 2.4 * s, 3.2 * k * s), col, 8, 0.08);
+    m.cone(compose(x, y + (1.5 + i * 1.25) * s, z, seed + i, 0, 0, 3.2 * k * s, 2.4 * s, 3.2 * k * s), col, 14, 0.035);
   }
 }
 
 export function snowyPine(m: MeshBuilder, x: number, y: number, z: number, s = 1, seed = 0) {
   pine(m, x, y, z, s, seed);
-  m.cone(compose(x, y + 5.0 * s, z, seed, 0, 0, 1.1 * s, 1.0 * s, 1.1 * s), P.snow, 10);
+  m.cone(compose(x, y + 5.0 * s, z, seed, 0, 0, 1.1 * s, 1.0 * s, 1.1 * s), P.snow, 16);
 }
 
 export function rock(m: MeshBuilder, x: number, y: number, z: number, s = 1) {
@@ -37,9 +37,9 @@ export function flowers(m: MeshBuilder, x: number, z: number) {
 }
 
 export function lamp(m: MeshBuilder, glow: MeshBuilder, x: number, z: number) {
-  m.cylinder(compose(x, 1.5, z, 0, 0, 0, 0.16, 3, 0.16), "#3b3a40", 6);
-  m.cylinder(compose(x, 3.15, z, 0, 0, 0, 0.6, 0.12, 0.6), "#3b3a40", 6);
-  m.cone(compose(x, 3.75, z, 0, 0, 0, 0.75, 0.4, 0.75), "#3b3a40", 6);
+  m.cylinder(compose(x, 1.5, z, 0, 0, 0, 0.16, 3, 0.16), "#3b3a40", 12);
+  m.cylinder(compose(x, 3.15, z, 0, 0, 0, 0.6, 0.12, 0.6), "#3b3a40", 12);
+  m.cone(compose(x, 3.75, z, 0, 0, 0, 0.75, 0.4, 0.75), "#3b3a40", 12);
   glow.box(compose(x, 3.45, z, Math.PI / 4, 0, 0, 0.42, 0.5, 0.42), P.lampGlow);
 }
 
@@ -54,7 +54,7 @@ export function bench(m: MeshBuilder, x: number, z: number, ry: number) {
 }
 
 export function sign(m: MeshBuilder, x: number, z: number, ry: number, color: string = P.timber) {
-  m.cylinder(compose(x, 0.8, z, 0, 0, 0, 0.14, 1.6, 0.14), P.timberDark, 6);
+  m.cylinder(compose(x, 0.8, z, 0, 0, 0, 0.14, 1.6, 0.14), P.timberDark, 12);
   m.box(compose(x, 1.75, z, ry, 0, 0, 1.8, 0.75, 0.14), color);
 }
 
@@ -110,8 +110,8 @@ export function cabin(
 }
 
 export function canoe(m: MeshBuilder, x: number, y: number, z: number, ry: number, color: string = P.roofRed) {
-  m.sphere(compose(x, y, z, ry, 0, 0, 0.7, 0.32, 2.4), color, 4, 10);
-  m.sphere(compose(x, y + 0.12, z, ry, 0, 0, 0.55, 0.22, 2.1), mixRgb(hexToRgb(color), [0.2, 0.1, 0.05], 0.5), 4, 10);
+  m.sphere(compose(x, y, z, ry, 0, 0, 0.7, 0.32, 2.4), color, 10, 20);
+  m.sphere(compose(x, y + 0.12, z, ry, 0, 0, 0.55, 0.22, 2.1), mixRgb(hexToRgb(color), [0.2, 0.1, 0.05], 0.5), 10, 20);
 }
 
 export function campfire(m: MeshBuilder, x: number, z: number) {

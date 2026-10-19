@@ -130,7 +130,8 @@ export function buildMountains(r: Renderer, seed: number, ring: [number, number]
 export function buildHub(r: Renderer): HubWorld {
   // --- Terrain ---
   const t = new MeshBuilder();
-  const S = 2.4, R = 120;
+  // Denser terrain keeps the slopes and snowy plaza from reading as giant facets.
+  const S = 1.6, R = 120;
   for (let x = -R; x < R; x += S) {
     for (let z = -R; z < R; z += S) {
       const a: Vec3 = [x, heightAt(x, z), z];
