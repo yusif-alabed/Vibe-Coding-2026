@@ -37,19 +37,19 @@ Built in code in `client/src/game/beaver.ts` from parts (body, head, arms, feet,
 - Big round head (about the size of the body), pear-shaped body, cream belly and chest tuft.
 - Fur colour is player-chosen (6 natural browns). Muzzle, belly and inner ears mix the fur with cream.
 - Two chunky buck teeth and a shiny nose are the signature — always visible from the front.
-- Puffy cheek lobes with freckles, rosy cheeks, round ears, a fur tuft on top.
+- Puffy cheek lobes with whisker freckles, round ears, a fur tuft on top.
 - Paws with tiny claws, big webbed feet, a scaly cross-hatched paddle tail.
 - Cosmetics attach to the head (hats, sized to the big head) or body (scarves, packs).
 
 ### Faces and expressions
 
-The face is built from swappable pieces (big glossy button eyes with two sparkle highlights, brows, mouth) so one model can show many moods. Keep eyes dark with no whites and highlights up-and-out: eye whites with small pupils read as staring and creepy.
+The face is built from swappable pieces (dark oval eyes with one small highlight, subtle brows, mouth) so one model can show many moods. Aim for friendly but not sugary: no eye whites (small pupils in big whites read as staring), but also no giant sparkly eyes or rosy blush.
 
 | Expression | Eyes | Brows | Mouth | When it shows |
 |---|---|---|---|---|
-| Neutral | Open, blinking | Hidden | Soft "w" smile | Default |
-| Happy | Closed "^ ^" | Hidden | Smile | 👋 ❤️ 🦫 emotes, swimming, waving |
-| Excited | Closed "^ ^" | Hidden | Open, tongue | 🎉 ⛄ emotes, speed boost |
+| Neutral | Open, blinking | Low, relaxed | Small curve | Default |
+| Happy | Closed "^ ^" | Lifted | Small curve | 👋 ❤️ 🦫 emotes, swimming, waving |
+| Excited | Closed "^ ^" | Lifted | Open, tongue | 🎉 ⛄ emotes, speed boost |
 | Surprised | Bigger | High | Small "o" | 😮 emote |
 | Dizzy | Spinning "X" | Worried | Half open | Hitting an obstacle (+ circling stars) |
 | Determined | Narrowed | Angled down | Smile | Race countdown |

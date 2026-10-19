@@ -3,7 +3,8 @@
 //   node build.mjs build    → dist/ (index.html + app.js) for deployment
 //   node build.mjs preview  → dist/beaver-banff.html, one self-contained file (solo mode)
 import * as esbuild from "esbuild";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] ?? "build";
@@ -24,8 +25,30 @@ const options = {
 
 const html = (await readFile(here("./index.html"), "utf8"));
 
+// Static files (textures, sounds) live in client/public and are served from the site root,
+// e.g. client/public/assets/textures/x.png → /assets/textures/x.png
+const copyPublic = async (dir) => {
+  if (existsSync(here("./public"))) await cp(here("./public"), dir, { recursive: true });
+};
+
+// The single-file preview can't load files, so embed any "/assets/..." file it references as a data: URI.
+const MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", mp3: "audio/mpeg", ogg: "audio/ogg" };
+const inlineAssets = async (js) => {
+  const refs = [...new Set(js.match(/["'`]\/assets\/[^"'`]+["'`]/g) ?? [])];
+  for (const ref of refs) {
+    const path = ref.slice(1, -1);
+    const file = here("./public" + path);
+    if (!existsSync(file)) continue;
+    const ext = path.split(".").pop().toLowerCase();
+    const data = (await readFile(file)).toString("base64");
+    js = js.split(ref).join(JSON.stringify(`data:${MIME[ext] ?? "application/octet-stream"};base64,${data}`));
+  }
+  return js;
+};
+
 if (mode === "dev") {
   await mkdir(here("./dev"), { recursive: true });
+  await copyPublic(here("./dev"));
   await writeFile(here("./dev/index.html"), html.replace("<!--APP-->", '<script type="module" src="/app.js"></script>'));
   const ctx = await esbuild.context({ ...options, outfile: here("./dev/app.js") });
   await ctx.watch();
@@ -33,11 +56,12 @@ if (mode === "dev") {
   console.log(`\n🦫 Beaver Banff client: http://localhost:${port}  (game server: ${serverUrl || "none — solo mode"})\n`);
 } else if (mode === "build") {
   await mkdir(here("./dist"), { recursive: true });
+  await copyPublic(here("./dist"));
   await esbuild.build({ ...options, outfile: here("./dist/app.js") });
   await writeFile(here("./dist/index.html"), html.replace("<!--APP-->", '<script type="module" src="./app.js"></script>'));
 } else if (mode === "preview") {
   const out = await esbuild.build({ ...options, write: false, format: "iife" });
-  const js = out.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
+  const js = (await inlineAssets(out.outputFiles[0].text)).replace(/<\/script/gi, "<\\/script");
   await mkdir(here("./dist"), { recursive: true });
   await writeFile(here("./dist/beaver-banff.html"), html.replace("<!--APP-->", `<script>${js}</script>`));
   // Artifact version: page content only (the host adds the document skeleton).

@@ -75,15 +75,13 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
     b.head.sphere(compose(0.13 * s, 0.25, 0.45 + MZ, 0, 0, 0, 0.2, 0.17, 0.17), furLight, 9, 14);
     // Whisker freckles.
     for (let k = 0; k < 3; k++) b.head.sphere(compose((0.16 + k * 0.05) * s, 0.27 - k * 0.025, surfMuzzle(0.16 + k * 0.05, 0.27) + MZ + 0.005, 0, 0, 0, 0.016), furDark, 3, 5);
-    // Rosy cheeks.
-    b.head.sphere(compose(0.37 * s, 0.33, surf(0.37, 0.33) - 0.012, 0, 0, 0, 0.1, 0.065, 0.04), "#f59b8c", 7, 10);
   }
   b.head.sphere(compose(0, 0.3, 0.5 + MZ, 0, 0, 0, 0.16, 0.13, 0.13), furLight, 8, 12);
   // Big shiny nose.
   b.head.sphere(compose(0, 0.36, 0.63 + MZ, 0, 0, 0, 0.11, 0.08, 0.075), "#3a2218", 8, 12);
   b.head.sphere(compose(0.035, 0.39, 0.69 + MZ, 0, 0, 0, 0.03, 0.018, 0.015), "#c9a493", 4, 6);
   // The signature buck teeth: two chunky, slightly splayed tiles.
-  for (const s of [1, -1]) b.head.box(compose(0.043 * s, 0.08, 0.57 + MZ, 0.05 * s, 0.12, 0.02 * s, 0.075, 0.12, 0.045), "#fffaf0");
+  for (const s of [1, -1]) b.head.box(compose(0.046 * s, 0.07, 0.565 + MZ, 0.05 * s, 0.12, 0.02 * s, 0.082, 0.14, 0.045), "#fffaf0");
   // Round ears with a soft inner colour.
   for (const s of [1, -1]) {
     b.head.sphere(compose(0.42 * s, 0.88, -0.04, 0, 0, -0.3 * s, 0.14, 0.13, 0.09), furDark, 9, 14);
@@ -139,11 +137,10 @@ function faceBuilders(look: Look): Record<FacePart, MeshBuilder> {
   };
   for (const s of [1, -1]) {
     const x = EYE_X * s, z = surf(EYE_X, EYE_Y);
-    // Big glossy button eyes (no whites), centred on EYE_Y so blinking squashes toward the middle.
-    f.eyes.sphere(compose(x, 0, z - 0.02, 0, 0, 0, 0.105, 0.125, 0.06), "#1d110b", 10, 14);
-    // Sparkle highlights: one big, one small, both up-and-out so the beaver looks bright and friendly.
-    f.pupils.sphere(compose(x + 0.035 * s, 0.042, z + 0.036, 0, 0, 0, 0.04, 0.045, 0.014), "#ffffff", 6, 8);
-    f.pupils.sphere(compose(x - 0.028 * s, -0.045, z + 0.034, 0, 0, 0, 0.018), "#ffffff", 4, 6);
+    // Dark oval eyes (no whites), centred on EYE_Y so blinking squashes toward the middle.
+    f.eyes.sphere(compose(x, 0, z - 0.02, 0, 0, 0, 0.08, 0.095, 0.05), "#1d110b", 10, 14);
+    // One small highlight to keep the eyes alive.
+    f.pupils.sphere(compose(x + 0.025 * s, 0.03, z + 0.028, 0, 0, 0, 0.022, 0.025, 0.01), "#ffffff", 5, 6);
     // Happy eyes: upside-down "U" arcs.
     for (let k = 0; k <= 6; k++) {
       const a = Math.PI * (0.12 + (0.76 * k) / 6);
@@ -157,12 +154,10 @@ function faceBuilders(look: Look): Record<FacePart, MeshBuilder> {
   f.browL.sphere(compose(0, 0, 0, 0, 0, 0, 0.075, 0.018, 0.02), furDark, 5, 8);
   f.browR.sphere(compose(0, 0, 0, 0, 0, 0, 0.075, 0.018, 0.02), furDark, 5, 8);
   // Small smile under the nose.
-  // A soft "w" smile: two little arcs meeting under the nose, like a cartoon animal muzzle.
-  for (const s of [1, -1]) {
-    for (let k = 0; k <= 5; k++) {
-      const a = Math.PI * (1.05 + (0.9 * k) / 5);
-      f.mouthSmile.box(compose(0.045 * s + Math.cos(a) * 0.045, 0.235 + Math.sin(a) * 0.03, 0.632 + MZ, 0, 0, a + Math.PI / 2, 0.022, 0.014, 0.014), INK);
-    }
+  // A short, gently curved mouth line under the nose.
+  for (let k = 0; k <= 5; k++) {
+    const a = Math.PI * (1.3 + (0.4 * k) / 5);
+    f.mouthSmile.box(compose(Math.cos(a) * 0.11, 0.33 + Math.sin(a) * 0.1, 0.63 + MZ, 0, 0, a + Math.PI / 2, 0.026, 0.014, 0.014), INK);
   }
   // Open mouth (behind the teeth) with a pink tongue.
   f.mouthOpen.sphere(compose(0, 0.12, 0.575 + MZ, 0, 0, 0, 0.12, 0.1, 0.04), "#3b1410", 8, 12);
@@ -381,19 +376,19 @@ function drawFace(
 
   // Brows: raise, lower and tilt per expression.
   const browPose: Record<Expression, [number, number]> = {
-    neutral: [0, 0],
-    happy: [0.035, -0.08],
-    excited: [0.05, -0.1],
+    neutral: [-0.015, 0.06],
+    happy: [0.02, -0.05],
+    excited: [0.04, -0.08],
     surprised: [0.085, 0],
     dizzy: [0.02, -0.32],
     determined: [-0.03, 0.35],
   };
   const [raise, tilt] = browPose[expr];
-  const showBrows = expr === "surprised" || expr === "dizzy" || expr === "determined";
+  const showBrows = true;
   for (const [part, s] of showBrows ? ([["browL", 1], ["browR", -1]] as const) : []) {
     const x = EYE_X * s;
-    const y = EYE_Y + 0.14 + raise;
-    r.draw(m.face[part], multiply(head, compose(x, y, surf(EYE_X, EYE_Y + 0.14) + 0.004, 0, -0.25, tilt * s)), flat);
+    const y = EYE_Y + 0.12 + raise;
+    r.draw(m.face[part], multiply(head, compose(x, y, surf(EYE_X, EYE_Y + 0.12) + 0.004, 0, -0.25, tilt * s)), flat);
   }
 
   // Mouth: open when excited/surprised/dizzy or while talking, otherwise a little smile.
