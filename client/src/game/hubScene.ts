@@ -397,7 +397,7 @@ export class HubScene implements Scene {
     this.yaw -= inp.consumeDrag() * 0.006;
     if (inp.down("q")) this.yaw += dt * 1.8;
     if (inp.down("e")) this.yaw -= dt * 1.8;
-    this.dist = Math.max(7, Math.min(28, this.dist + inp.consumeZoom() * 1.2));
+    this.dist = Math.max(7, Math.min(24, this.dist + inp.consumeZoom() * 1.2));
 
     // Tap: player card if you tapped a beaver, otherwise walk there.
     const tap = inp.consumeTap();
@@ -532,6 +532,18 @@ export class HubScene implements Scene {
     const pitch = 0.42 + (this.dist - 7) * 0.008;
     let cx = me.x + Math.sin(this.yaw) * Math.cos(pitch) * this.dist;
     let cz = me.z + Math.cos(this.yaw) * Math.cos(pitch) * this.dist;
+    // The follow camera is a physical point too: push it out of cabin volumes so
+    // it never looks through a roof or wall when the player is nearby.
+    for (const solid of [PL.lodge, PL.outfitter, PL.arcade]) {
+      const dx = cx - solid.x, dz = cz - solid.z;
+      const d = Math.hypot(dx, dz);
+      const radius = solid.r + 1.6;
+      if (d < radius) {
+        const k = d < 0.001 ? 1 : radius / d;
+        cx = solid.x + (d < 0.001 ? radius : dx * k);
+        cz = solid.z + (d < 0.001 ? 0 : dz * k);
+      }
+    }
     let cy = py + 1.4 + Math.sin(pitch) * this.dist;
     cy = Math.max(cy, heightAt(cx, cz) + 1.2);
     const cam: Vec3 = [cx, cy, cz];
@@ -542,7 +554,7 @@ export class HubScene implements Scene {
     const I = compose(0, 0, 0);
     r.draw(this.world.sky, compose(cx, 0, cz), { unlit: true, noFog: true });
     r.draw(this.world.mountains, I, { outline: 0.6 });
-    r.draw(this.world.terrain, I, { texture: this.world.terrainTexture, textureScale: 0.075 });
+    r.draw(this.world.terrain, I, { texture: this.world.terrainTexture, textureScale: 0.05, textureStrength: 0.42 });
     for (const prop of this.world.props) r.draw(prop, I, { outline: 0.07 });
     r.draw(this.world.glow, I, { unlit: true });
     const pulse = 1 + Math.sin(this.time * 3) * 0.05;

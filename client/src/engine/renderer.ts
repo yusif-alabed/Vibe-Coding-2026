@@ -34,7 +34,7 @@ uniform vec3 uLightDir; uniform vec3 uCamPos;
 uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform vec3 uGround;
 uniform float uFogNear; uniform float uFogFar;
 uniform vec4 uTint; uniform float uUnlit; uniform float uNoFog; uniform float uOutline; uniform vec3 uInk; uniform float uAlpha;
-uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale;
+uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength;
 out vec4 outColor;
 void main() {
   vec3 viewDir = normalize(uCamPos - vWorld);
@@ -48,7 +48,7 @@ void main() {
   vec3 textureCol = texture(uTexture, vWorld.xz * uTextureScale).rgb;
   // Terrain albedo must be clearly visible at gameplay distance; a faint overlay
   // simply turns into a blurry green gradient once mipmapped.
-  vec3 materialCol = mix(vCol, textureCol, uUseTexture * 0.92);
+  vec3 materialCol = mix(vCol, textureCol, uUseTexture * uTextureStrength);
   vec3 base = mix(materialCol, uTint.rgb, uTint.a);
   vec3 col;
   if (uUnlit > 0.5) {
@@ -92,6 +92,7 @@ export interface DrawOpts {
   noFog?: boolean;
   texture?: WebGLTexture;
   textureScale?: number;
+  textureStrength?: number;
 }
 
 export interface Environment {
@@ -128,7 +129,7 @@ export class Renderer {
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
     this.prog = this.link(VS, FS);
-    for (const name of ["uModel", "uViewProj", "uOutline", "uTime", "uWave", "uLightDir", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogFar", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale"]) {
+    for (const name of ["uModel", "uViewProj", "uOutline", "uTime", "uWave", "uLightDir", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogFar", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
     gl.enable(gl.DEPTH_TEST);
@@ -257,6 +258,7 @@ export class Renderer {
     gl.uniform1i(this.u.uTexture, 0);
     gl.uniform1f(this.u.uUseTexture, opts.texture ? 1 : 0);
     gl.uniform1f(this.u.uTextureScale, opts.textureScale ?? 1);
+    gl.uniform1f(this.u.uTextureStrength, opts.textureStrength ?? 1);
     gl.uniform1f(this.u.uOutline, 0);
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     if (opts.outline) {

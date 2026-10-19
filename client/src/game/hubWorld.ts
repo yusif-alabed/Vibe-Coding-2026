@@ -267,28 +267,42 @@ export function buildHub(r: Renderer): HubWorld {
   }
   finishProp();
 
-  // --- Water: lake, river ribbon, hot spring, fountain ---
+  // --- Water: continuous lake and river surfaces, not a terrain-cell overlay. ---
   const w = new MeshBuilder();
   const waterCol = (x: number, _y: number, z: number): Vec3 => {
     const deep = Math.min(1, Math.max(0, -heightAt(x, z) / 2));
     return mixRgb(rgb(P.glacier), rgb(P.glacierDeep), deep * 0.7);
   };
-  // A smaller grid and an all-corners test keeps the shoreline on the wet side of
-  // the terrain. The old min-corner test put water over cells that were mostly dry.
-  for (let x = -70; x < 70; x += 1) {
-    for (let z = -100; z < 70; z += 1) {
-      const cells = [heightAt(x, z), heightAt(x + 1, z), heightAt(x, z + 1), heightAt(x + 1, z + 1)];
-      if (Math.max(...cells) > WATER_Y + 0.015) continue;
-      if (Math.hypot(x - PL.hotSpring.x, z - PL.hotSpring.z) < 5) continue;
-      const a: Vec3 = [x, WATER_Y, z], b: Vec3 = [x + 1, WATER_Y, z];
-      const c: Vec3 = [x + 1, WATER_Y, z + 1], d: Vec3 = [x, WATER_Y, z + 1];
-      const up: Vec3 = [0, 1, 0];
-      w.triSmooth(a, b, c, waterCol, up, up, up);
-      w.triSmooth(a, c, d, waterCol, up, up, up);
+  const waterY = WATER_Y + 0.035;
+  const up: Vec3 = [0, 1, 0];
+  const disc = (x: number, z: number, radius: number, color: string, segments = 40) => {
+    const center: Vec3 = [x, waterY, z];
+    for (let i = 0; i < segments; i++) {
+      const a = (i / segments) * Math.PI * 2, b = ((i + 1) / segments) * Math.PI * 2;
+      const p: Vec3 = [x + Math.cos(a) * radius, waterY, z + Math.sin(a) * radius];
+      const q: Vec3 = [x + Math.cos(b) * radius, waterY, z + Math.sin(b) * radius];
+      w.triSmooth(center, p, q, color, up, up, up);
     }
+  };
+  // The lake sits inside its bowl, leaving a clean dry shoreline with no overlapping cells.
+  disc(PL.lake.x, PL.lake.z, 17.2, P.glacier, 56);
+  // Smooth ribbon follows the river centreline. Each section shares edges with the next.
+  for (let i = 0; i < RIVER.length - 1; i++) {
+    const [ax, az] = RIVER[i], [bx, bz] = RIVER[i + 1];
+    const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len * 2.65, nz = dx / len * 2.65;
+    const a: Vec3 = [ax + nx, waterY, az + nz], b: Vec3 = [ax - nx, waterY, az - nz];
+    const c: Vec3 = [bx - nx, waterY, bz - nz], d: Vec3 = [bx + nx, waterY, bz + nz];
+    w.triSmooth(a, b, c, waterCol, up, up, up);
+    w.triSmooth(a, c, d, waterCol, up, up, up);
   }
-  w.cylinder(compose(PL.hotSpring.x, -0.25, PL.hotSpring.z, 0, 0, 0, 7, 0.1, 7), "#8fe3d8", 12);
-  w.cylinder(compose(0, 0.68, 0, 0, 0, 0, 7.6, 0.08, 7.6), "#62d6d0", 14);
+  disc(PL.hotSpring.x, PL.hotSpring.z, 3.1, "#73cfc7", 40);
+  // Fountain water gets its own high-resolution surface instead of a faceted cap.
+  const fountainY = 0.81;
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2, b = ((i + 1) / 48) * Math.PI * 2;
+    w.triSmooth([0, fountainY, 0], [Math.cos(a) * 3.95, fountainY, Math.sin(a) * 3.95], [Math.cos(b) * 3.95, fountainY, Math.sin(b) * 3.95], "#5bcfc9", up, up, up);
+  }
 
   // Portal ring (drawn animated) + steam puff (drawn many times).
   const portal = new MeshBuilder().torus(compose(0, 0, 0, 0, Math.PI / 2, 0), P.portal, 3, 0.35, 24, 6);
