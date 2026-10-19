@@ -135,8 +135,9 @@ export function buildMountains(r: Renderer, seed: number, ring: [number, number]
 export function buildHub(r: Renderer): HubWorld {
   // --- Terrain ---
   const t = new MeshBuilder();
-  // Denser terrain keeps the slopes and snowy plaza from reading as giant facets.
-  const S = 1.6, R = 120;
+  // A one-unit terrain grid keeps paths, snow banks and shorelines smooth from
+  // the close third-person camera instead of exposing broad low-poly facets.
+  const S = 1.0, R = 120;
   const groundNormal = (x: number, z: number): Vec3 => {
     const e = 0.45;
     const nx = heightAt(x - e, z) - heightAt(x + e, z);
@@ -158,19 +159,35 @@ export function buildHub(r: Renderer): HubWorld {
     }
   }
 
-  // Physical grass, not a billboard carpet. Small 3-sided tufts are scattered
-  // only over open meadow, conform to slopes, and leave paths/shores readable.
+  // Physical grass, built from individual bent blade strips rather than cones
+  // or a flat texture. Each tuft has crossed blades so it reads from any camera
+  // direction, while paths, snow and shorelines remain clear.
   const grass = new MeshBuilder();
+  const blade = (x: number, y: number, z: number, angle: number, bend: number, width: number, height: number, color: string) => {
+    const sideX = Math.cos(angle + Math.PI / 2) * width, sideZ = Math.sin(angle + Math.PI / 2) * width;
+    const bx = Math.cos(bend), bz = Math.sin(bend);
+    const l0: Vec3 = [x - sideX, y, z - sideZ], r0: Vec3 = [x + sideX, y, z + sideZ];
+    const mx = x + bx * height * 0.10, mz = z + bz * height * 0.10;
+    const l1: Vec3 = [mx - sideX * 0.58, y + height * 0.56, mz - sideZ * 0.58];
+    const r1: Vec3 = [mx + sideX * 0.58, y + height * 0.56, mz + sideZ * 0.58];
+    const tip: Vec3 = [x + bx * height * 0.30, y + height, z + bz * height * 0.30];
+    grass.tri(l0, r0, r1, color); grass.tri(l0, r1, l1, color);
+    grass.tri(l1, r1, tip, color);
+  };
   for (let x = -58; x <= 58; x += 1.55) {
     for (let z = -58; z <= 58; z += 1.55) {
       const jx = x + (hash2(x, z) - 0.5) * 0.9, jz = z + (hash2(z, x) - 0.5) * 0.9;
       const d = Math.hypot(jx, jz), y = heightAt(jx, jz);
-      if (d < 12 || y < 0.04 || pathDist(jx, jz) < 2.6 || riverDist(jx, jz) < 5.3 || hash2(jx * 4, jz * 3) > 0.30) continue;
+      if (d < 12 || y < 0.04 || pathDist(jx, jz) < 2.6 || riverDist(jx, jz) < 5.3 || hash2(jx * 4, jz * 3) > 0.27) continue;
       if (Object.values(PL).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 5.5)) continue;
-      const s = 0.14 + hash2(jz, jx) * 0.12;
-      const h = 0.34 + hash2(jx * 2, jz) * 0.34;
-      const col = hash2(jx, jz * 5) > 0.58 ? P.pineLight : hash2(jx * 2, jz) > 0.48 ? P.grassA : P.meadowDark;
-      grass.cone(compose(jx, y + h * 0.48, jz, hash2(jx, jz) * Math.PI * 2, 0, 0, s, h, s), col, 3);
+      const baseAngle = hash2(jx, jz) * Math.PI * 2;
+      for (let i = 0; i < 3; i++) {
+        const a = baseAngle + i * (Math.PI / 3) + hash2(i, jx) * 0.5;
+        const spread = 0.10 + hash2(jx + i, jz) * 0.12;
+        const h = 0.33 + hash2(jx * (i + 2), jz + i) * 0.32;
+        const col = i === 0 ? P.pineLight : i === 1 ? P.grassA : P.meadowDark;
+        blade(jx + Math.cos(a) * spread, y + 0.015, jz + Math.sin(a) * spread, a, a + 0.45 + hash2(jz, i) * 0.45, 0.045 + hash2(i, jx) * 0.018, h, col);
+      }
     }
   }
 
