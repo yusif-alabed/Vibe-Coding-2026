@@ -554,7 +554,7 @@ export class HubScene implements Scene {
     const I = compose(0, 0, 0);
     r.draw(this.world.sky, compose(cx, 0, cz), { unlit: true, noFog: true });
     r.draw(this.world.mountains, I, { outline: 0.6 });
-    r.draw(this.world.terrain, I, { texture: this.world.terrainTexture, textureScale: 0.05, textureStrength: 0.42 });
+    r.draw(this.world.terrain, I, { texture: this.world.terrainTexture, textureScale: 0.045, textureStrength: 0.34 });
     for (const prop of this.world.props) r.draw(prop, I, { outline: 0.07 });
     r.draw(this.world.glow, I, { unlit: true });
     const pulse = 1 + Math.sin(this.time * 3) * 0.05;
@@ -562,6 +562,9 @@ export class HubScene implements Scene {
 
     for (const a of this.avatars.values()) {
       const y = this.groundY(a);
+      // Small contact shadow: keeps each beaver visually planted on the terrain,
+      // especially over the painted meadow and pale snow.
+      r.draw(this.world.shadow, compose(a.x, y + 0.018, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.72 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.07 : 0.18 });
       drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(a.x, y, a.z, a.ry), {
         walk: a.walk, moving: a.moving, swim: a.swim, jump: Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0), wave: Math.min(1, a.waveT), sled: 0, time: this.time,
         seed: a.seed, cheer: Math.min(1, a.cheerT * 2), talk: a.talkT > 0 ? 1 : 0,

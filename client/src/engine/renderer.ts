@@ -46,9 +46,11 @@ void main() {
   }
   vec3 n = normalize(vNrm);
   vec3 textureCol = texture(uTexture, vWorld.xz * uTextureScale).rgb;
-  // Terrain albedo must be clearly visible at gameplay distance; a faint overlay
-  // simply turns into a blurry green gradient once mipmapped.
-  vec3 materialCol = mix(vCol, textureCol, uUseTexture * uTextureStrength);
+  // The meadow texture is a material detail, not a screen-wide colour filter.
+  // Restrict it to green terrain so snow, paths, sand and the stone plaza retain
+  // their deliberately clean painted colours.
+  float grassness = smoothstep(0.045, 0.16, vCol.g - max(vCol.r, vCol.b));
+  vec3 materialCol = mix(vCol, textureCol, uUseTexture * uTextureStrength * grassness);
   vec3 base = mix(materialCol, uTint.rgb, uTint.a);
   vec3 col;
   if (uUnlit > 0.5) {

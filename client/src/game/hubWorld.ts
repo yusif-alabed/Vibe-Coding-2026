@@ -84,6 +84,7 @@ function groundColor(x: number, y: number, z: number): Vec3 {
 export interface HubWorld {
   terrain: GpuMesh;
   terrainTexture: WebGLTexture;
+  shadow: GpuMesh;
   props: GpuMesh[];
   glow: GpuMesh;
   water: GpuMesh;
@@ -153,6 +154,11 @@ export function buildHub(r: Renderer): HubWorld {
       t.triSmooth(a, c, d, terrainCol, na, nc, nd);
     }
   }
+
+  // A soft flattened disc grounds characters without adding a full shadow system.
+  // It is reused below every avatar and remains independent from world geometry.
+  const shadow = new MeshBuilder();
+  shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.72, 0.025, 0.48), "#2c1d17", 24);
 
   // --- Props (outlined) and glowing bits (unlit) ---
   // Major world pieces are uploaded independently: their ink hulls can no longer
@@ -311,6 +317,7 @@ export function buildHub(r: Renderer): HubWorld {
   return {
     terrain: r.upload(t.build()),
     terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-cartoon-v2.png"),
+    shadow: r.upload(shadow.build()),
     props,
     glow: r.upload(glow.build()),
     water: r.upload(w.build()),
