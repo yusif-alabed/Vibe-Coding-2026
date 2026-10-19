@@ -175,7 +175,7 @@ function renderTitleBackdrop(dt: number) {
 
 // ---------- Character sheet (open the game with ?characters) ----------
 const SHEET: { label: string; look: Look; expr: Expression; wave?: number; cheer?: number; talk?: number; jumpEvery?: number; swim?: number }[] = [
-  { label: "Neutral · blinks & looks around", look: { ...DEFAULT_LOOK }, expr: "neutral" },
+  { label: "Neutral · blinks & looks around", look: { ...DEFAULT_LOOK, fur: "#4e3324" }, expr: "neutral" },
   { label: "Happy wave", look: { ...DEFAULT_LOOK, fur: "#c48a52", hat: "hat_ranger", scarf: "scarf_sky" }, expr: "happy", wave: 1 },
   { label: "Excited cheer", look: { ...DEFAULT_LOOK, fur: "#6b4428", hat: "hat_crown", scarf: "scarf_sunset" }, expr: "excited", cheer: 1 },
   { label: "Surprised", look: { ...DEFAULT_LOOK, fur: "#a8703f", hat: "hat_antlers", backpack: "pack_hiker" }, expr: "surprised" },
@@ -192,23 +192,25 @@ function renderCharacterSheet(dt: number) {
   r.time = titleT;
   r.resize();
   const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
-  const cols = aspect < 0.9 ? 2 : 4;
-  const rows = Math.ceil(SHEET.length / cols);
-  const spacing = 2.4;
-  const cam: Vec3 = [0, 3.2 + rows * 1.9, 5.5 + rows * 2.4];
+  const close = params.get("characters") === "close";
+  const sheet = close ? [SHEET[0], { ...SHEET[0], label: "Happy", expr: "happy" as Expression }, { ...SHEET[0], label: "Surprised", expr: "surprised" as Expression }] : SHEET;
+  const cols = close ? 3 : aspect < 0.9 ? 2 : 4;
+  const rows = Math.ceil(sheet.length / cols);
+  const spacing = close ? 1.6 : 2.4;
+  const cam: Vec3 = close ? [0, 1.75, 4.2] : [0, 3.2 + rows * 1.9, 5.5 + rows * 2.4];
   r.env.fogNear = 200; r.env.fogFar = 600;
-  r.begin(lookAt(cam, [0, 0.6, 0.4]), perspective(aspect < 0.9 ? 0.95 : 0.72, aspect, 0.5, 1600), cam);
+  r.begin(lookAt(cam, close ? [0, 1.45, 0] : [0, 0.6, 0.4]), perspective(aspect < 0.9 ? 0.95 : 0.72, aspect, 0.5, 1600), cam);
   r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
   r.draw(hub.terrain, compose(0, -0.02, 0));
   if (!sheetLabels.length) {
-    sheetLabels = SHEET.map((c) => { const el = h("div.place", {}, c.label); ui.append(el); return el; });
+    sheetLabels = sheet.map((c) => { const el = h("div.place", {}, c.label); ui.append(el); return el; });
     ui.append(h("div.pill.pe", { style: "position:absolute;left:12px;top:12px;cursor:pointer", onclick: () => { sheetBack = !sheetBack; } }, "🔄 Turn around"));
   }
-  SHEET.forEach((c, i) => {
+  sheet.forEach((c, i) => {
     const col = i % cols, row = Math.floor(i / cols);
     const x = (col - (cols - 1) / 2) * spacing, z = (row - (rows - 1) / 2) * spacing * 1.7;
     const jumpT = c.jumpEvery ? (titleT % c.jumpEvery) / 0.55 : 1;
-    drawBeaver(r, getBeaverMeshes(r, c.look), compose(x, 0, z, sheetBack ? Math.PI : Math.sin(titleT * 0.6 + i) * 0.25), {
+    drawBeaver(r, getBeaverMeshes(r, c.look), compose(x, 0, z, sheetBack ? Math.PI : close ? 0 : Math.sin(titleT * 0.6 + i) * 0.25), {
       walk: 0, moving: 0, swim: c.swim ?? 0, jump: jumpT < 1 ? Math.sin(jumpT * Math.PI) : 0, wave: c.wave ?? 0, sled: 0,
       time: titleT, expr: c.expr, cheer: c.cheer, talk: c.talk, seed: i * 1.3,
     });

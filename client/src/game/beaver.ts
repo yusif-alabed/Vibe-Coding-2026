@@ -11,7 +11,7 @@ import type { GpuMesh, Renderer } from "../engine/renderer";
  * head, which lets one model show many expressions without extra textures.
  */
 
-type PartName = "body" | "head" | "armL" | "armR" | "footL" | "footR" | "tail";
+type PartName = "body" | "head" | "muzzle" | "armL" | "armR" | "footL" | "footR" | "tail";
 type FacePart = "eyes" | "pupils" | "eyesHappy" | "eyesDizzy" | "browL" | "browR" | "mouthSmile" | "mouthOpen" | "star";
 
 export type Expression = "neutral" | "happy" | "excited" | "surprised" | "dizzy" | "determined";
@@ -24,6 +24,7 @@ export interface BeaverMeshes {
 const PIVOTS: Record<PartName, [number, number, number]> = {
   body: [0, 0, 0],
   head: [0, 1.15, 0],
+  muzzle: [0, 1.15, 0], // drawn with the head, but without the ink outline
   armL: [0.47, 1.0, 0.12],
   armR: [-0.47, 1.0, 0.12],
   footL: [0.25, 0.32, 0.05],
@@ -56,7 +57,7 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   const furLight = mixRgb(fur, cream, 0.5);
   const furDark = mixRgb(fur, dark, 0.35);
   const b: Record<PartName, MeshBuilder> = {
-    body: new MeshBuilder(), head: new MeshBuilder(), armL: new MeshBuilder(), armR: new MeshBuilder(),
+    body: new MeshBuilder(), head: new MeshBuilder(), muzzle: new MeshBuilder(), armL: new MeshBuilder(), armR: new MeshBuilder(),
     footL: new MeshBuilder(), footR: new MeshBuilder(), tail: new MeshBuilder(),
   };
 
@@ -72,20 +73,21 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   b.head.sphere(compose(HEAD_C[0], HEAD_C[1], HEAD_C[2], 0, 0, 0, ...HEAD_R), fur, 14, 24);
   // Muzzle: two puffy cheek lobes and a centre pad.
   for (const s of [1, -1]) {
-    b.head.sphere(compose(0.13 * s, 0.25, 0.45 + MZ, 0, 0, 0, 0.2, 0.17, 0.17), furLight, 9, 14);
+    b.muzzle.sphere(compose(0.13 * s, 0.25, 0.45 + MZ, 0, 0, 0, 0.2, 0.17, 0.17), furLight, 9, 14);
     // Whisker freckles.
-    for (let k = 0; k < 3; k++) b.head.sphere(compose((0.16 + k * 0.05) * s, 0.27 - k * 0.025, surfMuzzle(0.16 + k * 0.05, 0.27) + MZ + 0.005, 0, 0, 0, 0.016), furDark, 3, 5);
+    for (let k = 0; k < 2; k++) b.muzzle.sphere(compose((0.17 + k * 0.06) * s, 0.27 - k * 0.03, surfMuzzle(0.17 + k * 0.06, 0.27 - k * 0.03) + MZ, 0, 0, 0, 0.014, 0.014, 0.008), mixRgb(furLight, furDark, 0.55), 4, 6);
   }
-  b.head.sphere(compose(0, 0.3, 0.5 + MZ, 0, 0, 0, 0.16, 0.13, 0.13), furLight, 8, 12);
+  b.muzzle.sphere(compose(0, 0.3, 0.5 + MZ, 0, 0, 0, 0.16, 0.13, 0.13), furLight, 8, 12);
   // Big shiny nose.
-  b.head.sphere(compose(0, 0.36, 0.63 + MZ, 0, 0, 0, 0.11, 0.08, 0.075), "#3a2218", 8, 12);
-  b.head.sphere(compose(0.035, 0.39, 0.69 + MZ, 0, 0, 0, 0.03, 0.018, 0.015), "#c9a493", 4, 6);
+  b.muzzle.sphere(compose(0, 0.36, 0.63 + MZ, 0, 0, 0, 0.11, 0.08, 0.075), "#3a2218", 8, 12);
+  b.muzzle.sphere(compose(0.035, 0.39, 0.69 + MZ, 0, 0, 0, 0.03, 0.018, 0.015), "#c9a493", 4, 6);
   // The signature buck teeth: two chunky, slightly splayed tiles.
-  for (const s of [1, -1]) b.head.box(compose(0.046 * s, 0.07, 0.565 + MZ, 0.05 * s, 0.12, 0.02 * s, 0.082, 0.14, 0.045), "#fffaf0");
+  b.muzzle.box(compose(0, 0.07, 0.567 + MZ, 0, 0.12, 0, 0.008, 0.13, 0.045), "#d9cdb9");
+  for (const s of [1, -1]) b.muzzle.box(compose(0.046 * s, 0.07, 0.565 + MZ, 0.05 * s, 0.12, 0.02 * s, 0.082, 0.14, 0.045), "#fffaf0");
   // Round ears with a soft inner colour.
   for (const s of [1, -1]) {
     b.head.sphere(compose(0.42 * s, 0.88, -0.04, 0, 0, -0.3 * s, 0.14, 0.13, 0.09), furDark, 9, 14);
-    b.head.sphere(compose(0.42 * s, 0.88, 0.03, 0, 0, -0.3 * s, 0.085, 0.08, 0.04), mixRgb(furLight, [0.96, 0.62, 0.55], 0.4), 8, 12);
+    b.muzzle.sphere(compose(0.42 * s, 0.88, 0.03, 0, 0, -0.3 * s, 0.085, 0.08, 0.04), mixRgb(furLight, [0.96, 0.62, 0.55], 0.4), 8, 12);
   }
   // A little fur tuft on top.
   for (let i = 0; i < 3; i++) {
@@ -328,6 +330,8 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const headRoll = Math.sin(t * 5) * 0.15 * dizzy + Math.sin(t * 0.8 + seed) * 0.04 * (1 - mv);
   const head = at("head", headPitch, headYaw, headRoll);
   r.draw(meshes.parts.head, head, opts);
+  // Face details sit on top without their own ink rings, so only the silhouette is outlined.
+  r.draw(meshes.parts.muzzle, head, { tint });
   drawFace(r, meshes, head, expr, t, seed, pose.talk ?? 0, idleLook, tint);
 
   // Arms: swing when walking, paddle when swimming, wave or cheer.

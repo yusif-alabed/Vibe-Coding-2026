@@ -56,7 +56,9 @@ The face is built from swappable pieces (dark oval eyes with one small highlight
 
 Beavers also blink (each on their own rhythm), move their mouth while their chat bubble is up, and squash-and-stretch when they hop.
 
-**Character sheet:** open the game with `?characters` at the end of the address (for example `http://localhost:5173/?characters`) to see every expression side by side. Use it when changing the beaver.
+**Outlines:** only outer shapes get the ink outline (head, body, ears, hat). Small face details (nose, muzzle, teeth, dots) live in the separate `muzzle` part and are drawn without outlines, otherwise each one gets its own dark ring.
+
+**Character sheet:** open the game with `?characters` at the end of the address (for example `http://localhost:5173/?characters`) to see every expression side by side, or `?characters=close` for a close-up of the face. Use it when changing the beaver.
 
 ## Do / don't
 
