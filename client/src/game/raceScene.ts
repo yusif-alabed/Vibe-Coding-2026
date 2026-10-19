@@ -222,9 +222,12 @@ export class RaceScene implements Scene {
       const wobble = rc.stun ? Math.sin(this.time * 30) * 0.25 : 0;
       const root = compose(x, y + 0.05, z, yaw + wobble, tilt, rc.steer * 0.18);
       r.draw(this.world.sled, root, { outline: 0.04 });
+      const counting = performance.now() < this.startAt;
+      const expr = rc.stun ? "dizzy" : rc.boost ? "excited" : rc.done ? "happy" : counting ? "determined" : "neutral";
       drawBeaver(r, getBeaverMeshes(r, rc.look), multiply(root, compose(0, 0.2, -0.2)), {
         walk: 0, moving: 0, swim: 0, jump: 0, wave: rc.done ? 1 : 0, sled: 1, time: this.time,
-      }, rc.stun ? [1, 1, 1, 0.35] : undefined);
+        expr, seed: this.racers.indexOf(rc) * 1.7, cheer: rc.done && this.racers.indexOf(rc) % 2 ? 1 : 0,
+      }, rc.stun ? [1, 1, 1, 0.25] : undefined);
     }
     for (const p of this.particles) {
       const k = p.life / 0.7;

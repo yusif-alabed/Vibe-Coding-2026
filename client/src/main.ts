@@ -1,7 +1,7 @@
 import { DEFAULT_LOOK, FUR_COLORS, NAME_MAX, type Look, type ServerMsg } from "@beaver/shared";
 import { compose, lookAt, perspective, type Vec3 } from "./engine/math";
 import { Renderer } from "./engine/renderer";
-import { drawBeaver, getBeaverMeshes } from "./game/beaver";
+import { drawBeaver, getBeaverMeshes, type Expression } from "./game/beaver";
 import { HubScene } from "./game/hubScene";
 import { buildHub, heightAt, type HubWorld } from "./game/hubWorld";
 import { Input } from "./game/input";
@@ -167,11 +167,62 @@ function renderTitleBackdrop(dt: number) {
   r.draw(hub.glow, I, { unlit: true });
   drawBeaver(r, getBeaverMeshes(r, titleLook), compose(0, heightAt(0, 5), 5, a, 0, 0, 1.2), {
     walk: 0, moving: 0, swim: 0, jump: 0, wave: (Math.sin(titleT * 0.9) > 0.6 ? 1 : 0), sled: 0, time: titleT,
+    expr: Math.sin(titleT * 0.9) > 0.6 ? "happy" : "neutral", talk: 0, seed: 1,
   });
   r.draw(hub.water, I, { wave: true, alpha: 0.86 });
   r.end();
 }
 
+// ---------- Character sheet (open the game with ?characters) ----------
+const SHEET: { label: string; look: Look; expr: Expression; wave?: number; cheer?: number; talk?: number; jumpEvery?: number; swim?: number }[] = [
+  { label: "Neutral · blinks & looks around", look: { ...DEFAULT_LOOK }, expr: "neutral" },
+  { label: "Happy wave", look: { ...DEFAULT_LOOK, fur: "#c48a52", hat: "hat_ranger", scarf: "scarf_sky" }, expr: "happy", wave: 1 },
+  { label: "Excited cheer", look: { ...DEFAULT_LOOK, fur: "#6b4428", hat: "hat_crown", scarf: "scarf_sunset" }, expr: "excited", cheer: 1 },
+  { label: "Surprised", look: { ...DEFAULT_LOOK, fur: "#a8703f", hat: "hat_antlers", backpack: "pack_hiker" }, expr: "surprised" },
+  { label: "Dizzy (bonked)", look: { ...DEFAULT_LOOK, fur: "#b5835a", hat: "hat_toque_teal", backpack: "pack_canoe" }, expr: "dizzy" },
+  { label: "Determined", look: { ...DEFAULT_LOOK, fur: "#4e3324", hat: null, scarf: "scarf_plaid" }, expr: "determined" },
+  { label: "Chatting", look: { ...DEFAULT_LOOK, fur: "#8a5a3b", hat: "hat_toque_teal", scarf: "scarf_plaid" }, expr: "neutral", talk: 1 },
+  { label: "Hop!", look: { ...DEFAULT_LOOK, fur: "#c48a52", hat: null, backpack: "pack_canoe" }, expr: "happy", jumpEvery: 1.4 },
+];
+let sheetLabels: HTMLElement[] = [];
+let sheetBack = false;
+function renderCharacterSheet(dt: number) {
+  titleT += dt;
+  const r = renderer;
+  r.time = titleT;
+  r.resize();
+  const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
+  const cols = aspect < 0.9 ? 2 : 4;
+  const rows = Math.ceil(SHEET.length / cols);
+  const spacing = 2.4;
+  const cam: Vec3 = [0, 3.2 + rows * 1.9, 5.5 + rows * 2.4];
+  r.env.fogNear = 200; r.env.fogFar = 600;
+  r.begin(lookAt(cam, [0, 0.6, 0.4]), perspective(aspect < 0.9 ? 0.95 : 0.72, aspect, 0.5, 1600), cam);
+  r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
+  r.draw(hub.terrain, compose(0, -0.02, 0));
+  if (!sheetLabels.length) {
+    sheetLabels = SHEET.map((c) => { const el = h("div.place", {}, c.label); ui.append(el); return el; });
+    ui.append(h("div.pill.pe", { style: "position:absolute;left:12px;top:12px;cursor:pointer", onclick: () => { sheetBack = !sheetBack; } }, "🔄 Turn around"));
+  }
+  SHEET.forEach((c, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = (col - (cols - 1) / 2) * spacing, z = (row - (rows - 1) / 2) * spacing * 1.7;
+    const jumpT = c.jumpEvery ? (titleT % c.jumpEvery) / 0.55 : 1;
+    drawBeaver(r, getBeaverMeshes(r, c.look), compose(x, 0, z, sheetBack ? Math.PI : Math.sin(titleT * 0.6 + i) * 0.25), {
+      walk: 0, moving: 0, swim: c.swim ?? 0, jump: jumpT < 1 ? Math.sin(jumpT * Math.PI) : 0, wave: c.wave ?? 0, sled: 0,
+      time: titleT, expr: c.expr, cheer: c.cheer, talk: c.talk, seed: i * 1.3,
+    });
+    const s = r.project(x, 2.75, z);
+    if (s) { sheetLabels[i].style.left = `${s.x}px`; sheetLabels[i].style.top = `${s.y}px`; }
+  });
+  r.end();
+}
+
 (window as unknown as { __bb: unknown }).__bb = { get scene() { return scene; } };
-showTitle();
-requestAnimationFrame(frame);
+if (params.has("characters")) {
+  const loop = (now: number) => { const dt = Math.min(0.05, (now - last) / 1000); last = now; renderCharacterSheet(dt); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+} else {
+  showTitle();
+  requestAnimationFrame(frame);
+}

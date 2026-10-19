@@ -14,7 +14,7 @@ import {
 } from "@beaver/shared";
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
 import { h, toast } from "../ui/dom";
-import { drawBeaver, getBeaverMeshes } from "./beaver";
+import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import type { Ctx, Scene } from "./scene";
 
@@ -27,6 +27,7 @@ interface Avatar {
   tx: number; tz: number; tr: number;
   walk: number; moving: number; swim: number;
   jumpT: number; waveT: number;
+  cheerT: number; expr: Expression; exprT: number; talkT: number; seed: number;
   tag: HTMLElement;
   bubble: HTMLElement | null; bubbleUntil: number;
   trailAcc: number;
@@ -143,7 +144,8 @@ export class HubScene implements Scene {
     this.labels.append(tag);
     const a: Avatar = {
       info: p, x: p.x, z: p.z, ry: p.ry, tx: p.x, tz: p.z, tr: p.ry,
-      walk: 0, moving: 0, swim: 0, jumpT: 0, waveT: 0, tag, bubble: null, bubbleUntil: 0, trailAcc: 0,
+      walk: 0, moving: 0, swim: 0, jumpT: 0, waveT: 0, cheerT: 0, expr: "neutral", exprT: 0, talkT: 0,
+      seed: [...p.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1000, 7) / 100, tag, bubble: null, bubbleUntil: 0, trailAcc: 0,
     };
     this.avatars.set(p.id, a);
     if (this.countEl) this.countEl.textContent = String(this.avatars.size);
@@ -196,14 +198,19 @@ export class HubScene implements Scene {
           a.bubble = h("div.bubble", {}, m.text);
           this.labels.append(a.bubble);
           a.bubbleUntil = this.time + 5;
+          a.talkT = Math.min(2.2, 0.6 + m.text.length * 0.05);
         }
         break;
       }
       case "emote": {
         const a = this.avatars.get(m.id);
         if (!a) return;
-        a.jumpT = 1;
-        if (m.i === 0) a.waveT = 1.6;
+        const react = emoteReaction(m.i);
+        a.expr = react.expr;
+        a.exprT = 2.2;
+        if (react.hop) a.jumpT = 1;
+        if (react.wave) a.waveT = 1.6;
+        if (react.cheer) a.cheerT = 1.8;
         const el = h("div.emote", {}, EMOTES[m.i] ?? "");
         this.labels.append(el);
         (el as HTMLElement & { _follow?: Avatar })._follow = a;
@@ -466,6 +473,9 @@ export class HubScene implements Scene {
       a.swim = lerp(a.swim, heightAt(a.x, a.z) < WATER_Y - 0.3 ? 1 : 0, Math.min(1, dt * 5));
       a.jumpT = Math.max(0, a.jumpT - dt * 2.2);
       a.waveT = Math.max(0, a.waveT - dt);
+      a.cheerT = Math.max(0, a.cheerT - dt);
+      a.exprT = Math.max(0, a.exprT - dt);
+      a.talkT = Math.max(0, a.talkT - dt);
       if (a.bubble && this.time > a.bubbleUntil) { a.bubble.remove(); a.bubble = null; }
       // Cosmetic trails.
       const trail = a.info.look.trail ? CATALOG_BY_ID[a.info.look.trail] : null;
@@ -541,7 +551,9 @@ export class HubScene implements Scene {
     for (const a of this.avatars.values()) {
       const y = this.groundY(a);
       drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(a.x, y, a.z, a.ry), {
-        walk: a.walk, moving: a.moving, swim: a.swim, jump: Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0), wave: Math.min(1, a.waveT), sled: 0, time: this.time + a.x,
+        walk: a.walk, moving: a.moving, swim: a.swim, jump: Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0), wave: Math.min(1, a.waveT), sled: 0, time: this.time,
+        seed: a.seed, cheer: Math.min(1, a.cheerT * 2), talk: a.talkT > 0 ? 1 : 0,
+        expr: a.exprT > 0 ? a.expr : a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
       });
     }
     r.draw(this.world.water, I, { wave: true, alpha: 0.86 });
