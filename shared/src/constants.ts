@@ -30,7 +30,21 @@ export const HUB_COLLIDERS: { x: number; z: number; r: number }[] = [
   { x: HUB_PLACES.outfitter.x, z: HUB_PLACES.outfitter.z, r: HUB_PLACES.outfitter.r },
   { x: HUB_PLACES.arcade.x, z: HUB_PLACES.arcade.z, r: HUB_PLACES.arcade.r },
   { x: 0, z: 0, r: 7.15 }, // full plaza fountain basin, not just the pedestal
+  { x: HUB_PLACES.hotSpring.x, z: HUB_PLACES.hotSpring.z, r: 4.4 },
+  { x: -12, z: -9, r: 1.65 }, // lodge campfire
+  { x: 4, z: -12, r: 0.75 }, // village sign
+  { x: HUB_PLACES.outfitter.x - 6.5, z: HUB_PLACES.outfitter.z + 2, r: 1.7 }, // canoe rack
 ];
+
+// Plaza furniture is generated from this same layout on the client. Keeping its
+// collision circles here makes every connected player receive identical movement rules.
+for (let i = 0; i < 6; i++) {
+  const a = (i / 6) * Math.PI * 2 + 0.5;
+  HUB_COLLIDERS.push(
+    { x: Math.cos(a) * 11.5, z: Math.sin(a) * 11.5, r: 0.58 }, // lantern
+    { x: Math.cos(a + 0.5) * 8.6, z: Math.sin(a + 0.5) * 8.6, r: 1.45 }, // bench
+  );
+}
 
 /** Standing inside this radius of the trailhead portal offers the toboggan race. */
 export const PORTAL_RADIUS = 4;
