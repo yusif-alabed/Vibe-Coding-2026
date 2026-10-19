@@ -41,6 +41,13 @@ export function validateMove(prev: Pos, proposed: Pos, dtMs: number): Pos {
       z = c.z + (cd < 1e-6 ? 0 : cz * k);
     }
   }
+  // A scenery push near the edge must never nudge a player beyond the playable
+  // world boundary. Apply the boundary one final time after all solid resolves.
+  const finalRadius = Math.hypot(x, z);
+  if (finalRadius > HUB.radius) {
+    x = (x / finalRadius) * HUB.radius;
+    z = (z / finalRadius) * HUB.radius;
+  }
   return { x, z };
 }
 

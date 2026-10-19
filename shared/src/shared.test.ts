@@ -6,6 +6,7 @@ import {
   coinsForRace,
   filterChat,
   HUB,
+  HUB_COLLIDERS,
   purchase,
   sanitizeLook,
   STARTER_ITEMS,
@@ -98,6 +99,17 @@ describe("movement validation", () => {
   it("pushes players out of buildings", () => {
     const p = validateMove({ x: 0, z: 4.5 }, { x: 0, z: 2.5 }, 1000);
     assert.ok(Math.hypot(p.x, p.z) >= 3.9 - 1e-9);
+  });
+  it("keeps solid scenery such as benches, trees and rocks non-pass-through", () => {
+    assert.ok(HUB_COLLIDERS.length > 70, "every generated solid is registered");
+    const bench = validateMove({ x: -15, z: -6.5 }, { x: -15, z: -6.5 }, 100);
+    assert.ok(Math.hypot(bench.x - -15, bench.z - -6.5) >= 1.64);
+    const rock = HUB_COLLIDERS.find((c) => c.r > 0.9 && c.r < 2 && Math.hypot(c.x, c.z) > 20);
+    assert.ok(rock, "world rock registered");
+    if (rock) {
+      const p = validateMove({ x: rock.x + rock.r + 1, z: rock.z }, { x: rock.x, z: rock.z }, 1000);
+      assert.ok(Math.hypot(p.x - rock.x, p.z - rock.z) >= rock.r - 1e-9);
+    }
   });
   it("ignores NaN input", () => {
     assert.deepEqual(validateMove({ x: 1, z: 2 }, { x: NaN, z: 0 }, 100), { x: 1, z: 2 });

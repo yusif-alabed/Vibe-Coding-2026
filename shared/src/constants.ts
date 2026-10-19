@@ -34,6 +34,10 @@ export const HUB_COLLIDERS: { x: number; z: number; r: number }[] = [
   { x: -12, z: -9, r: 1.65 }, // lodge campfire
   { x: 4, z: -12, r: 0.75 }, // village sign
   { x: HUB_PLACES.outfitter.x - 6.5, z: HUB_PLACES.outfitter.z + 2, r: 1.7 }, // canoe rack
+  { x: HUB_PLACES.lodge.x + 5, z: HUB_PLACES.lodge.z + 9.5, r: 1.65 },
+  { x: HUB_PLACES.lodge.x + 11, z: HUB_PLACES.lodge.z + 5, r: 1.65 },
+  { x: HUB_PLACES.dock.x + 5, z: HUB_PLACES.dock.z + 9, r: 1.35 }, // moored canoe
+  { x: HUB_PLACES.dock.x - 2, z: HUB_PLACES.dock.z + 13, r: 1.35 },
 ];
 
 // Plaza furniture is generated from this same layout on the client. Keeping its
@@ -44,6 +48,78 @@ for (let i = 0; i < 6; i++) {
     { x: Math.cos(a) * 11.5, z: Math.sin(a) * 11.5, r: 0.58 }, // lantern
     { x: Math.cos(a + 0.5) * 8.6, z: Math.sin(a + 0.5) * 8.6, r: 1.45 }, // bench
   );
+}
+
+// The hub's scenery is deterministic. These helpers deliberately mirror the
+// placement rules in the renderer so collision stays authoritative on the
+// server while every visible rock and tree remains solid on the client.
+const sceneryHash = (x: number, y: number) => {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+};
+const sceneryDistSeg = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) => {
+  const dx = bx - ax, dz = bz - az;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)));
+  return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+};
+const RIVER: [number, number][] = [[70, -80], [52, -48], [38, -20], [34, 2], [32, 22], [18, 40], [-6, 44], [-26, 40], [-38, 36]];
+const PATHS: [number, number, number, number][] = [
+  [0, 0, HUB_PLACES.lodge.x, HUB_PLACES.lodge.z], [0, 0, HUB_PLACES.outfitter.x, HUB_PLACES.outfitter.z],
+  [0, 0, HUB_PLACES.arcade.x, HUB_PLACES.arcade.z], [0, 0, HUB_PLACES.dock.x, HUB_PLACES.dock.z],
+  [0, 0, HUB_PLACES.trailhead.x, HUB_PLACES.trailhead.z + 2], [HUB_PLACES.outfitter.x, HUB_PLACES.outfitter.z, HUB_PLACES.hotSpring.x, HUB_PLACES.hotSpring.z], [0, 0, 6, 40],
+];
+const pathDistance = (x: number, z: number) => Math.min(...PATHS.map((p) => sceneryDistSeg(x, z, ...p)));
+const riverDistance = (x: number, z: number) => Math.min(...RIVER.slice(0, -1).map((p, i) => sceneryDistSeg(x, z, ...p, ...RIVER[i + 1])));
+const sceneryHeight = (x: number, z: number) => {
+  const r = Math.hypot(x, z);
+  let h = 0;
+  if (r > 12) h += 0.35 * Math.sin(x * 0.13) * Math.cos(z * 0.11) * Math.min(1, (r - 12) / 10);
+  if (r > 66) h += Math.pow(r - 66, 1.35) * 0.32 + sceneryHash(Math.floor(x / 6), Math.floor(z / 6)) * 1.2;
+  const th = Math.hypot(x - HUB_PLACES.trailhead.x, (z - HUB_PLACES.trailhead.z + 14) * 0.8);
+  if (z < HUB_PLACES.trailhead.z - 3) h += Math.max(0, 16 - th) * 0.45;
+  const lake = Math.hypot(x - HUB_PLACES.lake.x, z - HUB_PLACES.lake.z);
+  if (lake < 19) h = Math.min(h, -2.2 * Math.pow(1 - lake / 19, 0.6) + 0.35);
+  const river = riverDistance(x, z);
+  if (river < 4.2) h = Math.min(h, -1.3 * (1 - river / 4.2) + 0.25 * (river / 4.2));
+  const spring = Math.hypot(x - HUB_PLACES.hotSpring.x, z - HUB_PLACES.hotSpring.z);
+  if (spring < 3.4) h = Math.min(h, -0.6);
+  return h;
+};
+const addSolid = (x: number, z: number, r: number) => HUB_COLLIDERS.push({ x, z, r });
+
+// Hot-spring boulders, dock posts and trailhead arch posts.
+for (let i = 0; i < 12; i++) {
+  const a = (i / 12) * Math.PI * 2;
+  addSolid(HUB_PLACES.hotSpring.x + Math.cos(a) * 3.8, HUB_PLACES.hotSpring.z + Math.sin(a) * 3.8, 1.2);
+}
+const dockAngle = Math.atan2(HUB_PLACES.lake.x - HUB_PLACES.dock.x, HUB_PLACES.lake.z - HUB_PLACES.dock.z);
+for (let i = 0; i < 9; i += 3) for (const side of [-1, 1]) {
+  const x = HUB_PLACES.dock.x + Math.sin(dockAngle) * i * 1.2 + Math.cos(dockAngle) * side * 1.6;
+  const z = HUB_PLACES.dock.z + Math.cos(dockAngle) * i * 1.2 - Math.sin(dockAngle) * side * 1.6;
+  addSolid(x, z, 0.55);
+}
+for (const side of [-1, 1]) addSolid(HUB_PLACES.trailhead.x + side * 4, HUB_PLACES.trailhead.z, 1.0);
+
+// Individual forest trees and loose rocks: only candidates inside the playable
+// radius are registered, which gives exact visual coverage without a huge
+// per-move collision list.
+for (let x = -110; x <= 110; x += 4.5) {
+  for (let z = -110; z <= 110; z += 4.5) {
+    const jx = x + (sceneryHash(x, z) - 0.5) * 3.5, jz = z + (sceneryHash(z, x) - 0.5) * 3.5;
+    const radius = Math.hypot(jx, jz);
+    const chance = radius < 16 ? 0 : radius < 40 ? 0.1 : radius < 58 ? 0.22 : radius < 88 ? 0.55 : 0.18;
+    if (radius > HUB.radius + 2 || sceneryHash(jx * 1.3, jz * 0.7) > chance) continue;
+    if (pathDistance(jx, jz) < 4 || riverDistance(jx, jz) < 6) continue;
+    if (Object.values(HUB_PLACES).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 7)) continue;
+    if (Math.hypot(jx - HUB_PLACES.trailhead.x, jz - HUB_PLACES.trailhead.z) < 12 || sceneryHeight(jx, jz) < 0.05) continue;
+    const s = 0.8 + sceneryHash(jx, jz * 3) * 0.7 + (radius > 60 ? 0.4 : 0);
+    addSolid(jx, jz, 1.35 * s + 0.35);
+  }
+}
+for (let i = 0; i < 30; i++) {
+  const a = sceneryHash(i, 7) * Math.PI * 2, d = 20 + sceneryHash(i, 8) * 45;
+  const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  if (pathDistance(x, z) > 2.5) addSolid(x, z, 0.9 + sceneryHash(i, 9) * 1.2);
 }
 
 /** Standing inside this radius of the trailhead portal offers the toboggan race. */
