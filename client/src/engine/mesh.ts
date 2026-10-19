@@ -163,6 +163,21 @@ export class MeshBuilder {
     return this.addTris([[...a, ...b, ...c]], IDENTITY, color, 0, "up");
   }
 
+  /** Terrain/water triangle with explicit vertex normals, so a continuous surface does not show its grid. */
+  triSmooth(a: Vec3, b: Vec3, c: Vec3, color: ColorLike | ColorFn, na: Vec3, nb: Vec3, nc: Vec3) {
+    const pts = [a, b, c], nrms = [na, nb, nc];
+    const base: Vec3 | null = typeof color === "function" ? null : typeof color === "string" ? hexToRgb(color) : color;
+    for (let i = 0; i < 3; i++) {
+      const p = pts[i], n = nrms[i];
+      this.pos.push(p[0], p[1], p[2]);
+      this.nrm.push(n[0], n[1], n[2]);
+      this.smo.push(n[0], n[1], n[2]);
+      const col = base ?? (color as ColorFn)(p[0], p[1], p[2]);
+      this.col.push(col[0], col[1], col[2]);
+    }
+    return this;
+  }
+
   merge(other: MeshBuilder) {
     this.pos.push(...other.pos);
     this.nrm.push(...other.nrm);

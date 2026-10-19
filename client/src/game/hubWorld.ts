@@ -83,7 +83,7 @@ function groundColor(x: number, y: number, z: number): Vec3 {
 
 export interface HubWorld {
   terrain: GpuMesh;
-  props: GpuMesh;
+  props: GpuMesh[];
   glow: GpuMesh;
   water: GpuMesh;
   mountains: GpuMesh;
@@ -132,21 +132,36 @@ export function buildHub(r: Renderer): HubWorld {
   const t = new MeshBuilder();
   // Denser terrain keeps the slopes and snowy plaza from reading as giant facets.
   const S = 1.6, R = 120;
+  const groundNormal = (x: number, z: number): Vec3 => {
+    const e = 0.45;
+    const nx = heightAt(x - e, z) - heightAt(x + e, z);
+    const nz = heightAt(x, z - e) - heightAt(x, z + e);
+    const l = Math.hypot(nx, e * 2, nz) || 1;
+    return [nx / l, (e * 2) / l, nz / l];
+  };
+  const terrainCol = (x: number, y: number, z: number) => groundColor(x, y, z);
   for (let x = -R; x < R; x += S) {
     for (let z = -R; z < R; z += S) {
       const a: Vec3 = [x, heightAt(x, z), z];
       const b: Vec3 = [x + S, heightAt(x + S, z), z];
       const c: Vec3 = [x + S, heightAt(x + S, z + S), z + S];
       const d: Vec3 = [x, heightAt(x, z + S), z + S];
-      const c1 = groundColor(x + S * 0.66, (a[1] + b[1] + c[1]) / 3, z + S * 0.33);
-      const c2 = groundColor(x + S * 0.33, (a[1] + c[1] + d[1]) / 3, z + S * 0.66);
-      t.tri(a, b, c, c1);
-      t.tri(a, c, d, c2);
+      const na = groundNormal(a[0], a[2]), nb = groundNormal(b[0], b[2]);
+      const nc = groundNormal(c[0], c[2]), nd = groundNormal(d[0], d[2]);
+      t.triSmooth(a, b, c, terrainCol, na, nb, nc);
+      t.triSmooth(a, c, d, terrainCol, na, nc, nd);
     }
   }
 
   // --- Props (outlined) and glowing bits (unlit) ---
-  const p = new MeshBuilder();
+  // Major world pieces are uploaded independently: their ink hulls can no longer
+  // cut through cabins, benches and the plaza statue as one giant combined mesh.
+  const props: GpuMesh[] = [];
+  let p = new MeshBuilder();
+  const finishProp = () => {
+    if (p.vertexCount) props.push(r.upload(p.build()));
+    p = new MeshBuilder();
+  };
   const glow = new MeshBuilder();
   const face = (x: number, z: number) => Math.atan2(-x, -z); // rotate +z to face the plaza
 
@@ -155,17 +170,25 @@ export function buildHub(r: Renderer): HubWorld {
   p.cylinder(compose(0, 1.0, 0, 0, 0, 0, 1.6, 1.4, 1.6), P.stoneDark, 8);
   p.cylinder(compose(0, 1.75, 0, 0, 0, 0, 2.6, 0.25, 2.6), P.stone, 10);
   bakeBeaver(p, { ...DEFAULT_LOOK, hat: "hat_ranger" }, compose(0, 1.9, 0, 0.4, 0, 0, 1.3));
+  finishProp();
 
   // Lodge café — big, warm, with a deck.
   cabin(p, glow, PL.lodge.x, PL.lodge.z, face(PL.lodge.x, PL.lodge.z), 11, 8, 4.4, P.roofGreen);
+  finishProp();
   campfire(p, PL.lodge.x + 8, PL.lodge.z + 7);
+  finishProp();
   bench(p, PL.lodge.x + 5, PL.lodge.z + 9.5, -0.6);
+  finishProp();
   bench(p, PL.lodge.x + 11, PL.lodge.z + 5, -2.2);
+  finishProp();
   // Outfitter with a canoe rack.
   cabin(p, glow, PL.outfitter.x, PL.outfitter.z, face(PL.outfitter.x, PL.outfitter.z), 8, 6.5, 3.6, P.roofRed);
+  finishProp();
   canoe(p, PL.outfitter.x - 6.5, 0.9, PL.outfitter.z + 2, 0.5, "#ffb03b");
+  finishProp();
   // Riverside arcade — teal roof and a neon ring.
   cabin(p, glow, PL.arcade.x, PL.arcade.z, face(PL.arcade.x, PL.arcade.z), 7.5, 6.5, 3.4, P.roofTeal);
+  finishProp();
   glow.torus(compose(PL.arcade.x - 3.2, 7.4, PL.arcade.z - 1.2, face(PL.arcade.x, PL.arcade.z), Math.PI / 2, 0, 1.3), "#ff6fb5", 1, 0.14, 18, 5);
 
   // Dock into the lake + canoes.
@@ -176,7 +199,9 @@ export function buildHub(r: Renderer): HubWorld {
     if (i % 3 === 0) for (const s of [-1, 1]) p.cylinder(compose(dx + Math.cos(dockA) * s * 1.6, -0.3, dz - Math.sin(dockA) * s * 1.6, 0, 0, 0, 0.3, 1.4, 0.3), P.timberDark, 6);
   }
   canoe(p, PL.dock.x + 5, WATER_Y + 0.1, PL.dock.z + 9, 0.9, P.roofRed);
+  finishProp();
   canoe(p, PL.dock.x - 2, WATER_Y + 0.1, PL.dock.z + 13, 2.2, "#2b8fd6");
+  finishProp();
 
   // Bridge over the river south of the plaza.
   for (let i = -5; i <= 5; i++) {
@@ -184,6 +209,7 @@ export function buildHub(r: Renderer): HubWorld {
     p.box(compose(6 + i * 0.05, y, 41.5 + i * 1.0, 0.05, 0, 0, 4, 0.22, 0.95), i % 2 ? P.timber : P.timberLight);
   }
   for (const s of [-1, 1]) p.box(compose(6 + s * 2, 1.4, 41.5, 0.05, 0, 0, 0.18, 0.18, 11), P.timberDark);
+  finishProp();
 
   // Trailhead portal: timber arch + snowy hill + sign.
   const th = PL.trailhead;
@@ -192,12 +218,14 @@ export function buildHub(r: Renderer): HubWorld {
   p.box(compose(th.x, 7.0, th.z, 0, 0, 0.0, 6, 1.1, 0.5), P.roofRed);
   for (let i = 0; i < 4; i++) snowyPine(p, th.x - 9 - i * 4, heightAt(th.x - 9 - i * 4, th.z - 6 - i * 3), th.z - 6 - i * 3, 1.1, i);
   for (let i = 0; i < 4; i++) snowyPine(p, th.x + 9 + i * 4, heightAt(th.x + 9 + i * 4, th.z - 6 - i * 3), th.z - 6 - i * 3, 1.1, i + 2);
+  finishProp();
 
   // Hot spring: ring of rocks.
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
     rock(p, PL.hotSpring.x + Math.cos(a) * 3.8, -0.1, PL.hotSpring.z + Math.sin(a) * 3.8, 0.9 + hash2(i, 3) * 0.4);
   }
+  finishProp();
 
   // Lamps and benches around the plaza, flower patches, signposts.
   for (let i = 0; i < 6; i++) {
@@ -205,12 +233,14 @@ export function buildHub(r: Renderer): HubWorld {
     lamp(p, glow, Math.cos(a) * 11.5, Math.sin(a) * 11.5);
     bench(p, Math.cos(a + 0.5) * 8.6, Math.sin(a + 0.5) * 8.6, Math.atan2(-Math.cos(a + 0.5), -Math.sin(a + 0.5)) + Math.PI);
   }
+  finishProp();
   for (let i = 0; i < 26; i++) {
     const a = hash2(i, 1) * Math.PI * 2, d = 14 + hash2(i, 2) * 40;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     if (pathDist(x, z) > 3 && heightAt(x, z) > 0 && riverDist(x, z) > 6) flowers(p, x, z);
   }
   sign(p, 4, -12, 0);
+  finishProp();
 
   // Forest: denser toward the edge so the world feels enclosed.
   for (let x = -110; x <= 110; x += 4.5) {
@@ -234,6 +264,7 @@ export function buildHub(r: Renderer): HubWorld {
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
     if (pathDist(x, z) > 2.5) rock(p, x, heightAt(x, z) - 0.2, z, 0.6 + hash2(i, 9) * 1.2);
   }
+  finishProp();
 
   // --- Water: lake, river ribbon, hot spring, fountain ---
   const w = new MeshBuilder();
@@ -246,8 +277,11 @@ export function buildHub(r: Renderer): HubWorld {
       const cells = [heightAt(x, z), heightAt(x + 2, z), heightAt(x, z + 2), heightAt(x + 2, z + 2)];
       if (Math.min(...cells) > WATER_Y + 0.05) continue;
       if (Math.hypot(x - PL.hotSpring.x, z - PL.hotSpring.z) < 5) continue;
-      w.tri([x, WATER_Y, z], [x + 2, WATER_Y, z], [x + 2, WATER_Y, z + 2], waterCol);
-      w.tri([x, WATER_Y, z], [x + 2, WATER_Y, z + 2], [x, WATER_Y, z + 2], waterCol);
+      const a: Vec3 = [x, WATER_Y, z], b: Vec3 = [x + 2, WATER_Y, z];
+      const c: Vec3 = [x + 2, WATER_Y, z + 2], d: Vec3 = [x, WATER_Y, z + 2];
+      const up: Vec3 = [0, 1, 0];
+      w.triSmooth(a, b, c, waterCol, up, up, up);
+      w.triSmooth(a, c, d, waterCol, up, up, up);
     }
   }
   w.cylinder(compose(PL.hotSpring.x, -0.25, PL.hotSpring.z, 0, 0, 0, 7, 0.1, 7), "#8fe3d8", 12);
@@ -259,7 +293,7 @@ export function buildHub(r: Renderer): HubWorld {
 
   return {
     terrain: r.upload(t.build()),
-    props: r.upload(p.build()),
+    props,
     glow: r.upload(glow.build()),
     water: r.upload(w.build()),
     mountains: buildMountains(r, 3, [150, 230], 16),

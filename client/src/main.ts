@@ -163,7 +163,7 @@ function renderTitleBackdrop(dt: number) {
   r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
   r.draw(hub.mountains, I, { outline: 0.6 });
   r.draw(hub.terrain, I);
-  r.draw(hub.props, I, { outline: 0.07 });
+  for (const prop of hub.props) r.draw(prop, I, { outline: 0.07 });
   r.draw(hub.glow, I, { unlit: true });
   drawBeaver(r, getBeaverMeshes(r, titleLook), compose(0, heightAt(0, 5), 5, a, 0, 0, 1.2), {
     walk: 0, moving: 0, swim: 0, jump: 0, wave: (Math.sin(titleT * 0.9) > 0.6 ? 1 : 0), sled: 0, time: titleT,

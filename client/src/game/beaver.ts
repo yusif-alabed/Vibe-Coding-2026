@@ -21,7 +21,7 @@ const PIVOTS: Record<PartName, [number, number, number]> = {
   armR: [-0.48, 1.0, 0.1],
   footL: [0.25, 0.32, 0.05],
   footR: [-0.25, 0.32, 0.05],
-  tail: [0, 0.38, -0.42],
+  tail: [0, 0.48, -0.38],
 };
 
 const cream: Vec3 = [0.99, 0.9, 0.74];
@@ -39,13 +39,13 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   // Body (pivot at feet level).
   // Use a denser, rounded silhouette for the hero character. The rest of the world
   // stays deliberately low-poly, so every beaver reads as soft and collectible.
-  b.body.sphere(compose(0, 0.76, 0, 0, 0, 0, 0.59, 0.61, 0.53), fur, 10, 18);
+  b.body.sphere(compose(0, 0.78, 0, 0, 0, 0, 0.62, 0.66, 0.56), fur, 12, 22);
   b.body.sphere(compose(0, 0.72, 0.29, 0, 0, 0, 0.43, 0.48, 0.31), furLight, 10, 18);
 
   // Head (pivot at neck: subtract 1.15 in y).
   const H = (y: number) => y - 1.15;
   // Slightly oversized head and wide-set eyes give the beavers a classic all-ages cartoon read.
-  b.head.sphere(compose(0, H(1.52), 0.02, 0, 0, 0, 0.63, 0.57, 0.56), fur, 12, 20);
+  b.head.sphere(compose(0, H(1.54), 0.03, 0, 0, 0, 0.66, 0.60, 0.59), fur, 14, 24);
   b.head.sphere(compose(0, H(1.38), 0.42, 0, 0, 0, 0.32, 0.23, 0.21), furLight, 10, 16);
   b.head.sphere(compose(0, H(1.47), 0.61, 0, 0, 0, 0.105, 0.08, 0.075), "#3a2218", 8, 12);
   b.head.box(compose(-0.045, H(1.22), 0.535, 0, 0.1, 0, 0.08, 0.15, 0.04), "#fffaf0");
@@ -63,9 +63,12 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   b.footL.sphere(compose(0, -0.24, 0.1, 0, 0, 0, 0.17, 0.09, 0.26), furDark, 8, 12);
   b.footR.sphere(compose(0, -0.24, 0.1, 0, 0, 0, 0.17, 0.09, 0.26), furDark, 8, 12);
   // Paddle tail with a darker cross-hatch stripe.
-  b.tail.sphere(compose(0, -0.12, -0.45, 0, 0.25, 0, 0.32, 0.07, 0.5), TAIL, 8, 16);
-  b.tail.box(compose(0, -0.05, -0.45, 0, 0.25, 0, 0.42, 0.03, 0.06), "#3a2b28");
-  b.tail.box(compose(0, -0.07, -0.6, 0, 0.25, 0, 0.36, 0.03, 0.06), "#3a2b28");
+  // A short, overlapping base physically joins the paddle to the body rather than
+  // making it read like a loose prop behind the beaver.
+  b.tail.sphere(compose(0, -0.08, -0.16, 0, 0.16, 0, 0.24, 0.13, 0.3), furDark, 8, 14);
+  b.tail.sphere(compose(0, -0.10, -0.39, 0, 0.2, 0, 0.32, 0.075, 0.46), TAIL, 10, 20);
+  b.tail.box(compose(0, -0.04, -0.40, 0, 0.2, 0, 0.42, 0.025, 0.055), "#3a2b28");
+  b.tail.box(compose(0, -0.06, -0.54, 0, 0.2, 0, 0.36, 0.025, 0.055), "#3a2b28");
 
   addHat(b.head, look.hat);
   addScarf(b.body, look.scarf);

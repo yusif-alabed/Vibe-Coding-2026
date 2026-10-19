@@ -533,7 +533,7 @@ export class HubScene implements Scene {
     r.draw(this.world.sky, compose(cx, 0, cz), { unlit: true, noFog: true });
     r.draw(this.world.mountains, I, { outline: 0.6 });
     r.draw(this.world.terrain, I);
-    r.draw(this.world.props, I, { outline: 0.07 });
+    for (const prop of this.world.props) r.draw(prop, I, { outline: 0.07 });
     r.draw(this.world.glow, I, { unlit: true });
     const pulse = 1 + Math.sin(this.time * 3) * 0.05;
     r.draw(this.world.portal, compose(PL.trailhead.x, 3.3, PL.trailhead.z, 0, 0, this.time * 0.8, pulse), { unlit: true });

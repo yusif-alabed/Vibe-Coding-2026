@@ -63,7 +63,7 @@ void main() {
     // colour toward grey, which made the whole village look foggy even at noon.
     // A small display curve keeps snow readable and stops the sunny palette from
     // clipping into neon white/green on high-brightness displays.
-    col = pow(clamp(col, 0.0, 1.0), vec3(1.10));
+    col = pow(clamp(col, 0.0, 1.0), vec3(1.16)) * 0.94;
   }
   float d = length(uCamPos - vWorld);
   float f = clamp((d - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
