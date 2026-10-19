@@ -29,7 +29,7 @@ export const HUB_COLLIDERS: { x: number; z: number; r: number }[] = [
   { x: HUB_PLACES.lodge.x, z: HUB_PLACES.lodge.z, r: HUB_PLACES.lodge.r },
   { x: HUB_PLACES.outfitter.x, z: HUB_PLACES.outfitter.z, r: HUB_PLACES.outfitter.r },
   { x: HUB_PLACES.arcade.x, z: HUB_PLACES.arcade.z, r: HUB_PLACES.arcade.r },
-  { x: 0, z: 0, r: 3.9 }, // plaza fountain
+  { x: 0, z: 0, r: 7.15 }, // full plaza fountain basin, not just the pedestal
 ];
 
 /** Standing inside this radius of the trailhead portal offers the toboggan race. */

@@ -21,7 +21,7 @@ const PIVOTS: Record<PartName, [number, number, number]> = {
   armR: [-0.48, 1.0, 0.1],
   footL: [0.25, 0.32, 0.05],
   footR: [-0.25, 0.32, 0.05],
-  tail: [0, 0.48, -0.38],
+  tail: [0, 0.56, -0.34],
 };
 
 const cream: Vec3 = [0.99, 0.9, 0.74];
@@ -65,10 +65,10 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   // Paddle tail with a darker cross-hatch stripe.
   // A short, overlapping base physically joins the paddle to the body rather than
   // making it read like a loose prop behind the beaver.
-  b.tail.sphere(compose(0, -0.08, -0.16, 0, 0.16, 0, 0.24, 0.13, 0.3), furDark, 8, 14);
-  b.tail.sphere(compose(0, -0.10, -0.39, 0, 0.2, 0, 0.32, 0.075, 0.46), TAIL, 10, 20);
-  b.tail.box(compose(0, -0.04, -0.40, 0, 0.2, 0, 0.42, 0.025, 0.055), "#3a2b28");
-  b.tail.box(compose(0, -0.06, -0.54, 0, 0.2, 0, 0.36, 0.025, 0.055), "#3a2b28");
+  b.tail.sphere(compose(0, -0.08, -0.04, 0, 0.08, 0, 0.32, 0.2, 0.34), furDark, 10, 18);
+  b.tail.sphere(compose(0, -0.12, -0.30, 0, 0.12, 0, 0.32, 0.08, 0.40), TAIL, 12, 22);
+  b.tail.box(compose(0, -0.05, -0.30, 0, 0.12, 0, 0.40, 0.022, 0.05), "#3a2b28");
+  b.tail.box(compose(0, -0.07, -0.42, 0, 0.12, 0, 0.34, 0.022, 0.05), "#3a2b28");
 
   addHat(b.head, look.hat);
   addScarf(b.body, look.scarf);
@@ -189,7 +189,8 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const swimDrop = -0.85 * pose.swim;
   const sledDrop = -0.25 * pose.sled;
   const base = multiply(root, compose(0, bob + swimDrop + sledDrop, 0, 0, 0, sway, 1, 1 - pose.jump * 0.08 + Math.sin(t * 2.2) * 0.01, 1));
-  const opts = { outline: 0.045, tint };
+  // A lighter outline keeps the individual animated pieces from reading as stacked blocks.
+  const opts = { outline: 0.028, tint };
   const part = (name: PartName, rx: number, ry: number, rz: number) => {
     const [px, py, pz] = PIVOTS[name];
     r.draw(meshes.parts[name], multiply(base, compose(px, py, pz, ry, rx, rz)), opts);
@@ -202,5 +203,5 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   part("armR", -armSwing - swimStroke - pose.sled * 0.9, 0, 0);
   part("footL", -Math.sin(w) * 0.8 * mv - pose.sled * 1.2, 0, 0);
   part("footR", Math.sin(w) * 0.8 * mv - pose.sled * 1.2, 0, 0);
-  part("tail", -0.15 + Math.sin(t * 3) * 0.05 + pose.swim * 0.4, Math.sin(t * (mv > 0.1 ? 9 : 2.5)) * (0.15 + mv * 0.25), 0);
+  part("tail", -0.06 + pose.swim * 0.15, Math.sin(t * (mv > 0.1 ? 7 : 2.5)) * 0.06, 0);
 }
