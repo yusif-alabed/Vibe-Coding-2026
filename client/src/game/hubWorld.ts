@@ -162,13 +162,16 @@ export function buildHub(r: Renderer): HubWorld {
   // clean continuous edges rather than being inferred from terrain vertex colour.
   const surfaces = new MeshBuilder();
   const flatUp: Vec3 = [0, 1, 0];
-  const plazaRadius = 10.35;
+  // A gentle hand-shaped clearing: deliberately asymmetric where the village
+  // trails enter it, rather than a perfect stamped circle of snow/paving.
+  const plazaRadius = (a: number) => 8.05 + Math.sin(a * 3 + 0.55) * 0.48 + Math.cos(a * 5 - 1.1) * 0.22 + Math.sin(a * 2 - 0.8) * 0.16;
   for (let i = 0; i < 64; i++) {
     const a = i / 64 * Math.PI * 2, b = (i + 1) / 64 * Math.PI * 2;
     const center: Vec3 = [0, heightAt(0, 0) + 0.035, 0];
-    const pa: Vec3 = [Math.cos(a) * plazaRadius, heightAt(Math.cos(a) * plazaRadius, Math.sin(a) * plazaRadius) + 0.035, Math.sin(a) * plazaRadius];
-    const pb: Vec3 = [Math.cos(b) * plazaRadius, heightAt(Math.cos(b) * plazaRadius, Math.sin(b) * plazaRadius) + 0.035, Math.sin(b) * plazaRadius];
-    surfaces.triSmooth(center, pa, pb, "#dbecef", flatUp, flatUp, flatUp);
+    const ra = plazaRadius(a), rb = plazaRadius(b);
+    const pa: Vec3 = [Math.cos(a) * ra, heightAt(Math.cos(a) * ra, Math.sin(a) * ra) + 0.035, Math.sin(a) * ra];
+    const pb: Vec3 = [Math.cos(b) * rb, heightAt(Math.cos(b) * rb, Math.sin(b) * rb) + 0.035, Math.sin(b) * rb];
+    surfaces.triSmooth(center, pa, pb, "#bfd6dc", flatUp, flatUp, flatUp);
   }
   const ribbon = (ax: number, az: number, bx: number, bz: number, half: number, lift: number, color: string) => {
     const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
@@ -186,8 +189,14 @@ export function buildHub(r: Renderer): HubWorld {
     }
   };
   for (const [ax, az, bx, bz] of PATHS) {
-    ribbon(ax, az, bx, bz, 2.08, 0.026, "#9b6d3d"); // packed-earth border
-    ribbon(ax, az, bx, bz, 1.68, 0.047, "#d2a45f"); // warm walkable centre
+    // Main village trails meet the clearing at its edge, never through the
+    // fountain centre. The outfitter-to-spring trail keeps both endpoints.
+    const fromCenter = Math.hypot(ax, az) < 0.1;
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    const sx = fromCenter ? (bx - ax) / len * 7.5 : ax;
+    const sz = fromCenter ? (bz - az) / len * 7.5 : az;
+    ribbon(sx, sz, bx, bz, 2.08, 0.026, "#9b6d3d"); // packed-earth border
+    ribbon(sx, sz, bx, bz, 1.68, 0.047, "#d2a45f"); // warm walkable centre
   }
 
   // Physical grass, built from individual bent blade strips rather than cones
