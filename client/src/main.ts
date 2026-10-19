@@ -162,7 +162,7 @@ function renderTitleBackdrop(dt: number) {
   const I = compose(0, 0, 0);
   r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
   r.draw(hub.mountains, I, { outline: 0.6 });
-  r.draw(hub.terrain, I);
+  r.draw(hub.terrain, I, { texture: hub.terrainTexture, textureScale: 0.075 });
   for (const prop of hub.props) r.draw(prop, I, { outline: 0.07 });
   r.draw(hub.glow, I, { unlit: true });
   drawBeaver(r, getBeaverMeshes(r, titleLook), compose(0, heightAt(0, 5), 5, a, 0, 0, 1.2), {

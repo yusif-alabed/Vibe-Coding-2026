@@ -34,6 +34,7 @@ uniform vec3 uLightDir; uniform vec3 uCamPos;
 uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform vec3 uGround;
 uniform float uFogNear; uniform float uFogFar;
 uniform vec4 uTint; uniform float uUnlit; uniform float uNoFog; uniform float uOutline; uniform vec3 uInk; uniform float uAlpha;
+uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale;
 out vec4 outColor;
 void main() {
   vec3 viewDir = normalize(uCamPos - vWorld);
@@ -44,7 +45,9 @@ void main() {
     return;
   }
   vec3 n = normalize(vNrm);
-  vec3 base = mix(vCol, uTint.rgb, uTint.a);
+  vec3 textureCol = texture(uTexture, vWorld.xz * uTextureScale).rgb;
+  vec3 materialCol = mix(vCol, textureCol, uUseTexture * 0.72);
+  vec3 base = mix(materialCol, uTint.rgb, uTint.a);
   vec3 col;
   if (uUnlit > 0.5) {
     col = base;
@@ -85,6 +88,8 @@ export interface DrawOpts {
   wave?: boolean;
   alpha?: number;
   noFog?: boolean;
+  texture?: WebGLTexture;
+  textureScale?: number;
 }
 
 export interface Environment {
@@ -100,6 +105,7 @@ export interface Environment {
 export class Renderer {
   readonly gl: WebGL2RenderingContext;
   private prog: WebGLProgram;
+  private whiteTexture: WebGLTexture;
   private u: Record<string, WebGLUniformLocation | null> = {};
   viewProj: Mat4 = new Float32Array(16);
   camPos: Vec3 = [0, 0, 0];
@@ -120,11 +126,36 @@ export class Renderer {
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
     this.prog = this.link(VS, FS);
-    for (const name of ["uModel", "uViewProj", "uOutline", "uTime", "uWave", "uLightDir", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogFar", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog"]) {
+    for (const name of ["uModel", "uViewProj", "uOutline", "uTime", "uWave", "uLightDir", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogFar", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
+    this.whiteTexture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.whiteTexture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+    gl.bindTexture(gl.TEXTURE_2D, null);
+  }
+
+  /** Loads a repeatable albedo texture; a neutral placeholder is used until the image is ready. */
+  loadTexture(url: string): WebGLTexture {
+    const gl = this.gl;
+    const texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([196, 214, 166, 255]));
+    const image = new Image();
+    image.onload = () => {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.generateMipmap(gl.TEXTURE_2D);
+    };
+    image.src = url;
+    return texture;
   }
 
   private link(vs: string, fs: string): WebGLProgram {
@@ -219,6 +250,11 @@ export class Renderer {
     gl.uniform1f(this.u.uWave, opts.wave ? 1 : 0);
     gl.uniform1f(this.u.uAlpha, opts.alpha ?? 1);
     gl.uniform1f(this.u.uNoFog, opts.noFog ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, opts.texture ?? this.whiteTexture);
+    gl.uniform1i(this.u.uTexture, 0);
+    gl.uniform1f(this.u.uUseTexture, opts.texture ? 1 : 0);
+    gl.uniform1f(this.u.uTextureScale, opts.textureScale ?? 1);
     gl.uniform1f(this.u.uOutline, 0);
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     if (opts.outline) {

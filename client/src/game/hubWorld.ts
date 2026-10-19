@@ -83,6 +83,7 @@ function groundColor(x: number, y: number, z: number): Vec3 {
 
 export interface HubWorld {
   terrain: GpuMesh;
+  terrainTexture: WebGLTexture;
   props: GpuMesh[];
   glow: GpuMesh;
   water: GpuMesh;
@@ -293,6 +294,7 @@ export function buildHub(r: Renderer): HubWorld {
 
   return {
     terrain: r.upload(t.build()),
+    terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-cartoon-v2.png"),
     props,
     glow: r.upload(glow.build()),
     water: r.upload(w.build()),
