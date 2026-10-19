@@ -173,7 +173,11 @@ export function buildHub(r: Renderer): HubWorld {
   const face = (x: number, z: number) => Math.atan2(-x, -z); // rotate +z to face the plaza
 
   // Plaza fountain with a beaver statue.
-  p.cylinder(compose(0, 0.35, 0, 0, 0, 0, 4.4, 0.7, 4.4), P.stone, 12, 0.5, 0.5, 0.06);
+  // Recessed fountain bowl: a substantial stone body plus a separate raised lip
+  // keeps the water visibly inside the fountain instead of reading as a flat disc.
+  p.cylinder(compose(0, 0.35, 0, 0, 0, 0, 4.4, 0.7, 4.4), P.stoneDark, 16, 0.5, 0.5, 0.035);
+  p.torus(compose(0, 0.73, 0, 0, 0, 0, 4.02, 0.32, 4.02), P.stone, 1, 0.2, 24, 7);
+  p.cylinder(compose(0, 0.58, 0, 0, 0, 0, 3.75, 0.18, 3.75), P.pavingDark, 20, 0.5, 0.5);
   p.cylinder(compose(0, 1.0, 0, 0, 0, 0, 1.6, 1.4, 1.6), P.stoneDark, 8);
   p.cylinder(compose(0, 1.75, 0, 0, 0, 0, 2.6, 0.25, 2.6), P.stone, 10);
   bakeBeaver(p, { ...DEFAULT_LOOK, hat: "hat_ranger" }, compose(0, 1.9, 0, 0.4, 0, 0, 1.3));
@@ -304,10 +308,10 @@ export function buildHub(r: Renderer): HubWorld {
   }
   disc(PL.hotSpring.x, PL.hotSpring.z, 3.1, "#73cfc7", 40);
   // Fountain water gets its own high-resolution surface instead of a faceted cap.
-  const fountainY = 0.81;
+  const fountainY = 0.66;
   for (let i = 0; i < 48; i++) {
     const a = (i / 48) * Math.PI * 2, b = ((i + 1) / 48) * Math.PI * 2;
-    w.triSmooth([0, fountainY, 0], [Math.cos(a) * 3.95, fountainY, Math.sin(a) * 3.95], [Math.cos(b) * 3.95, fountainY, Math.sin(b) * 3.95], "#5bcfc9", up, up, up);
+    w.triSmooth([0, fountainY, 0], [Math.cos(a) * 3.48, fountainY, Math.sin(a) * 3.48], [Math.cos(b) * 3.48, fountainY, Math.sin(b) * 3.48], "#5bcfc9", up, up, up);
   }
 
   // Portal ring (drawn animated) + steam puff (drawn many times).
