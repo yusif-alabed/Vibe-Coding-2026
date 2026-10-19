@@ -273,13 +273,15 @@ export function buildHub(r: Renderer): HubWorld {
     const deep = Math.min(1, Math.max(0, -heightAt(x, z) / 2));
     return mixRgb(rgb(P.glacier), rgb(P.glacierDeep), deep * 0.7);
   };
-  for (let x = -70; x < 70; x += 2) {
-    for (let z = -100; z < 70; z += 2) {
-      const cells = [heightAt(x, z), heightAt(x + 2, z), heightAt(x, z + 2), heightAt(x + 2, z + 2)];
-      if (Math.min(...cells) > WATER_Y + 0.05) continue;
+  // A smaller grid and an all-corners test keeps the shoreline on the wet side of
+  // the terrain. The old min-corner test put water over cells that were mostly dry.
+  for (let x = -70; x < 70; x += 1) {
+    for (let z = -100; z < 70; z += 1) {
+      const cells = [heightAt(x, z), heightAt(x + 1, z), heightAt(x, z + 1), heightAt(x + 1, z + 1)];
+      if (Math.max(...cells) > WATER_Y + 0.015) continue;
       if (Math.hypot(x - PL.hotSpring.x, z - PL.hotSpring.z) < 5) continue;
-      const a: Vec3 = [x, WATER_Y, z], b: Vec3 = [x + 2, WATER_Y, z];
-      const c: Vec3 = [x + 2, WATER_Y, z + 2], d: Vec3 = [x, WATER_Y, z + 2];
+      const a: Vec3 = [x, WATER_Y, z], b: Vec3 = [x + 1, WATER_Y, z];
+      const c: Vec3 = [x + 1, WATER_Y, z + 1], d: Vec3 = [x, WATER_Y, z + 1];
       const up: Vec3 = [0, 1, 0];
       w.triSmooth(a, b, c, waterCol, up, up, up);
       w.triSmooth(a, c, d, waterCol, up, up, up);

@@ -46,7 +46,9 @@ void main() {
   }
   vec3 n = normalize(vNrm);
   vec3 textureCol = texture(uTexture, vWorld.xz * uTextureScale).rgb;
-  vec3 materialCol = mix(vCol, textureCol, uUseTexture * 0.72);
+  // Terrain albedo must be clearly visible at gameplay distance; a faint overlay
+  // simply turns into a blurry green gradient once mipmapped.
+  vec3 materialCol = mix(vCol, textureCol, uUseTexture * 0.92);
   vec3 base = mix(materialCol, uTint.rgb, uTint.a);
   vec3 col;
   if (uUnlit > 0.5) {
