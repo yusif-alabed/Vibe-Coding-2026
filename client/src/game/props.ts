@@ -7,12 +7,14 @@ import { P } from "./palette";
 export function pine(m: MeshBuilder, x: number, y: number, z: number, s = 1, seed = 0) {
   const tint = 0.9 + hash2(x, z) * 0.2;
   const g = (h: string): Vec3 => hexToRgb(h).map((c) => c * tint) as Vec3;
-  m.cylinder(compose(x, y + 0.6 * s, z, 0, 0, 0, 0.35 * s, 1.2 * s, 0.35 * s), P.trunk, 12);
+  m.cylinder(compose(x, y + 0.6 * s, z, 0, 0, 0, 0.35 * s, 1.2 * s, 0.35 * s), P.trunk, 16);
   const layers = 3 + (seed % 2);
   for (let i = 0; i < layers; i++) {
     const k = 1 - i / (layers + 0.5);
     const col = i === layers - 1 ? g(P.pineLight) : i % 2 ? g(P.pine) : g(P.pineDark);
-    m.cone(compose(x, y + (1.5 + i * 1.25) * s, z, seed + i, 0, 0, 3.2 * k * s, 2.4 * s, 3.2 * k * s), col, 14, 0.035);
+    // High-sided, gently rounded bough layers read as foliage instead of a
+    // stack of primitive cones when the player approaches a tree.
+    m.cone(compose(x, y + (1.5 + i * 1.25) * s, z, seed + i, 0, 0, 3.2 * k * s, 2.4 * s, 3.2 * k * s), col, 20, 0.16);
   }
 }
 
@@ -23,7 +25,7 @@ export function snowyPine(m: MeshBuilder, x: number, y: number, z: number, s = 1
 
 export function rock(m: MeshBuilder, x: number, y: number, z: number, s = 1) {
   const r = hash2(x, z);
-  m.sphere(compose(x, y + 0.3 * s, z, r * 6, r * 0.3, 0, 1.2 * s, 0.75 * s, 1.0 * s), P.rock, 4, 6, 0.15);
+  m.sphere(compose(x, y + 0.3 * s, z, r * 6, r * 0.3, 0, 1.2 * s, 0.75 * s, 1.0 * s), P.rock, 8, 12, 0.15);
 }
 
 export function flowers(m: MeshBuilder, x: number, z: number) {
@@ -66,12 +68,20 @@ export function cabin(
 ) {
   const cx = Math.cos(ry), sn = Math.sin(ry);
   const at = (lx: number, lz: number): [number, number] => [x + lx * cx + lz * sn, z - lx * sn + lz * cx];
-  // Stone foundation, log walls with stripes.
+  // Stone foundation, timber walls and a deep, hand-built porch. The cabin is
+  // deliberately assembled from beams, boards, shutters and stone instead of
+  // relying on a painted facade.
   let [px, pz] = at(0, 0);
   m.box(compose(px, 0.25, pz, ry, 0, 0, w + 0.4, 0.5, d + 0.4), P.stone, 0.1);
   m.box(compose(px, 0.5 + h / 2, pz, ry, 0, 0, w, h, d), P.timber);
   for (let i = 0; i < Math.floor(h / 0.55); i++) {
     m.box(compose(px, 0.75 + i * 0.55, pz, ry, 0, 0, w + 0.12, 0.12, d + 0.12), P.timberDark);
+  }
+  // Broad timber beam bands break up the log walls and give each building a
+  // chalet-like frame at normal game-camera distance.
+  for (const side of [-1, 1]) {
+    const [bx, bz] = at(side * (w / 2 + 0.035), 0);
+    m.box(compose(bx, 0.5 + h * 0.52, bz, ry, 0, 0, 0.14, h * 0.96, d + 0.08), P.timberDark);
   }
   // Corner posts.
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -87,6 +97,15 @@ export function cabin(
     [px, pz] = at((s * half) / 2 - s * 0.15, 0);
     m.box(compose(px, 0.5 + h + rise / 2 + 0.15, pz, ry, 0, s * -pitch, slab + 0.2, 0.32, d + 1.4), roof, 0.06);
   }
+  // Extended eaves and decorative gable braces.
+  for (const s of [-1, 1]) {
+    const [ex, ez] = at(0, s * (d / 2 + 0.42));
+    m.box(compose(ex, 0.5 + h + rise * 0.66, ez, ry, 0, 0, w + 1.25, 0.16, 0.22), P.timberDark);
+    const [lx, lz] = at(-w * 0.22, s * (d / 2 + 0.46));
+    const [rx, rz] = at(w * 0.22, s * (d / 2 + 0.46));
+    m.box(compose(lx, 0.5 + h + rise * 0.28, lz, ry, 0, -0.58, 0.16, rise * 0.92, 0.16), P.timberDark);
+    m.box(compose(rx, 0.5 + h + rise * 0.28, rz, ry, 0, 0.58, 0.16, rise * 0.92, 0.16), P.timberDark);
+  }
   [px, pz] = at(0, 0);
   for (const s of [-1, 1]) {
     const [gx, gz] = at(0, (s * d) / 2);
@@ -94,18 +113,30 @@ export function cabin(
     const l = at(-w / 2, (s * d) / 2), r = at(w / 2, (s * d) / 2);
     m.tri([l[0], 0.5 + h, l[1]], [r[0], 0.5 + h, r[1]], top, P.timberLight);
   }
-  // Chimney.
+  // Stone chimney with a cap rather than a single dark block.
   [px, pz] = at(w * 0.25, -d * 0.2);
-  m.box(compose(px, 0.5 + h + rise * 0.9, pz, ry, 0, 0, 0.8, rise * 1.4 + 1, 0.8), P.stoneDark, 0.1);
+  m.box(compose(px, 0.5 + h + rise * 0.9, pz, ry, 0, 0, 0.9, rise * 1.4 + 1, 0.9), P.stoneDark, 0.12);
+  m.box(compose(px, 0.5 + h + rise * 1.6, pz, ry, 0, 0, 1.15, 0.18, 1.15), P.stone);
   // Door + glowing windows on the front (+z local).
   [px, pz] = at(0, d / 2 + 0.05);
   m.box(compose(px, 1.5, pz, ry, 0, 0, 1.3, 2.0, 0.12), "#6b3b22");
+  // Covered entry porch: deck, two posts and a little timber canopy.
+  const [porchX, porchZ] = at(0, d / 2 + 0.82);
+  m.box(compose(porchX, 0.48, porchZ, ry, 0, 0, 3.1, 0.22, 1.65), P.timberLight);
+  for (const s of [-1, 1]) {
+    const [qx, qz] = at(s * 1.22, d / 2 + 1.3);
+    m.cylinder(compose(qx, 1.75, qz, 0, 0, 0, 0.13, 2.55, 0.13), P.timberDark, 10);
+  }
+  const [awningX, awningZ] = at(0, d / 2 + 1.2);
+  m.box(compose(awningX, 3.05, awningZ, ry, 0, 0, 3.2, 0.16, 1.25), roof);
   const [kx, kz] = at(0.4, d / 2 + 0.15);
   m.sphere(compose(kx, 1.5, kz, 0, 0, 0, 0.09), P.gold, 3, 4);
   for (const s of [-1, 1]) {
     const [wx, wz] = at(s * w * 0.3, d / 2 + 0.06);
     glow.box(compose(wx, 0.5 + h * 0.55, wz, ry, 0, 0, 1.1, 1.0, 0.1), P.window);
     m.box(compose(wx, 0.5 + h * 0.55, wz + 0.0, ry, 0, 0, 1.3, 0.12, 0.16), P.timberDark);
+    const [sx, sz] = at(s * w * 0.3 + (s * 0.72), d / 2 + 0.09);
+    m.box(compose(sx, 0.5 + h * 0.55, sz, ry, 0, 0, 0.13, 1.24, 0.12), P.timberDark);
   }
 }
 

@@ -203,8 +203,10 @@ export function buildHub(r: Renderer): HubWorld {
     const len = Math.hypot(bx - ax, bz - az) || 1;
     const sx = fromCenter ? (bx - ax) / len * 7.5 : ax;
     const sz = fromCenter ? (bz - az) / len * 7.5 : az;
-    ribbon(sx, sz, bx, bz, 2.08, 0.026, "#9b6d3d"); // packed-earth border
-    ribbon(sx, sz, bx, bz, 1.68, 0.047, "#d2a45f"); // warm walkable centre
+    // A built-up earth route, with a compacted crown above a darker cut edge.
+    // It is physical geometry that follows the hills rather than a floor image.
+    ribbon(sx, sz, bx, bz, 2.08, 0.026, "#9b6d3d");
+    ribbon(sx, sz, bx, bz, 1.68, 0.052, "#d2a45f");
     // Individually modelled trail stones break up the surface without a tiled
     // image or repeated decal pattern.
     const trailLen = Math.hypot(bx - sx, bz - sz) || 1;
@@ -217,6 +219,18 @@ export function buildHub(r: Renderer): HubWorld {
       const x = px - dz * side, z = pz + dx * side;
       const size = 0.12 + hash2(i, az) * 0.12;
       surfaces.sphere(compose(x, heightAt(x, z) + 0.075, z, hash2(i, ax) * 4, 0, 0, size, size * 0.45, size * 0.8), i % 2 ? "#b9854b" : "#e0bb79", 4, 6);
+    }
+    // Larger, irregularly placed cobbles are limited to the plaza end of each
+    // trail. This gives the arrival paths real raised detail without creating
+    // a repetitive painted pattern across the meadow.
+    for (let i = 0; i < Math.min(5, stones); i++) {
+      const u = 0.04 + i * 0.075;
+      const px = sx + (bx - sx) * u, pz = sz + (bz - sz) * u;
+      const side = (hash2(i + 9, bz) - 0.5) * 2.1;
+      const dx = (bx - sx) / trailLen, dz = (bz - sz) / trailLen;
+      const x = px - dz * side, z = pz + dx * side;
+      const size = 0.32 + hash2(i, bx + az) * 0.18;
+      surfaces.sphere(compose(x, heightAt(x, z) + 0.078, z, hash2(i + 4, az) * 5, 0, 0, size, 0.085, size * 0.7), i % 2 ? "#d4b17a" : "#ba8e53", 7, 9);
     }
   }
   // Low sculpted snow drifts make the clearing feel built from material rather
@@ -281,12 +295,16 @@ export function buildHub(r: Renderer): HubWorld {
   // Plaza fountain with a beaver statue.
   // Recessed fountain bowl: a substantial stone body plus a separate raised lip
   // keeps the water visibly inside the fountain instead of reading as a flat disc.
-  p.cylinder(compose(0, 0.35, 0, 0, 0, 0, 4.4, 0.7, 4.4), P.stoneDark, 16, 0.5, 0.5, 0.035);
-  p.torus(compose(0, 0.73, 0, 0, 0, 0, 4.02, 0.32, 4.02), P.stone, 1, 0.2, 24, 7);
+  p.cylinder(compose(0, 0.35, 0, 0, 0, 0, 4.4, 0.7, 4.4), P.stoneDark, 24, 0.5, 0.5, 0.035);
+  p.torus(compose(0, 0.73, 0, 0, 0, 0, 4.02, 0.32, 4.02), P.stone, 1, 0.2, 32, 9);
   p.cylinder(compose(0, 0.58, 0, 0, 0, 0, 3.75, 0.18, 3.75), P.pavingDark, 20, 0.5, 0.5);
-  p.cylinder(compose(0, 1.0, 0, 0, 0, 0, 1.6, 1.4, 1.6), P.stoneDark, 8);
-  p.cylinder(compose(0, 1.75, 0, 0, 0, 0, 2.6, 0.25, 2.6), P.stone, 10);
-  bakeBeaver(p, { ...DEFAULT_LOOK, hat: "hat_ranger" }, compose(0, 1.9, 0, 0.4, 0, 0, 1.3));
+  // Three distinct carved tiers make the landmark visible from the whole hub.
+  p.cylinder(compose(0, 1.0, 0, 0, 0, 0, 1.78, 1.35, 1.78), P.stoneDark, 16);
+  p.torus(compose(0, 1.7, 0, 0, 0, 0, 1.58, 0.16, 1.58), P.stone, 1, 0.13, 20, 7);
+  p.cylinder(compose(0, 1.83, 0, 0, 0, 0, 2.72, 0.27, 2.72), P.stone, 18);
+  p.cylinder(compose(0, 2.12, 0, 0, 0, 0, 1.15, 0.5, 1.15), P.stoneDark, 14);
+  p.torus(compose(0, 2.43, 0, 0, 0, 0, 1.2, 0.12, 1.2), P.stone, 1, 0.10, 18, 6);
+  bakeBeaver(p, { ...DEFAULT_LOOK, hat: "hat_ranger" }, compose(0, 2.55, 0, 0.4, 0, 0, 1.22));
   finishProp();
 
   // Lodge café — big, warm, with a deck.
