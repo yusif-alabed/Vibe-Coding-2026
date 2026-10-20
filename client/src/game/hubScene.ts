@@ -323,7 +323,7 @@ export class HubScene implements Scene {
     this.panelEl = h("div.overlay.pe", { onclick: () => this.closeOverlays() }, h("div.card.help", {}, [
       h("h2", {}, "How to play"),
       h("div", {}, [h("b", {}, "Walk: "), h("kbd", {}, "W A S D"), " / arrows, or tap the ground"]),
-      h("div", {}, [h("b", {}, "Look around: "), "move your mouse · ", h("kbd", {}, "Q"), " ", h("kbd", {}, "E"), " · scroll to zoom"]),
+      h("div", {}, [h("b", {}, "Look around: "), "click and drag · ", h("kbd", {}, "Q"), " ", h("kbd", {}, "E"), " · scroll to zoom"]),
       h("div", {}, [h("b", {}, "Chat: "), h("kbd", {}, "Enter"), " · 💬 quick chat · 😀 emotes · ", h("kbd", {}, "Space"), " to hop"]),
       h("div", {}, [h("b", {}, "Do things: "), "walk up to a place and press the big button (or ", h("kbd", {}, "F"), ")"]),
       h("div", { style: "margin-top:8px" }, "🛷 Head north to the trailhead portal for Toboggan Rush. Win coins, then spend them at the 🎒 Outfitter."),

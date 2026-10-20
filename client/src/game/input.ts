@@ -1,7 +1,7 @@
 /** Keyboard + pointer/touch input. Works with mouse, trackpad and phones. */
 export class Input {
   keys = new Set<string>();
-  /** Accumulated camera look movement since last read (pixels). */
+  /** Accumulated camera drag since last read (pixels). */
   dragX = 0;
   zoom = 0;
   /** Last tap (not drag) in canvas CSS pixels. */
@@ -24,13 +24,7 @@ export class Input {
     });
     el.addEventListener("pointermove", (e) => {
       const p = this.pointers.get(e.pointerId);
-      // Desktop look is hover-based: moving the mouse across the game rotates
-      // the camera without holding a button. Touch keeps the existing drag
-      // behaviour so taps still work naturally on phones.
-      if (!p) {
-        if (e.pointerType === "mouse") this.dragX += e.movementX;
-        return;
-      }
+      if (!p) return;
       const dx = e.clientX - p.x;
       p.x = e.clientX;
       p.y = e.clientY;
