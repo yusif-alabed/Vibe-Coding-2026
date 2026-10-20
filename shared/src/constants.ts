@@ -24,6 +24,15 @@ export const HUB_PLACES = {
   hotSpring: { x: 30, z: -34, r: 0 },
 } as const;
 
+/** Shared dimensions for the walkable timber bridge over the river. */
+export const BRIDGE = {
+  x: 6,
+  z: 41.5,
+  ry: 0.05,
+  halfWidth: 2,
+  halfLength: 5.5,
+} as const;
+
 /** Solid things you can't walk through (circles). */
 export const HUB_COLLIDERS: { x: number; z: number; r: number }[] = [
   { x: HUB_PLACES.lodge.x, z: HUB_PLACES.lodge.z, r: HUB_PLACES.lodge.r },
@@ -97,6 +106,16 @@ for (let i = 0; i < 9; i += 3) for (const side of [-1, 1]) {
   const x = HUB_PLACES.dock.x + Math.sin(dockAngle) * i * 1.2 + Math.cos(dockAngle) * side * 1.6;
   const z = HUB_PLACES.dock.z + Math.cos(dockAngle) * i * 1.2 - Math.sin(dockAngle) * side * 1.6;
   addSolid(x, z, 0.55);
+}
+// Bridge guard rails. The deck itself stays walkable; overlapping rail
+// colliders keep players from clipping through the visible side posts/ropes.
+for (const side of [-1, 1]) {
+  for (let along = -5; along <= 5; along += 1) {
+    const lx = side * 1.9, lz = along;
+    const x = BRIDGE.x + lx * Math.cos(BRIDGE.ry) + lz * Math.sin(BRIDGE.ry);
+    const z = BRIDGE.z - lx * Math.sin(BRIDGE.ry) + lz * Math.cos(BRIDGE.ry);
+    addSolid(x, z, 0.58);
+  }
 }
 for (const side of [-1, 1]) addSolid(HUB_PLACES.trailhead.x + side * 4, HUB_PLACES.trailhead.z, 1.0);
 

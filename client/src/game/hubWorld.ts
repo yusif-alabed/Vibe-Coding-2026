@@ -1,4 +1,4 @@
-import { fencePosts, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS } from "@beaver/shared";
+import { BRIDGE, fencePosts, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS } from "@beaver/shared";
 import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
@@ -28,6 +28,18 @@ export function dockHeightAt(x: number, z: number): number | null {
   const across = dx * Math.cos(angle) - dz * Math.sin(angle);
   if (along < -0.55 || along > 10.15 || Math.abs(across) > 1.6) return null;
   return 0.25;
+}
+
+/** Height of the timber bridge deck at a world point, if it is walkable. */
+export function bridgeHeightAt(x: number, z: number): number | null {
+  const dx = x - BRIDGE.x, dz = z - BRIDGE.z;
+  // Inverse of the architecture Frame transform: local x is across the deck,
+  // local z runs along it.
+  const lx = dx * Math.cos(BRIDGE.ry) - dz * Math.sin(BRIDGE.ry);
+  const lz = dx * Math.sin(BRIDGE.ry) + dz * Math.cos(BRIDGE.ry);
+  if (Math.abs(lx) > 1.58 || Math.abs(lz) > BRIDGE.halfLength) return null;
+  // Matches the subtle arched boards built below, including their top surface.
+  return 0.55 + Math.cos((lz / 5) * 1.2) * 0.6 + 0.12;
 }
 
 /** River centreline: down from the north-east peaks, past the arcade, around the south of the village, into the lake. */
@@ -416,7 +428,7 @@ export function buildHub(r: Renderer): HubWorld {
 
   // Bridge over the river, with railings.
   {
-    const fr = new Frame(6, 0, 41.5, 0.05);
+    const fr = new Frame(BRIDGE.x, 0, BRIDGE.z, BRIDGE.ry);
     for (let i = -5; i <= 5; i++) {
       const y = 0.55 + Math.cos((i / 5) * 1.2) * 0.6;
       box(p, fr, 0, y, i * 1.0, 4, 0.22, 0.95, i % 2 ? C("#b9804c") : C("#9b6338"));

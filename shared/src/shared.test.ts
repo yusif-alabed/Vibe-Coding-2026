@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ChatRateLimiter,
   CHAT,
+  BRIDGE,
   coinsForRace,
   filterChat,
   HUB,
@@ -109,6 +110,16 @@ describe("movement validation", () => {
     if (rock) {
       const p = validateMove({ x: rock.x + rock.r + 1, z: rock.z }, { x: rock.x, z: rock.z }, 1000);
       assert.ok(Math.hypot(p.x - rock.x, p.z - rock.z) >= rock.r - 1e-9);
+    }
+  });
+  it("keeps bridge rails solid while leaving the bridge deck walkable", () => {
+    const x = BRIDGE.x + 1.9 * Math.cos(BRIDGE.ry);
+    const z = BRIDGE.z - 1.9 * Math.sin(BRIDGE.ry);
+    const rail = HUB_COLLIDERS.find((c) => Math.hypot(c.x - x, c.z - z) < 0.01);
+    assert.ok(rail, "bridge rail registered as solid");
+    if (rail) {
+      const p = validateMove({ x: rail.x - 1, z: rail.z }, { x: rail.x, z: rail.z }, 1000);
+      assert.ok(Math.hypot(p.x - rail.x, p.z - rail.z) >= rail.r - 1e-9);
     }
   });
   it("ignores NaN input", () => {
