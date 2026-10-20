@@ -252,12 +252,12 @@ export function getBeaverMeshes(r: Renderer, look: Look): BeaverMeshes {
 }
 
 /** Bakes a beaver into an existing static mesh (used for the plaza statue). */
-export function bakeBeaver(into: MeshBuilder, look: Look, m: Mat4) {
-  const carved = (x: number, y: number, z: number): Vec3 => {
+export function bakeBeaver(into: MeshBuilder, look: Look, m: Mat4, material?: (x: number, y: number, z: number) => Vec3) {
+  const carved = material ?? ((x: number, y: number, z: number): Vec3 => {
     // A deliberate carved-cedar monument, not a desaturated copy of a player.
     const s = 0.52 + 0.12 * Math.sin(x * 3 + y * 2 + z);
     return [s * 0.72, s * 0.43, s * 0.2];
-  };
+  });
   const bake = (builder: MeshBuilder, offset: Vec3) => {
     const d = builder.build();
     const tris: number[][] = [];

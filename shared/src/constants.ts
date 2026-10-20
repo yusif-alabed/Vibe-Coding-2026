@@ -53,11 +53,11 @@ for (let i = 0; i < 6; i++) {
 // The hub's scenery is deterministic. These helpers deliberately mirror the
 // placement rules in the renderer so collision stays authoritative on the
 // server while every visible rock and tree remains solid on the client.
-const sceneryHash = (x: number, y: number) => {
+export const sceneryHash = (x: number, y: number) => {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return s - Math.floor(s);
 };
-const sceneryDistSeg = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) => {
+export const sceneryDistSeg = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) => {
   const dx = bx - ax, dz = bz - az;
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)));
   return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
@@ -68,9 +68,9 @@ const PATHS: [number, number, number, number][] = [
   [0, 0, HUB_PLACES.arcade.x, HUB_PLACES.arcade.z], [0, 0, HUB_PLACES.dock.x, HUB_PLACES.dock.z],
   [0, 0, HUB_PLACES.trailhead.x, HUB_PLACES.trailhead.z + 2], [HUB_PLACES.outfitter.x, HUB_PLACES.outfitter.z, HUB_PLACES.hotSpring.x, HUB_PLACES.hotSpring.z], [0, 0, 6, 40],
 ];
-const pathDistance = (x: number, z: number) => Math.min(...PATHS.map((p) => sceneryDistSeg(x, z, ...p)));
-const riverDistance = (x: number, z: number) => Math.min(...RIVER.slice(0, -1).map((p, i) => sceneryDistSeg(x, z, ...p, ...RIVER[i + 1])));
-const sceneryHeight = (x: number, z: number) => {
+export const pathDistance = (x: number, z: number) => Math.min(...PATHS.map((p) => sceneryDistSeg(x, z, ...p)));
+export const riverDistance = (x: number, z: number) => Math.min(...RIVER.slice(0, -1).map((p, i) => sceneryDistSeg(x, z, ...p, ...RIVER[i + 1])));
+export const sceneryHeight = (x: number, z: number) => {
   const r = Math.hypot(x, z);
   let h = 0;
   if (r > 12) h += 0.35 * Math.sin(x * 0.13) * Math.cos(z * 0.11) * Math.min(1, (r - 12) / 10);

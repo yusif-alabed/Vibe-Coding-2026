@@ -187,10 +187,20 @@ export class RaceScene implements Scene {
   render() {
     const { r } = this.ctx;
     r.time = this.time;
+    // Crisp snowy afternoon on the run.
+    r.env.lightDir = [0.5, 0.55, -0.67];
+    r.env.sunColor = [1.0, 0.9, 0.76];
+    r.env.sunIntensity = 1.25;
+    r.env.skyTop = [0.25, 0.52, 0.85];
+    r.env.skyHorizon = [0.82, 0.88, 0.94];
+    r.env.ground = [0.7, 0.72, 0.78];
+    r.env.ambient = 0.6;
+    r.env.exposure = 1.0;
     r.env.fogNear = 60;
-    r.env.fogFar = 380;
-    r.env.skyHorizon = [0.91, 0.95, 1.0];
-    r.env.skyTop = [0.35, 0.65, 0.92];
+    r.env.fogFar = 700;
+    r.env.fogHeight = 0.006;
+    r.env.clouds = 0.8;
+    r.env.sky = true;
     const focus = this.me ?? this.racers[0];
     const p = trackToWorld(focus.x * 0.5, focus.z);
     const ahead = trackToWorld(focus.x * 0.5, focus.z + 10);
@@ -199,12 +209,12 @@ export class RaceScene implements Scene {
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     const fov = (aspect < 0.8 ? 1.1 : 0.95) + (focus.boost ? 0.12 : 0);
-    r.begin(lookAt(cam, [ahead[0], ahead[1] + 1, ahead[2]]), perspective(fov, aspect, 0.5, 1800), cam);
+    r.shadowFocus = [p[0], p[1], p[2]];
+    r.begin(lookAt(cam, [ahead[0], ahead[1] + 1, ahead[2]]), perspective(fov, aspect, 0.5, 2400), cam);
     const I = compose(0, 0, 0);
-    r.draw(this.sky, compose(cam[0], cam[1] - 200, cam[2]), { unlit: true, noFog: true });
-    r.draw(this.mtn, compose(0, -TRACK.length * TRACK.slope * 0.5, 0), { outline: 0.35 });
-    r.draw(this.world.ground, I);
-    r.draw(this.world.props, I, { outline: 0.07 });
+    r.draw(this.mtn, compose(0, -TRACK.length * TRACK.slope * 0.5 - 40, 0), { noCast: true });
+    r.draw(this.world.ground, I, { noCast: true });
+    r.draw(this.world.props, I, { sway: 0.15 });
     r.draw(this.world.glow, I, { unlit: true });
 
     for (const g of this.layout.gates) {

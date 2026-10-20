@@ -178,6 +178,28 @@ export class MeshBuilder {
     return this;
   }
 
+  /**
+   * Adds one vertex directly (world space). `sway` is the wind weight (0 = rooted, 1 = moves freely);
+   * it is stored in the smooth channel, which only outline-drawn meshes use.
+   */
+  vertex(p: Vec3, n: Vec3, c: Vec3, sway = 0) {
+    this.pos.push(p[0], p[1], p[2]);
+    this.nrm.push(n[0], n[1], n[2]);
+    this.col.push(c[0], c[1], c[2]);
+    this.smo.push(sway, 0, 0);
+    return this;
+  }
+
+  /** Sets the wind weight for every vertex added since `fromVertex`, from its world position. */
+  setSway(fromVertex: number, weight: (x: number, y: number, z: number) => number) {
+    for (let i = fromVertex; i < this.pos.length / 3; i++) {
+      this.smo[i * 3] = weight(this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]);
+      this.smo[i * 3 + 1] = 0;
+      this.smo[i * 3 + 2] = 0;
+    }
+    return this;
+  }
+
   merge(other: MeshBuilder) {
     this.pos.push(...other.pos);
     this.nrm.push(...other.nrm);

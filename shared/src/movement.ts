@@ -52,7 +52,8 @@ export function validateMove(prev: Pos, proposed: Pos, dtMs: number): Pos {
 }
 
 export function randomSpawn(rand: () => number = Math.random): Pos {
-  const a = rand() * Math.PI * 2;
+  // Arrive on the south side of the plaza, looking north over the fountain to the peaks.
+  const a = Math.PI / 2 + (rand() - 0.5) * 1.4;
   const r = 8.5 + rand() * 3; // just outside the fountain basin
   return { x: Math.cos(a) * r, z: Math.sin(a) * r };
 }

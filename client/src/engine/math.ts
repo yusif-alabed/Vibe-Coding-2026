@@ -128,3 +128,54 @@ export function hash2(x: number, y: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return s - Math.floor(s);
 }
+
+/** Orthographic projection (used for the sun's shadow camera). */
+export function ortho(l: number, r: number, b: number, t: number, n: number, f: number): Mat4 {
+  const m = new Float32Array(16);
+  m[0] = 2 / (r - l);
+  m[5] = 2 / (t - b);
+  m[10] = -2 / (f - n);
+  m[12] = -(r + l) / (r - l);
+  m[13] = -(t + b) / (t - b);
+  m[14] = -(f + n) / (f - n);
+  m[15] = 1;
+  return m;
+}
+
+/** Smooth 2D value noise in [0, 1]. */
+export function noise2(x: number, y: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy), b = hash2(ix + 1, iy), c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+/** Fractal noise in roughly [0, 1]. */
+export function fbm2(x: number, y: number, octaves = 4): number {
+  let sum = 0, amp = 0.5, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    sum += noise2(x, y) * amp;
+    norm += amp;
+    x = x * 2.03 + 17.1;
+    y = y * 2.03 - 9.7;
+    amp *= 0.5;
+  }
+  return sum / norm;
+}
+
+/** Ridged fractal noise (sharp crests), in [0, 1]. Good for craggy mountains. */
+export function ridged2(x: number, y: number, octaves = 5): number {
+  let sum = 0, amp = 0.5, norm = 0, prev = 1;
+  for (let i = 0; i < octaves; i++) {
+    const n = 1 - Math.abs(noise2(x, y) * 2 - 1);
+    const r = n * n * prev;
+    sum += r * amp;
+    norm += amp;
+    prev = n;
+    x = x * 2.1 + 31.7;
+    y = y * 2.1 - 12.3;
+    amp *= 0.5;
+  }
+  return sum / norm;
+}

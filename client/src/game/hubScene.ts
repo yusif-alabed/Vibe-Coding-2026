@@ -3,6 +3,7 @@ import {
   CATALOG_BY_ID,
   EMOTES,
   FUR_COLORS,
+  HUB_COLLIDERS,
   HUB_PLACES,
   PORTAL_RADIUS,
   QUICK_CHAT,
@@ -15,7 +16,7 @@ import {
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
 import { h, toast } from "../ui/dom";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
-import { dockHeightAt, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
+import { applyVillageLight, dockHeightAt, drawHub, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import type { Ctx, Scene } from "./scene";
 
 const WALK_SPEED = 7.5;
@@ -41,7 +42,8 @@ export class HubScene implements Scene {
   private avatars = new Map<string, Avatar>();
   private me: Avatar;
   private yaw = 0.3;
-  private dist = 15;
+  private dist = 13;
+  private camDist = 13;
   private target: { x: number; z: number } | null = null;
   private sendAcc = 0;
   private lastSent = { x: NaN, z: NaN, ry: NaN };
@@ -524,57 +526,62 @@ export class HubScene implements Scene {
     const { r } = this.ctx;
     const me = this.me;
     r.time = this.time;
-    r.env.fogNear = 90;
-    r.env.fogFar = 420;
-    // Match the painted sky mesh: a clear cold-blue Banff day, not a peach fog filter.
-    r.env.skyHorizon = [0.72, 0.85, 0.91];
-    r.env.skyTop = [0.16, 0.48, 0.70];
+    applyVillageLight(r);
     const py = this.groundY(me);
-    const pitch = 0.42 + (this.dist - 7) * 0.008;
-    let cx = me.x + Math.sin(this.yaw) * Math.cos(pitch) * this.dist;
-    let cz = me.z + Math.cos(this.yaw) * Math.cos(pitch) * this.dist;
-    // The follow camera is a physical point too: push it out of cabin volumes so
-    // it never looks through a roof or wall when the player is nearby.
+    // A low, cinematic follow camera that keeps the peaks in frame.
+    const pitch = 0.12 + (this.dist - 7) * 0.013;
+    // Slide the camera in front of any tree canopy or building between it and the player.
+    const sx = Math.sin(this.yaw), sz = Math.cos(this.yaw);
+    let clearDist = this.dist;
+    for (const c of HUB_COLLIDERS) {
+      if (c.r < 0.9) continue;
+      // Trees: their branches spread well past the trunk. Buildings: just the walls.
+      // The fountain only blocks the view at its central statue tower.
+      const isFountain = c.x === 0 && c.z === 0;
+      const reach = isFountain ? 4.6 : c.r > 2.6 ? c.r + 0.8 : c.r * 2.3;
+      const ox = c.x - me.x, oz = c.z - me.z;
+      const along = ox * sx + oz * sz;
+      if (along < 1.5 || along > this.dist + reach) continue;
+      const side = Math.abs(ox * sz - oz * sx);
+      if (side > reach) continue;
+      const hit = along - Math.sqrt(reach * reach - side * side);
+      clearDist = Math.min(clearDist, Math.max(3.2, hit - 0.6));
+    }
+    this.camDist += (clearDist - this.camDist) * Math.min(1, (clearDist < this.camDist ? 6 : 2) / 60);
+    const cd = this.camDist;
+    let cx = me.x + sx * Math.cos(pitch) * cd;
+    let cz = me.z + sz * Math.cos(pitch) * cd;
+    // The follow camera is a physical point too: push it out of buildings so it never looks through a wall.
     for (const solid of [PL.lodge, PL.outfitter, PL.arcade]) {
       const dx = cx - solid.x, dz = cz - solid.z;
       const d = Math.hypot(dx, dz);
-      const radius = solid.r + 1.6;
+      const radius = solid.r + (solid === PL.lodge ? 3.5 : 1.6);
       if (d < radius) {
         const k = d < 0.001 ? 1 : radius / d;
         cx = solid.x + (d < 0.001 ? radius : dx * k);
         cz = solid.z + (d < 0.001 ? 0 : dz * k);
       }
     }
-    let cy = py + 1.4 + Math.sin(pitch) * this.dist;
+    let cy = py + 1.4 + Math.sin(pitch) * cd;
     cy = Math.max(cy, heightAt(cx, cz) + 1.2);
     const cam: Vec3 = [cx, cy, cz];
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
-    r.begin(lookAt(cam, [me.x, py + 1.5, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.85, aspect, 0.5, 1600), cam);
+    r.shadowFocus = [me.x, py, me.z];
+    r.begin(lookAt(cam, [me.x, py + 3.3, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
 
-    const I = compose(0, 0, 0);
-    r.draw(this.world.sky, compose(cx, 0, cz), { unlit: true, noFog: true });
-    r.draw(this.world.mountains, I, { outline: 0.6 });
-    r.draw(this.world.terrain, I);
-    r.draw(this.world.surfaces, I);
-    r.draw(this.world.grass, I);
-    for (const prop of this.world.props) r.draw(prop, I, { outline: 0.045 });
-    r.draw(this.world.glow, I, { unlit: true });
-    const pulse = 1 + Math.sin(this.time * 3) * 0.05;
-    r.draw(this.world.portal, compose(PL.trailhead.x, 3.3, PL.trailhead.z, 0, 0, this.time * 0.8, pulse), { unlit: true });
+    drawHub(r, this.world, this.time);
 
     for (const a of this.avatars.values()) {
       const y = this.groundY(a);
-      // Small contact shadow: keeps each beaver visually planted on the terrain,
-      // especially over the painted meadow and pale snow.
-      r.draw(this.world.shadow, compose(a.x, y + 0.014, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.68 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.04 : 0.10 });
+      // Soft contact shadow keeps beavers planted; the sun adds the real cast shadow.
+      r.draw(this.world.shadow, compose(a.x, y + 0.014, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.68 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.03 : 0.07 });
       drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(a.x, y, a.z, a.ry), {
         walk: a.walk, moving: a.moving, swim: a.swim, jump: Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0), wave: Math.min(1, a.waveT), sled: 0, time: this.time,
         seed: a.seed, cheer: Math.min(1, a.cheerT * 2), talk: a.talkT > 0 ? 1 : 0,
         expr: a.exprT > 0 ? a.expr : a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
       });
     }
-    r.draw(this.world.water, I, { wave: true, alpha: 0.86 });
     for (const p of this.particles) {
       const k = p.life / p.max;
       const s = p.size * (0.6 + k * 1.4);

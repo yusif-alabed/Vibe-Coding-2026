@@ -1,91 +1,237 @@
-import { invert, multiply, type Mat4, type Vec3 } from "./math";
+import { invert, lookAt, multiply, ortho, transformPoint, type Mat4, type Vec3 } from "./math";
 import type { MeshData } from "./mesh";
 
 /**
- * "Chunky Alpine Toon" renderer — a small WebGL2 renderer built for this game's art style:
- *  - flat-shaded low-poly geometry with vertex colours,
- *  - 3-band toon lighting + sky/ground ambient + soft rim light,
- *  - thick ink outlines via an inflated hull (back faces only),
- *  - distance fog that blends into the sky.
+ * Beaver Banff renderer — a small WebGL2 renderer tuned for a warm, storybook "golden hour" look:
+ *  - soft wrapped sunlight with real shadows from a sun shadow map (4-tap PCF),
+ *  - sky/ground ambient, a golden backlight rim and a gentle specular sheen,
+ *  - a procedural painted sky (gradient, sun glow, drifting clouds),
+ *  - aerial perspective: distance haze that warms toward the sun and thins with altitude,
+ *  - water with moving ripples, sky reflection (fresnel) and sun glints; animated waterfalls,
+ *  - wind sway for grass and foliage, optional ink outlines for characters.
+ *
+ * Draw calls are queued between begin() and end(), so the shadow pass can reuse them.
  */
 
 const VS = `#version 300 es
 in vec3 aPos; in vec3 aNrm; in vec3 aCol; in vec3 aSmooth;
-uniform mat4 uModel; uniform mat4 uViewProj;
-uniform float uOutline; uniform float uTime; uniform float uWave;
-out vec3 vNrm; out vec3 vCol; out vec3 vWorld; out vec3 vSmooth;
+uniform mat4 uModel; uniform mat4 uViewProj; uniform mat4 uShadowMat;
+uniform float uOutline; uniform float uTime; uniform float uWave; uniform float uSway;
+out vec3 vNrm; out vec3 vCol; out vec3 vWorld; out vec3 vSmooth; out vec4 vShadow;
 void main() {
   vec3 p = aPos;
-  if (uWave > 0.0) p.y += sin(p.x * 0.35 + uTime * 1.6) * 0.06 + cos(p.z * 0.4 + uTime * 1.1) * 0.06;
+  if (uWave > 0.5 && uWave < 1.5) p.y += sin(p.x * 0.35 + uTime * 1.6) * 0.03 + cos(p.z * 0.4 + uTime * 1.1) * 0.03;
   vec4 w = uModel * vec4(p, 1.0);
-  vec3 sm = normalize(mat3(uModel) * aSmooth);
+  vec3 sm;
+  if (uSway > 0.0) {
+    // Per-vertex wind weight lives in aSmooth.x (0 at the root, 1 at the tip).
+    float k = aSmooth.x;
+    float ph = w.x * 0.23 + w.z * 0.19;
+    float gust = 0.6 + 0.4 * sin(uTime * 0.5 + w.x * 0.05);
+    w.x += sin(uTime * 1.9 + ph) * k * uSway * gust;
+    w.z += cos(uTime * 1.4 + ph * 1.3) * k * uSway * 0.7 * gust;
+    sm = vec3(0.0, 1.0, 0.0);
+  } else {
+    sm = normalize(mat3(uModel) * aSmooth);
+  }
   if (uOutline > 0.0) w.xyz += sm * uOutline;
   vWorld = w.xyz;
   vNrm = normalize(mat3(uModel) * aNrm);
   vSmooth = sm;
   vCol = aCol;
+  vShadow = uShadowMat * vec4(w.xyz + vNrm * 0.06, 1.0);
   gl_Position = uViewProj * w;
 }`;
 
 const FS = `#version 300 es
 precision highp float;
-in vec3 vNrm; in vec3 vCol; in vec3 vWorld; in vec3 vSmooth;
-uniform vec3 uLightDir; uniform vec3 uCamPos;
+precision highp sampler2DShadow;
+in vec3 vNrm; in vec3 vCol; in vec3 vWorld; in vec3 vSmooth; in vec4 vShadow;
+uniform vec3 uLightDir; uniform vec3 uSunColor; uniform vec3 uCamPos; uniform float uSunIntensity;
 uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform vec3 uGround;
-uniform float uFogNear; uniform float uFogFar;
+uniform float uFogNear; uniform float uFogDensity; uniform float uFogHeight; uniform float uAmbient; uniform float uExposure;
 uniform vec4 uTint; uniform float uUnlit; uniform float uNoFog; uniform float uOutline; uniform vec3 uInk; uniform float uAlpha;
-uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength; uniform float uWave; uniform float uTime;
+uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength;
+uniform float uWave; uniform float uTime; uniform float uEmissive;
+uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel;
 out vec4 outColor;
+
+float shadowAt() {
+  if (uShadowOn < 0.5) return 1.0;
+  vec3 c = vShadow.xyz / vShadow.w * 0.5 + 0.5;
+  if (c.x <= 0.0 || c.x >= 1.0 || c.y <= 0.0 || c.y >= 1.0 || c.z >= 1.0) return 1.0;
+  float t = uShadowTexel * 1.25;
+  float s = texture(uShadowMap, vec3(c.xy + vec2(-t, -t * 0.4), c.z))
+          + texture(uShadowMap, vec3(c.xy + vec2(t * 0.4, -t), c.z))
+          + texture(uShadowMap, vec3(c.xy + vec2(t, t * 0.4), c.z))
+          + texture(uShadowMap, vec3(c.xy + vec2(-t * 0.4, t), c.z));
+  s *= 0.25;
+  vec2 e = smoothstep(0.0, 0.06, c.xy) * smoothstep(0.0, 0.06, 1.0 - c.xy);
+  return mix(1.0, s, e.x * e.y);
+}
+
+vec3 skyColor(vec3 d) {
+  vec3 L = normalize(uLightDir);
+  float h = clamp(d.y, 0.0, 1.0);
+  vec3 col = mix(uSkyHorizon, uSkyTop, pow(h, 0.5));
+  float sd = max(dot(d, L), 0.0);
+  col += uSunColor * (pow(sd, 10.0) * 0.35 + pow(sd, 400.0) * 2.0);
+  return col;
+}
+
+vec3 tonemap(vec3 x) {
+  x *= uExposure;
+  // Linear up to 0.8, then a soft shoulder: keeps the painted palette, never clips harshly.
+  return min(x, vec3(0.8)) + 0.2 * (1.0 - exp(-max(x - 0.8, 0.0) / 0.2));
+}
+
+vec3 waterNormal(vec2 p, float t) {
+  vec2 d1 = normalize(vec2(1.0, 0.6)), d2 = normalize(vec2(-0.7, 1.0)), d3 = normalize(vec2(0.25, -1.0)), d4 = normalize(vec2(-1.0, -0.3));
+  vec2 g = d1 * 0.050 * 0.9 * cos(dot(d1, p) * 0.9 + t * 1.3)
+         + d2 * 0.035 * 1.7 * cos(dot(d2, p) * 1.7 + t * 1.7)
+         + d3 * 0.022 * 3.1 * cos(dot(d3, p) * 3.1 + t * 2.3)
+         + d4 * 0.012 * 6.3 * cos(dot(d4, p) * 6.3 + t * 3.1);
+  return normalize(vec3(-g.x, 1.0, -g.y));
+}
+
 void main() {
-  vec3 viewDir = normalize(uCamPos - vWorld);
+  vec3 V = normalize(uCamPos - vWorld);
+  vec3 L = normalize(uLightDir);
   if (uOutline > 0.0) {
     // Only the back of the hull is drawn, so it reads as an outline around the silhouette.
-    if (dot(vSmooth, viewDir) > 0.15) discard;
+    if (dot(vSmooth, V) > 0.15) discard;
     outColor = vec4(uInk, 1.0);
     return;
   }
   vec3 n = normalize(vNrm);
   vec3 textureCol = texture(uTexture, vWorld.xz * uTextureScale).rgb;
-  // The meadow texture is a material detail, not a screen-wide colour filter.
-  // Restrict it to green terrain so snow, paths, sand and the stone plaza retain
-  // their deliberately clean painted colours.
   float grassness = smoothstep(0.045, 0.16, vCol.g - max(vCol.r, vCol.b));
   vec3 materialCol = mix(vCol, textureCol, uUseTexture * uTextureStrength * grassness);
   vec3 base = mix(materialCol, uTint.rgb, uTint.a);
-  if (uWave > 0.5) {
-    // Broad moving highlights make lakes and fountains feel like water, rather
-    // than a static cyan plane. The waves stay graphic and readable at distance.
-    float ripple = sin(vWorld.x * 0.72 + vWorld.z * 0.31 + uTime * 1.8) * 0.5 + 0.5;
-    ripple *= sin(vWorld.z * 1.05 - uTime * 1.25) * 0.5 + 0.5;
-    base = mix(base, vec3(0.78, 0.98, 1.0), ripple * 0.20);
-  }
   vec3 col;
-  if (uUnlit > 0.5) {
-    col = base;
+  float alpha = uAlpha;
+
+  if (uWave > 0.5 && uWave < 1.5) {
+    // Still water: ripples, sky reflection, sun glints, deep body colour.
+    vec3 nw = waterNormal(vWorld.xz, uTime);
+    float fres = 0.05 + 0.95 * pow(1.0 - max(dot(nw, V), 0.0), 4.0);
+    vec3 R = reflect(-V, nw);
+    R.y = abs(R.y);
+    vec3 refl = skyColor(R);
+    float sh = shadowAt();
+    vec3 body = base * (0.35 + 0.65 * (uSunColor * uSunIntensity * max(dot(n, L), 0.0) * sh * 0.5 + uSkyTop * 0.45));
+    col = mix(body, refl, clamp(fres * 0.85, 0.0, 1.0));
+    float glint = pow(max(dot(R, L), 0.0), 220.0) * 3.5 * sh;
+    col += uSunColor * glint;
+    alpha = mix(uAlpha, 1.0, fres * 0.6);
+    col = tonemap(col);
+  } else if (uWave > 1.5) {
+    // Falling water: bright streaks that race downward.
+    float streak = fract(vWorld.y * 0.45 + uTime * 1.6 + sin(vWorld.x * 3.1 + vWorld.z * 2.3) * 0.35);
+    float foam = smoothstep(0.55, 0.95, streak);
+    col = mix(base, vec3(0.97, 0.99, 1.0), 0.35 + foam * 0.55);
+    col *= 0.85 + 0.25 * max(dot(n, L), 0.0);
+    alpha = uAlpha * (0.7 + foam * 0.3);
+  } else if (uUnlit > 0.5) {
+    col = base * (1.0 + uEmissive);
   } else {
-    float ndl = dot(n, normalize(uLightDir));
-    // Soft, postcard-like daylight. The half-Lambert term preserves detail in
-    // rounded faces while the bands retain the illustrated Alpine-toon style.
-    float halfLambert = ndl * 0.5 + 0.5;
-    // Gentle illustrated light: preserve form without collapsing shaded faces
-    // into near-black hard wedges on cabins and props.
-    float band = halfLambert > 0.76 ? 1.08 : halfLambert > 0.48 ? 0.90 : 0.74;
-    vec3 ambient = mix(uGround, uSkyTop, n.y * 0.5 + 0.5) * 0.23;
-    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.2) * 0.14;
-    vec3 halfDir = normalize(normalize(uLightDir) + viewDir);
-    float sunKiss = pow(max(dot(n, halfDir), 0.0), 26.0) * 0.18;
-    col = base * (band * vec3(1.0, 0.97, 0.9) * 0.94 + ambient) + rim * vec3(1.0, 0.95, 0.85) + sunKiss * vec3(1.0, 0.86, 0.58);
-    // Keep the vertex palette intact. The former filmic division here compressed every
-    // colour toward grey, which made the whole village look foggy even at noon.
-    // A small display curve keeps snow readable and stops the sunny palette from
-    // clipping into neon white/green on high-brightness displays.
-    col = pow(clamp(col, 0.0, 1.0), vec3(1.16)) * 0.94;
+    float ndl = dot(n, L);
+    // Wrapped diffuse keeps rounded forms soft and painterly rather than hard-edged.
+    float wrap = clamp((ndl + 0.25) / 1.25, 0.0, 1.0);
+    float sh = shadowAt();
+    vec3 sky = mix(uGround, uSkyTop, n.y * 0.5 + 0.5);
+    vec3 light = uSunColor * uSunIntensity * wrap * sh + sky * uAmbient;
+    // Golden backlight halo on silhouettes when looking toward the sun.
+    float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0) * clamp(dot(-V, L) * 0.6 + 0.4, 0.0, 1.0) * (0.35 + 0.65 * sh);
+    vec3 H = normalize(L + V);
+    float spec = pow(max(dot(n, H), 0.0), 36.0) * 0.12 * sh;
+    col = base * light + uSunColor * (rim * 0.32 + spec);
+    col = tonemap(col);
+    // Warm highlights, slightly cooler shadows: a gentle golden-hour grade.
+    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+    col *= mix(vec3(0.94, 0.98, 1.06), vec3(1.05, 1.0, 0.92), smoothstep(0.15, 0.75, lum));
+    col = mix(vec3(lum), col, 1.08);
   }
-  float d = length(uCamPos - vWorld);
-  float f = clamp((d - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
-  vec3 fogCol = mix(uSkyHorizon, uSkyTop, clamp((vWorld.y - uCamPos.y) / 120.0, 0.0, 0.6));
-  if (uNoFog < 0.5) col = mix(col, fogCol, f * f);
-  outColor = vec4(col, uAlpha);
+
+  if (uNoFog < 0.5) {
+    float d = length(vWorld - uCamPos);
+    float fog = 1.0 - exp(-max(d - uFogNear, 0.0) * uFogDensity);
+    fog *= mix(0.25, 1.0, exp(-max(vWorld.y - 4.0, 0.0) * uFogHeight));
+    float sunAmt = pow(max(dot(-V, L), 0.0), 6.0);
+    vec3 fc = mix(uSkyHorizon, uSunColor * 0.92, sunAmt * 0.45);
+    col = mix(col, fc, clamp(fog, 0.0, 1.0));
+  }
+  outColor = vec4(clamp(col, 0.0, 1.0), alpha);
+}`;
+
+const SHADOW_VS = `#version 300 es
+in vec3 aPos; in vec3 aSmooth;
+uniform mat4 uModel; uniform mat4 uLightVP; uniform float uSway; uniform float uTime;
+void main() {
+  vec4 w = uModel * vec4(aPos, 1.0);
+  if (uSway > 0.0) {
+    float k = aSmooth.x;
+    float ph = w.x * 0.23 + w.z * 0.19;
+    float gust = 0.6 + 0.4 * sin(uTime * 0.5 + w.x * 0.05);
+    w.x += sin(uTime * 1.9 + ph) * k * uSway * gust;
+    w.z += cos(uTime * 1.4 + ph * 1.3) * k * uSway * 0.7 * gust;
+  }
+  gl_Position = uLightVP * w;
+}`;
+const SHADOW_FS = `#version 300 es
+precision mediump float;
+void main() {}`;
+
+const SKY_VS = `#version 300 es
+in vec2 aPos;
+out vec2 vNdc;
+void main() { vNdc = aPos; gl_Position = vec4(aPos, 0.9999, 1.0); }`;
+
+const SKY_FS = `#version 300 es
+precision highp float;
+in vec2 vNdc;
+uniform mat4 uInvViewProj; uniform vec3 uLightDir; uniform vec3 uSunColor;
+uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform float uTime; uniform float uClouds;
+out vec4 outColor;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+float fbm(vec2 p) {
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) { s += noise(p) * a; p = p * 2.02 + vec2(17.1, -9.7); a *= 0.5; }
+  return s;
+}
+void main() {
+  vec4 a = uInvViewProj * vec4(vNdc, -1.0, 1.0);
+  vec4 b = uInvViewProj * vec4(vNdc, 1.0, 1.0);
+  vec3 d = normalize(b.xyz / b.w - a.xyz / a.w);
+  vec3 L = normalize(uLightDir);
+  float h = d.y;
+  vec3 col = mix(uSkyHorizon, uSkyTop, pow(clamp(h, 0.0, 1.0), 0.5));
+  if (h < 0.0) col = mix(uSkyHorizon, uSkyHorizon * 0.92, clamp(-h * 3.0, 0.0, 1.0));
+  float sd = max(dot(d, L), 0.0);
+  // Warm horizon band on the sun side, then the glow and the disc itself.
+  float az = max(dot(normalize(d.xz + 1e-4), normalize(L.xz + 1e-4)), 0.0);
+  col = mix(col, uSunColor * 0.98, pow(az, 3.0) * exp(-max(h, 0.0) * 7.0) * 0.45);
+  col += uSunColor * (pow(sd, 8.0) * 0.28 + pow(sd, 60.0) * 0.4);
+  col = mix(col, vec3(1.0, 0.98, 0.9), smoothstep(0.9994, 0.9998, sd));
+  if (uClouds > 0.0 && h > 0.0) {
+    vec2 uv = d.xz / (h + 0.1) * 0.85 + vec2(uTime * 0.004, uTime * 0.0015);
+    float n = fbm(uv * 1.1);
+    float cov = smoothstep(0.44, 0.72, n) * smoothstep(0.0, 0.16, h) * uClouds;
+    float n2 = fbm(uv * 1.1 + L.xz * 0.09);
+    float lit = clamp(0.55 + (n - n2) * 4.0, 0.0, 1.0);
+    vec3 shade = mix(uSkyTop, vec3(0.62, 0.66, 0.78), 0.55);
+    vec3 cc = mix(shade, vec3(1.0, 0.98, 0.95), lit);
+    cc = mix(cc, uSunColor * 1.08, pow(sd, 5.0) * 0.55 + (1.0 - lit) * 0.0);
+    // Silver lining where the cloud is thin.
+    cc += uSunColor * smoothstep(0.72, 0.44, n) * pow(sd, 3.0) * 0.4;
+    col = mix(col, cc, cov * 0.95);
+  }
+  outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
 export interface GpuMesh {
@@ -98,56 +244,130 @@ export interface DrawOpts {
   outline?: number; // ink width in world units (0 = none)
   tint?: [number, number, number, number];
   unlit?: boolean;
-  wave?: boolean;
+  /** true / 1: still water (ripples, reflections). 2: falling water (waterfalls, cascades). */
+  wave?: boolean | number;
   alpha?: number;
   noFog?: boolean;
   texture?: WebGLTexture;
   textureScale?: number;
   textureStrength?: number;
+  /** Wind sway amplitude in world units (uses per-vertex weights). */
+  sway?: number;
+  /** Don't cast a shadow (terrain, decals, tiny details). */
+  noCast?: boolean;
+  /** Extra brightness for unlit glowing things (windows, lanterns). */
+  emissive?: number;
 }
 
 export interface Environment {
   skyTop: Vec3;
   skyHorizon: Vec3;
   ground: Vec3;
+  /** Direction toward the sun. */
   lightDir: Vec3;
+  sunColor: Vec3;
+  /** Multiplier on direct sunlight (sky glow uses sunColor alone). */
+  sunIntensity: number;
+  ambient: number;
+  exposure: number;
   fogNear: number;
   fogFar: number;
+  /** Fog thins out above this many metres (smaller = thinner at altitude). */
+  fogHeight: number;
   ink: Vec3;
+  clouds: number;
+  /** Draw the procedural sky before the scene. */
+  sky: boolean;
 }
+
+interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts }
+
+const SHADOW_SIZE = 2048;
+const SHADOW_EXTENT = 42; // half-width in metres covered around the focus point
 
 export class Renderer {
   readonly gl: WebGL2RenderingContext;
   private prog: WebGLProgram;
+  private shadowProg: WebGLProgram;
+  private skyProg: WebGLProgram;
+  private skyVao: WebGLVertexArrayObject;
   private whiteTexture: WebGLTexture;
+  private shadowTex: WebGLTexture;
+  private shadowFbo: WebGLFramebuffer;
   private u: Record<string, WebGLUniformLocation | null> = {};
+  private us: Record<string, WebGLUniformLocation | null> = {};
+  private uk: Record<string, WebGLUniformLocation | null> = {};
   viewProj: Mat4 = new Float32Array(16);
   camPos: Vec3 = [0, 0, 0];
   time = 0;
+  /** World point the sun's shadow map is centred on (usually the player). null = no shadows. */
+  shadowFocus: Vec3 | null = null;
+  shadowsEnabled = true;
   env: Environment = {
-    skyTop: [0.36, 0.66, 0.93],
-    skyHorizon: [0.98, 0.86, 0.74],
-    ground: [0.42, 0.55, 0.3],
-    lightDir: [0.45, 0.8, 0.35],
+    skyTop: [0.24, 0.5, 0.82],
+    skyHorizon: [0.78, 0.86, 0.92],
+    ground: [0.42, 0.4, 0.3],
+    lightDir: [0.62, 0.42, -0.66],
+    sunColor: [1.0, 0.86, 0.66],
+    sunIntensity: 1.3,
+    ambient: 0.5,
+    exposure: 1.05,
     fogNear: 70,
-    fogFar: 260,
+    fogFar: 600,
+    fogHeight: 0.012,
     ink: [0.18, 0.11, 0.07],
+    clouds: 1,
+    sky: true,
   };
-  private transparent: { mesh: GpuMesh; model: Mat4; opts: DrawOpts }[] = [];
+  private queue: Item[] = [];
+  private shadowMat: Mat4 = new Float32Array(16);
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { antialias: true, alpha: false, powerPreference: "high-performance" });
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
-    this.prog = this.link(VS, FS);
-    for (const name of ["uModel", "uViewProj", "uOutline", "uTime", "uWave", "uLightDir", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogFar", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength"]) {
+    this.prog = this.link(VS, FS, ["aPos", "aNrm", "aCol", "aSmooth"]);
+    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uShadowMap", "uShadowOn", "uShadowTexel"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
+    this.shadowProg = this.link(SHADOW_VS, SHADOW_FS, ["aPos", "", "", "aSmooth"]);
+    for (const name of ["uModel", "uLightVP", "uSway", "uTime"]) this.us[name] = gl.getUniformLocation(this.shadowProg, name);
+    this.skyProg = this.link(SKY_VS, SKY_FS, ["aPos"]);
+    for (const name of ["uInvViewProj", "uLightDir", "uSunColor", "uSkyTop", "uSkyHorizon", "uTime", "uClouds"]) this.uk[name] = gl.getUniformLocation(this.skyProg, name);
+
+    // Fullscreen triangle for the sky.
+    this.skyVao = gl.createVertexArray()!;
+    gl.bindVertexArray(this.skyVao);
+    const sb = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, sb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     this.whiteTexture = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.whiteTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+
+    // Sun shadow map: a depth texture with hardware comparison (bilinear PCF).
+    this.shadowTex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, SHADOW_SIZE, SHADOW_SIZE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    this.shadowFbo = gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this.shadowTex, 0);
+    gl.drawBuffers([gl.NONE]);
+    gl.readBuffer(gl.NONE);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) this.shadowsEnabled = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
@@ -172,7 +392,7 @@ export class Renderer {
     return texture;
   }
 
-  private link(vs: string, fs: string): WebGLProgram {
+  private link(vs: string, fs: string, attribs: string[]): WebGLProgram {
     const gl = this.gl;
     const sh = (type: number, src: string) => {
       const s = gl.createShader(type)!;
@@ -184,10 +404,7 @@ export class Renderer {
     const p = gl.createProgram()!;
     gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
     gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
-    gl.bindAttribLocation(p, 0, "aPos");
-    gl.bindAttribLocation(p, 1, "aNrm");
-    gl.bindAttribLocation(p, 2, "aCol");
-    gl.bindAttribLocation(p, 3, "aSmooth");
+    attribs.forEach((a, i) => a && gl.bindAttribLocation(p, i, a));
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) ?? "link error");
     return p;
@@ -216,54 +433,156 @@ export class Renderer {
   }
 
   resize(): void {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Phones get a slightly lower render resolution to keep the frame rate smooth.
+    const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    const dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
     const w = Math.floor(this.canvas.clientWidth * dpr), h = Math.floor(this.canvas.clientHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    this.gl.viewport(0, 0, w, h);
   }
 
+  /** Starts a frame. Draw calls are queued until end(). */
   begin(view: Mat4, proj: Mat4, camPos: Vec3): void {
-    const gl = this.gl;
     this.viewProj = multiply(proj, view);
     this.camPos = camPos;
+    this.queue = [];
+  }
+
+  draw(mesh: GpuMesh, model: Mat4, opts: DrawOpts = {}): void {
+    this.queue.push({ mesh, model, opts });
+  }
+
+  private casts(o: DrawOpts): boolean {
+    return !o.unlit && !o.noCast && !o.noFog && !o.wave && (o.alpha ?? 1) >= 1;
+  }
+
+  private renderShadows(): boolean {
+    const gl = this.gl;
+    const f = this.shadowFocus;
+    if (!f || !this.shadowsEnabled) return false;
+    const L = this.env.lightDir;
+    const len = Math.hypot(L[0], L[1], L[2]) || 1;
+    const dist = 220;
+    const eye: Vec3 = [f[0] + (L[0] / len) * dist, f[1] + (L[1] / len) * dist, f[2] + (L[2] / len) * dist];
+    const view = lookAt(eye, f, [0, 1, 0]);
+    const proj = ortho(-SHADOW_EXTENT, SHADOW_EXTENT, -SHADOW_EXTENT, SHADOW_EXTENT, 1, dist * 2);
+    // Snap to whole shadow texels so shadows don't shimmer as the player walks.
+    let vp = multiply(proj, view);
+    const o = transformPoint(vp, 0, 0, 0);
+    const texel = 2 / SHADOW_SIZE;
+    proj[12] += Math.round(o[0] / texel) * texel - o[0];
+    proj[13] += Math.round(o[1] / texel) * texel - o[1];
+    vp = multiply(proj, view);
+    this.shadowMat = vp;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFbo);
+    gl.viewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.useProgram(this.shadowProg);
+    gl.uniformMatrix4fv(this.us.uLightVP, false, vp);
+    gl.uniform1f(this.us.uTime, this.time);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(1.6, 3);
+    for (const it of this.queue) {
+      if (!this.casts(it.opts)) continue;
+      gl.bindVertexArray(it.mesh.vao);
+      gl.uniformMatrix4fv(this.us.uModel, false, it.model);
+      gl.uniform1f(this.us.uSway, it.opts.sway ?? 0);
+      gl.drawArrays(gl.TRIANGLES, 0, it.mesh.count);
+    }
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return true;
+  }
+
+  private drawSky(): void {
+    const gl = this.gl;
+    const e = this.env;
+    const inv = invert(this.viewProj);
+    if (!inv) return;
+    gl.useProgram(this.skyProg);
+    gl.uniformMatrix4fv(this.uk.uInvViewProj, false, inv);
+    gl.uniform3fv(this.uk.uLightDir, e.lightDir);
+    gl.uniform3fv(this.uk.uSunColor, e.sunColor);
+    gl.uniform3fv(this.uk.uSkyTop, e.skyTop);
+    gl.uniform3fv(this.uk.uSkyHorizon, e.skyHorizon);
+    gl.uniform1f(this.uk.uTime, this.time);
+    gl.uniform1f(this.uk.uClouds, e.clouds);
+    gl.depthMask(false);
+    gl.disable(gl.DEPTH_TEST);
+    gl.bindVertexArray(this.skyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+  }
+
+  end(): void {
+    const gl = this.gl;
+    const shadows = this.renderShadows();
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     const [r, g, b] = this.env.skyHorizon;
     gl.clearColor(r, g, b, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (this.env.sky) this.drawSky();
+
     gl.useProgram(this.prog);
     const e = this.env;
     gl.uniformMatrix4fv(this.u.uViewProj, false, this.viewProj);
+    gl.uniformMatrix4fv(this.u.uShadowMat, false, this.shadowMat);
     gl.uniform3fv(this.u.uLightDir, e.lightDir);
-    gl.uniform3fv(this.u.uCamPos, camPos);
+    gl.uniform3fv(this.u.uSunColor, e.sunColor);
+    gl.uniform1f(this.u.uSunIntensity, e.sunIntensity);
+    gl.uniform3fv(this.u.uCamPos, this.camPos);
     gl.uniform3fv(this.u.uSkyTop, e.skyTop);
     gl.uniform3fv(this.u.uSkyHorizon, e.skyHorizon);
     gl.uniform3fv(this.u.uGround, e.ground);
     gl.uniform3fv(this.u.uInk, e.ink);
     gl.uniform1f(this.u.uFogNear, e.fogNear);
-    gl.uniform1f(this.u.uFogFar, e.fogFar);
+    gl.uniform1f(this.u.uFogDensity, 2.2 / Math.max(1, e.fogFar - e.fogNear));
+    gl.uniform1f(this.u.uFogHeight, e.fogHeight);
+    gl.uniform1f(this.u.uAmbient, e.ambient);
+    gl.uniform1f(this.u.uExposure, e.exposure);
     gl.uniform1f(this.u.uTime, this.time);
-    this.transparent = [];
-  }
+    gl.uniform1f(this.u.uShadowOn, shadows ? 1 : 0);
+    gl.uniform1f(this.u.uShadowTexel, 1 / SHADOW_SIZE);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
+    gl.uniform1i(this.u.uShadowMap, 1);
 
-  draw(mesh: GpuMesh, model: Mat4, opts: DrawOpts = {}): void {
-    if ((opts.alpha ?? 1) < 1) {
-      this.transparent.push({ mesh, model, opts });
-      return;
+    const opaque = this.queue.filter((it) => (it.opts.alpha ?? 1) >= 1);
+    const clear = this.queue.filter((it) => (it.opts.alpha ?? 1) < 1);
+    for (const it of opaque) this.drawNow(it);
+    if (clear.length) {
+      // Far to near, so overlapping translucent things blend correctly.
+      const c = this.camPos;
+      const d = (it: Item) => (it.model[12] - c[0]) ** 2 + (it.model[13] - c[1]) ** 2 + (it.model[14] - c[2]) ** 2;
+      clear.sort((a, b) => d(b) - d(a));
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      for (const it of clear) this.drawNow(it);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
     }
-    this.drawNow(mesh, model, opts);
+    gl.bindVertexArray(null);
+    this.queue = [];
   }
 
-  private drawNow(mesh: GpuMesh, model: Mat4, opts: DrawOpts): void {
+  private drawNow({ mesh, model, opts }: Item): void {
     const gl = this.gl;
     gl.bindVertexArray(mesh.vao);
     gl.uniformMatrix4fv(this.u.uModel, false, model);
     gl.uniform4fv(this.u.uTint, opts.tint ?? [0, 0, 0, 0]);
     gl.uniform1f(this.u.uUnlit, opts.unlit ? 1 : 0);
-    gl.uniform1f(this.u.uWave, opts.wave ? 1 : 0);
+    gl.uniform1f(this.u.uWave, opts.wave === true ? 1 : typeof opts.wave === "number" ? opts.wave : 0);
+    gl.uniform1f(this.u.uSway, opts.sway ?? 0);
     gl.uniform1f(this.u.uAlpha, opts.alpha ?? 1);
     gl.uniform1f(this.u.uNoFog, opts.noFog ? 1 : 0);
+    gl.uniform1f(this.u.uEmissive, opts.emissive ?? 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, opts.texture ?? this.whiteTexture);
     gl.uniform1i(this.u.uTexture, 0);
@@ -281,19 +600,6 @@ export class Renderer {
       gl.uniform1f(this.u.uOutline, 0);
       gl.disable(gl.POLYGON_OFFSET_FILL);
     }
-  }
-
-  end(): void {
-    const gl = this.gl;
-    if (this.transparent.length) {
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      gl.depthMask(false);
-      for (const t of this.transparent) this.drawNow(t.mesh, t.model, t.opts);
-      gl.depthMask(true);
-      gl.disable(gl.BLEND);
-    }
-    this.gl.bindVertexArray(null);
   }
 
   /** World → CSS pixel position (for name tags and speech bubbles). Returns null if behind the camera. */

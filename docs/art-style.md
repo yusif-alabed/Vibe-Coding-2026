@@ -1,17 +1,30 @@
-# Art style — "Chunky Alpine Toon"
+# Art style — "Golden Hour Storybook"
 
-Beaver Banff should feel like a hand-painted postcard from the Rockies that you can walk into: cartoony, cozy and bold, readable on a phone screen.
+Beaver Banff should feel like a storybook postcard of the Rockies that you can walk into: a warm evening light over a timber village, a cobbled plaza with a rocky beaver fountain, wildflower meadows, dark spruce forest and huge snowy peaks. The reference is a richly lit 3D illustration, not flat cartoon.
 
 ## Pillars
 
 | Pillar | What it means in practice |
 |---|---|
-| **Chunky low-poly** | Few, big faces. Flat shading (one colour per face). Shapes built from simple primitives: spheres, cones, boxes, cylinders. |
-| **Ink outlines** | Characters and props get a thick dark-brown outline (`#2e1c12`), like a cartoon. Terrain and water don't, so the world stays soft. |
-| **Toon light** | 3 light bands (lit / mid / shade) instead of smooth gradients, plus a warm rim light and a sky-blue fill from above. |
-| **Postcard palette** | Glacier turquoise, pine green, warm timber, snow white, peach-to-blue sky. Saturated but never neon (except arcade signage). |
-| **Chibi beavers** | Head ≈ body size, big buck teeth, paddle tail, tiny feet. Cute first, realistic never. |
+| **Golden-hour light** | Low warm sun from the east, real cast shadows (sun shadow map), soft wrapped shading, cool sky fill in the shade, a gentle golden rim on silhouettes. |
+| **Atmosphere** | Painted sky with drifting clouds and sun glow; distance haze that warms toward the sun and thins with altitude, so peaks stay crisp and valleys go soft blue. |
+| **Modelled detail** | Real 3D cobbles, flagstones, logs, shingles, timber trusses, boulders, grass blades and flowers — no flat ground textures. |
+| **Living world** | Grass, flowers and trees sway in the wind; water ripples, reflects the sky and glints; waterfalls stream; chimneys smoke; windows and lanterns glow. |
+| **Chibi beavers** | Head ≈ body size, big buck teeth, paddle tail, tiny feet. Cute first, realistic never. Thin ink outline only on characters. |
 | **Sticker UI** | Cream cards, 3px ink borders, hard drop shadows, rounded "Fredoka" display font. Buttons squish down when pressed. |
+
+## Where things are built
+
+| What | File |
+|---|---|
+| Lighting, shadows, sky, haze, water and waterfall shading | `client/src/engine/renderer.ts` |
+| Village layout, terrain colours, cobbles, trails, grass and flower placement | `client/src/game/hubWorld.ts` (`applyVillageLight` sets the sun and sky) |
+| Lodge, cabins, fountain and statues, benches, lanterns, fences, dock | `client/src/game/village/architecture.ts` |
+| Spruces, boulders, grass tufts, lupines, daisies, buttercups, ferns | `client/src/game/village/nature.ts` |
+| Snowy mountain range | `client/src/game/village/mountains.ts` |
+| Positions of structures that are solid on the server | `shared/src/village.ts` |
+
+Tips: keep the sun low and warm, keep meadow greens slightly yellow where the sun hits, and use lupines and daisies in clusters near paths and rocks rather than as a carpet.
 
 ## Palette
 

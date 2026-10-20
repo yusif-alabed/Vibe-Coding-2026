@@ -1,18 +1,24 @@
-import { DEFAULT_LOOK, HUB_PLACES } from "@beaver/shared";
-import { compose, hash2, hexToRgb, mixRgb, type Vec3 } from "../engine/math";
+import { fencePosts, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS } from "@beaver/shared";
+import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
-import { bakeBeaver } from "./beaver";
 import { P, rgb } from "./palette";
-import { bench, cabin, campfire, canoe, flowers, lamp, pine, rock, sign, snowyPine } from "./props";
+import { bench, canoe, cliff, dock, fencePost, fenceRails, Frame, fountain, grandLodge, lanternPost, timberCabin, box } from "./village/architecture";
+import { buildMountainMesh, type MountainOpts } from "./village/mountains";
+import { boulder, buttercup, daisy, fern, grassTuft, lupine, spruce, stoneBlock } from "./village/nature";
 
 /**
- * The Beaver Banff village: a meadow ringed by pine forest, a glacier-fed turquoise lake and river,
- * timber cabins around a fountain plaza, and the snowy Rockies all around.
+ * The Beaver Banff village, modelled after a golden-hour postcard of the Rockies:
+ * a cobbled plaza around a rocky beaver fountain, a grand timber lodge, flagstone trails through
+ * flower meadows, a glacier lake with a dock, waterfalls, spruce forest and huge snowy peaks.
+ *
+ * Layout (places, trails, river, tree and rock positions) mirrors shared/src/constants.ts and
+ * shared/src/village.ts, so what you see is exactly what the server treats as solid.
  */
 
 export const WATER_Y = -0.35;
 const PL = HUB_PLACES;
+const C = (h: string) => hexToRgb(h);
 
 /** Height of the walkable dock deck, if the given point lies on its boards. */
 export function dockHeightAt(x: number, z: number): number | null {
@@ -20,9 +26,8 @@ export function dockHeightAt(x: number, z: number): number | null {
   const dx = x - PL.dock.x, dz = z - PL.dock.z;
   const along = dx * Math.sin(angle) + dz * Math.cos(angle);
   const across = dx * Math.cos(angle) - dz * Math.sin(angle);
-  // Nine connected board sections, each 1.05 long, run from the shore out.
   if (along < -0.55 || along > 10.15 || Math.abs(across) > 1.6) return null;
-  return 0.25; // top of the 0.2-high boards, centred at y = 0.15
+  return 0.25;
 }
 
 /** River centreline: down from the north-east peaks, past the arcade, around the south of the village, into the lake. */
@@ -58,18 +63,48 @@ function pathDist(x: number, z: number): number {
   return d;
 }
 
+/** Outer edge of the cobbled plaza (wobbly, so it doesn't look stamped). */
+export function plazaEdge(a: number): number {
+  return 13.3 + Math.sin(a * 3 + 0.55) * 0.55 + Math.cos(a * 5 - 1.1) * 0.3;
+}
+
+// Waterfall cliff behind the lake (outside the walkable area).
+const SW = Math.atan2(PL.lake.z, PL.lake.x);
+const LAKE_FALL = { lip: 24, plunge: 18.6 };
+const lakePoint = (d: number): [number, number] => [PL.lake.x + Math.cos(SW) * d, PL.lake.z + Math.sin(SW) * d];
+const smooth = (a: number, b: number, v: number) => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
 /** Ground height anywhere in the hub (shared by rendering, walking and the camera). */
 export function heightAt(x: number, z: number): number {
   const r = Math.hypot(x, z);
   let h = 0;
   if (r > 12) h += 0.35 * Math.sin(x * 0.13) * Math.cos(z * 0.11) * Math.min(1, (r - 12) / 10);
-  if (r > 66) h += Math.pow(r - 66, 1.35) * 0.32 + hash2(Math.floor(x / 6), Math.floor(z / 6)) * 1.2;
+  // Beyond the walkable area the land rises into gentle forested foothills.
+  if (r > 66) h += Math.pow(r - 66, 1.25) * 0.18 + fbm2(x * 0.03, z * 0.03, 3) * 3 * Math.min(1, (r - 66) / 15);
   // Snowy hill behind the trailhead.
   const th = Math.hypot(x - PL.trailhead.x, (z - PL.trailhead.z + 14) * 0.8);
   if (z < PL.trailhead.z - 3) h += Math.max(0, 16 - th) * 0.45;
+  // Rock wall behind the far side of the lake (beyond the walkable radius only).
+  if (r > 64.5) {
+    const lx = x - PL.lake.x, lz = z - PL.lake.z;
+    const ld = Math.hypot(lx, lz);
+    let da = Math.atan2(lz, lx) - SW;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    h += smooth(19.5, 25, ld) * 24 * Math.exp(-((da / 0.55) ** 2)) * smooth(64.5, 67, r);
+  }
   // Lake bowl.
   const ld = Math.hypot(x - PL.lake.x, z - PL.lake.z);
   if (ld < 19) h = Math.min(h, -2.2 * Math.pow(1 - ld / 19, 0.6) + 0.35);
+  // Plunge pool under the lake waterfall.
+  if (r > 64.5) {
+    const [px, pz] = lakePoint(LAKE_FALL.plunge);
+    const pd = Math.hypot(x - px, z - pz);
+    if (pd < 3.2) h = Math.min(h, -1.4 + pd * 0.35);
+  }
   // River channel.
   const rd = riverDist(x, z);
   if (rd < 4.2) h = Math.min(h, -1.3 * (1 - rd / 4.2) + 0.25 * (rd / 4.2));
@@ -79,389 +114,608 @@ export function heightAt(x: number, z: number): number {
   return h;
 }
 
-function groundColor(x: number, y: number, z: number): Vec3 {
+const GROUT = C("#6f6455");
+const DIRT = C("#a07c50");
+const SAND = C("#bba47c");
+const LAKEBED = C("#3b6b68");
+const MEADOW_SUN = C("#93ad4b");
+const MEADOW = C("#729c3d");
+const MEADOW_DEEP = C("#577f35");
+const MEADOW_DRY = C("#aca35c");
+const FOREST_FLOOR = C("#3f5b33");
+const ROCKY = C("#857c70");
+
+function groundColor(x: number, y: number, z: number, ny: number): Vec3 {
   const r = Math.hypot(x, z);
-  if (y > 13 || (z < PL.trailhead.z - 4 && y > 1.2)) return rgb(P.snowShade);
-  if (y > 8) return rgb(P.rock);
-  if (y < WATER_Y - 0.05) return rgb(P.lakebed);
-  if (y < 0.05 && (riverDist(x, z) < 5.4 || Math.hypot(x - PL.lake.x, z - PL.lake.z) < 20)) return rgb(P.sand);
-  // Paths and the plaza are separate, smooth surface meshes below. Keeping the
-  // base terrain grass here avoids jagged colour interpolation at their edges.
-  return y > 3 ? mixRgb(rgb(P.grassA), rgb(P.meadowDark), Math.min(1, (y - 3) / 5)) : rgb(P.grassA);
+  const n = fbm2(x * 0.06, z * 0.06, 3);
+  const fine = noise2(x * 0.45, z * 0.45);
+  if (z < PL.trailhead.z - 4 && y > 1.2 && r < 70) return mixRgb(rgb(P.snow), rgb(P.snowShade), fine * 0.5);
+  if (y < WATER_Y - 0.05) return LAKEBED;
+  const nearWater = riverDist(x, z) < 5.4 || Math.hypot(x - PL.lake.x, z - PL.lake.z) < 20.5;
+  if (y < 0.12 && nearWater) return mixRgb(SAND, C("#8f8a7c"), fine * 0.5);
+  const a = Math.atan2(z, x);
+  if (r < plazaEdge(a) + 0.15) return GROUT;
+  const pd = pathDist(x, z);
+  if (pd < 2.3 && r > 6) return mixRgb(DIRT, C("#80643f"), fine * 0.4);
+  if (r > 66) {
+    if (ny < 0.55) return mixRgb(ROCKY, C("#6d665f"), fine);
+    return mixRgb(FOREST_FLOOR, MEADOW_DEEP, n * 0.8);
+  }
+  let c = mixRgb(MEADOW, MEADOW_SUN, smooth(0.35, 0.7, n));
+  c = mixRgb(c, MEADOW_DEEP, smooth(0.55, 0.85, fbm2(x * 0.11 + 9, z * 0.11, 2)) * 0.6);
+  c = mixRgb(c, MEADOW_DRY, smooth(0.62, 0.8, noise2(x * 0.03 - 4, z * 0.03 + 2)) * 0.5);
+  // Worn dirt fringe beside the trails.
+  if (pd < 3.6 && r > 6) c = mixRgb(c, DIRT, (1 - smooth(2.3, 3.6, pd)) * 0.6 * (0.6 + fine * 0.4));
+  return mixRgb(c, MEADOW_DEEP, (fine - 0.5) * 0.25);
 }
 
 export interface HubWorld {
   terrain: GpuMesh;
-  surfaces: GpuMesh;
+  ground: GpuMesh;
   grass: GpuMesh;
-  shadow: GpuMesh;
+  flowers: GpuMesh;
+  trees: GpuMesh;
   props: GpuMesh[];
   glow: GpuMesh;
   water: GpuMesh;
+  falls: GpuMesh;
+  foam: GpuMesh;
   mountains: GpuMesh;
-  sky: GpuMesh;
   portal: GpuMesh;
   steam: GpuMesh;
+  shadow: GpuMesh;
   labels: { text: string; x: number; y: number; z: number }[];
 }
 
-export function buildSky(r: Renderer, top: string, horizon: string, glowCol: string): GpuMesh {
-  const m = new MeshBuilder();
-  const t = hexToRgb(top), h = hexToRgb(horizon), g = hexToRgb(glowCol);
-  m.sphere(compose(0, 0, 0, 0, 0, 0, 900), (x, y, z) => {
-    const k = Math.max(0, y / 900);
-    const sun = Math.max(0, (x * 0.5 - z * 0.6) / 900);
-    return mixRgb(mixRgb(h, t, Math.pow(k, 0.55)), g, Math.pow(sun, 3) * (1 - k) * 0.8);
-  }, 20, 32);
-  return r.upload(m.build());
+/** Kept for older callers: the sky is now drawn procedurally by the renderer. */
+export function buildSky(r: Renderer, _top?: string, _horizon?: string, _glow?: string): GpuMesh {
+  return r.upload(new MeshBuilder().build());
 }
 
-export function buildMountains(r: Renderer, seed: number, ring: [number, number], count: number, center: [number, number] = [0, 0]): GpuMesh {
-  const m = new MeshBuilder();
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2 + hash2(i, seed) * 0.4;
-    const d = ring[0] + hash2(seed, i) * (ring[1] - ring[0]);
-    const x = center[0] + Math.cos(a) * d, z = center[1] + Math.sin(a) * d;
-    const h = 70 + hash2(i * 3, seed) * 75;
-    const w = 55 + hash2(i, seed * 7) * 40;
-    const snowLine = h * (0.55 + hash2(i, 2) * 0.12);
-    const col = (_x: number, y: number) => {
-      if (y > snowLine) return rgb(P.snow);
-      if (y > snowLine - 6 && hash2(Math.floor(_x), Math.floor(y)) > 0.5) return rgb(P.snowShade);
-      return mixRgb(rgb(P.rockDark), rgb(P.rock), Math.min(1, y / snowLine));
-    };
-    m.cone(compose(x, h / 2 - 8, z, a * 3, 0, 0, w, h, w * 0.8), col, 10, 0.12);
-    // A shoulder peak for a craggier silhouette.
-    m.cone(compose(x + Math.cos(a + 1.6) * w * 0.4, h * 0.32 - 8, z + Math.sin(a + 1.6) * w * 0.4, a, 0, 0, w * 0.7, h * 0.65, w * 0.6), col, 8, 0.12);
-    // Forested foothill.
-    m.cone(compose(x - Math.cos(a) * w * 0.45, 6, z - Math.sin(a) * w * 0.45, a, 0, 0, w * 0.9, 30, w * 0.7), mixRgb(rgb(P.pineDark), rgb(P.pine), hash2(i, 9)), 6, 0.1);
-  }
-  return r.upload(m.build());
+/** Snow-capped mountain ring (also used by the toboggan run). */
+export function buildMountains(r: Renderer, seed: number, ring: [number, number], _count: number, center: [number, number] = [0, 0]): GpuMesh {
+  const o: MountainOpts = {
+    inner: ring[0],
+    outer: ring[1] * 1.6,
+    baseHeight: () => 0,
+    heroAngle: -Math.PI / 2,
+    center,
+    seed,
+  };
+  return r.upload(buildMountainMesh(o).build());
 }
+
+/** Flat stone (cobble or flagstone): domed top, bevelled edge. */
+function stoneTile(m: MeshBuilder, x: number, y: number, z: number, rx: number, rz: number, rot: number, col: Vec3, h: number, seed: number) {
+  const K = 6;
+  const top: Vec3[] = [], out: Vec3[] = [];
+  for (let k = 0; k < K; k++) {
+    const a = rot + (k / K) * Math.PI * 2 + (hash2(seed, k) - 0.5) * 0.5;
+    const j = 0.82 + hash2(k, seed) * 0.3;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const lx = ca * rx * j, lz = sa * rz * j;
+    const wx = x + lx * Math.cos(rot) - lz * Math.sin(rot), wz = z + lx * Math.sin(rot) + lz * Math.cos(rot);
+    top.push([x + (wx - x) * 0.78, y + h, z + (wz - z) * 0.78]);
+    out.push([wx, y + 0.005, wz]);
+  }
+  const center: Vec3 = [x, y + h * 1.12, z];
+  const tone = 0.9 + hash2(seed, 0.3) * 0.2;
+  const c: Vec3 = [col[0] * tone, col[1] * tone, col[2] * tone];
+  const cEdge: Vec3 = [c[0] * 0.82, c[1] * 0.82, c[2] * 0.82];
+  for (let k = 0; k < K; k++) {
+    const k1 = (k + 1) % K;
+    const nt = (p: Vec3): Vec3 => {
+      const dx = p[0] - x, dz = p[2] - z;
+      const l = Math.hypot(dx, 0.9, dz);
+      return [dx / l * 0.5, 0.9 / l, dz / l * 0.5];
+    };
+    m.vertex(center, [0, 1, 0], c).vertex(top[k], nt(top[k]), c).vertex(top[k1], nt(top[k1]), c);
+    const no = (p: Vec3): Vec3 => {
+      const dx = p[0] - x, dz = p[2] - z;
+      const l = Math.hypot(dx, 0.5, dz);
+      return [dx / l, 0.5 / l, dz / l];
+    };
+    m.vertex(top[k], nt(top[k]), c).vertex(out[k], no(out[k]), cEdge).vertex(out[k1], no(out[k1]), cEdge);
+    m.vertex(top[k], nt(top[k]), c).vertex(out[k1], no(out[k1]), cEdge).vertex(top[k1], nt(top[k1]), c);
+  }
+}
+
+const COBBLES = ["#b4a794", "#a39684", "#c6b9a3", "#968a7a", "#bfae92", "#a89a8a"].map(C);
 
 export function buildHub(r: Renderer): HubWorld {
-  // --- Terrain ---
-  const t = new MeshBuilder();
-  // A one-unit terrain grid keeps paths, snow banks and shorelines smooth from
-  // the close third-person camera instead of exposing broad low-poly facets.
-  const S = 1.0, R = 120;
   const groundNormal = (x: number, z: number): Vec3 => {
-    const e = 0.45;
+    const e = 0.6;
     const nx = heightAt(x - e, z) - heightAt(x + e, z);
     const nz = heightAt(x, z - e) - heightAt(x, z + e);
     const l = Math.hypot(nx, e * 2, nz) || 1;
     return [nx / l, (e * 2) / l, nz / l];
   };
-  const terrainCol = (x: number, y: number, z: number) => groundColor(x, y, z);
+
+  // ------------------------------------------------------------ Terrain
+  const t = new MeshBuilder();
+  const S = 1.5, R = 118;
+  const cache = new Map<string, { p: Vec3; n: Vec3; c: Vec3 }>();
+  const vtx = (x: number, z: number) => {
+    const k = `${x},${z}`;
+    let v = cache.get(k);
+    if (!v) {
+      const y = heightAt(x, z);
+      const n = groundNormal(x, z);
+      v = { p: [x, y, z], n, c: groundColor(x, y, z, n[1]) };
+      cache.set(k, v);
+    }
+    return v;
+  };
   for (let x = -R; x < R; x += S) {
     for (let z = -R; z < R; z += S) {
-      const a: Vec3 = [x, heightAt(x, z), z];
-      const b: Vec3 = [x + S, heightAt(x + S, z), z];
-      const c: Vec3 = [x + S, heightAt(x + S, z + S), z + S];
-      const d: Vec3 = [x, heightAt(x, z + S), z + S];
-      const na = groundNormal(a[0], a[2]), nb = groundNormal(b[0], b[2]);
-      const nc = groundNormal(c[0], c[2]), nd = groundNormal(d[0], d[2]);
-      t.triSmooth(a, b, c, terrainCol, na, nb, nc);
-      t.triSmooth(a, c, d, terrainCol, na, nc, nd);
+      if (Math.hypot(x + S / 2, z + S / 2) > 116) continue;
+      const a = vtx(x, z), b = vtx(x + S, z), c = vtx(x + S, z + S), d = vtx(x, z + S);
+      for (const v of [a, b, c, a, c, d]) t.vertex(v.p, v.n, v.c);
     }
   }
+  cache.clear();
 
-  // Hand-built plaza and trail surfaces sit just over the terrain. They have
-  // clean continuous edges rather than being inferred from terrain vertex colour.
-  const surfaces = new MeshBuilder();
-  const flatUp: Vec3 = [0, 1, 0];
-  // A gentle hand-shaped clearing: deliberately asymmetric where the village
-  // trails enter it, rather than a perfect stamped circle of snow/paving.
-  const plazaRadius = (a: number) => 8.05 + Math.sin(a * 3 + 0.55) * 0.48 + Math.cos(a * 5 - 1.1) * 0.22 + Math.sin(a * 2 - 0.8) * 0.16;
-  for (let i = 0; i < 64; i++) {
-    const a = i / 64 * Math.PI * 2, b = (i + 1) / 64 * Math.PI * 2;
-    const center: Vec3 = [0, heightAt(0, 0) + 0.035, 0];
-    const ra = plazaRadius(a), rb = plazaRadius(b);
-    const pa: Vec3 = [Math.cos(a) * ra, heightAt(Math.cos(a) * ra, Math.sin(a) * ra) + 0.035, Math.sin(a) * ra];
-    const pb: Vec3 = [Math.cos(b) * rb, heightAt(Math.cos(b) * rb, Math.sin(b) * rb) + 0.035, Math.sin(b) * rb];
-    surfaces.triSmooth(center, pa, pb, "#bfd6dc", flatUp, flatUp, flatUp);
+  // ------------------------------------------------------------ Plaza cobbles, trails, flagstones
+  const ground = new MeshBuilder();
+  for (let ri = 0; ; ri++) {
+    const rr = 7.45 + ri * 0.44;
+    if (rr > 14.6) break;
+    const n = Math.floor((Math.PI * 2 * rr) / 0.47);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ri * 0.37 + (hash2(ri, i) - 0.5) * 0.04;
+      if (rr > plazaEdge(a) - 0.1) continue;
+      const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+      const col = COBBLES[Math.floor(hash2(i, ri * 7) * COBBLES.length)];
+      stoneTile(ground, x, heightAt(x, z) + 0.01, z, 0.21, 0.24, a, col, 0.07, i * 131 + ri);
+    }
   }
-  const ribbon = (ax: number, az: number, bx: number, bz: number, half: number, lift: number, color: string) => {
+  // Curb of larger stones around the plaza edge.
+  for (let i = 0; i < 92; i++) {
+    const a = (i / 92) * Math.PI * 2;
+    const rr = plazaEdge(a) + 0.12;
+    const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+    if (pathDist(x, z) < 1.9) continue;
+    stoneTile(ground, x, heightAt(x, z) + 0.01, z, 0.36, 0.28, a + Math.PI / 2, mixRgb(COBBLES[2], C("#8d8272"), hash2(i, 5)), 0.11, i * 17);
+  }
+  const up: Vec3 = [0, 1, 0];
+  const ribbon = (ax: number, az: number, bx: number, bz: number, half: number, lift: number, colA: Vec3, colB: Vec3) => {
     const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
-    const nx = -dz / len * half, nz = dx / len * half;
-    const steps = Math.max(2, Math.ceil(len / 0.55));
+    const nx = (-dz / len) * half, nz = (dx / len) * half;
+    const steps = Math.max(2, Math.ceil(len / 0.6));
     for (let i = 0; i < steps; i++) {
       const t0 = i / steps, t1 = (i + 1) / steps;
       const x0 = ax + dx * t0, z0 = az + dz * t0, x1 = ax + dx * t1, z1 = az + dz * t1;
-      const a: Vec3 = [x0 + nx, heightAt(x0 + nx, z0 + nz) + lift, z0 + nz];
-      const b: Vec3 = [x0 - nx, heightAt(x0 - nx, z0 - nz) + lift, z0 - nz];
-      const c: Vec3 = [x1 - nx, heightAt(x1 - nx, z1 - nz) + lift, z1 - nz];
-      const d: Vec3 = [x1 + nx, heightAt(x1 + nx, z1 + nz) + lift, z1 + nz];
-      surfaces.triSmooth(a, b, c, color, flatUp, flatUp, flatUp);
-      surfaces.triSmooth(a, c, d, color, flatUp, flatUp, flatUp);
+      const wob = (tt: number) => 1 + (noise2(ax * 3 + tt * len * 0.4, az) - 0.5) * 0.35;
+      const w0 = wob(t0), w1 = wob(t1);
+      const A: Vec3 = [x0 + nx * w0, heightAt(x0 + nx * w0, z0 + nz * w0) + lift, z0 + nz * w0];
+      const B: Vec3 = [x0 - nx * w0, heightAt(x0 - nx * w0, z0 - nz * w0) + lift, z0 - nz * w0];
+      const Cc: Vec3 = [x1 - nx * w1, heightAt(x1 - nx * w1, z1 - nz * w1) + lift, z1 - nz * w1];
+      const D: Vec3 = [x1 + nx * w1, heightAt(x1 + nx * w1, z1 + nz * w1) + lift, z1 + nz * w1];
+      const ca = mixRgb(colA, colB, noise2(x0 * 0.7, z0 * 0.7)), cb = mixRgb(colA, colB, noise2(x1 * 0.7, z1 * 0.7));
+      ground.vertex(A, up, ca).vertex(B, up, ca).vertex(Cc, up, cb);
+      ground.vertex(A, up, ca).vertex(Cc, up, cb).vertex(D, up, cb);
     }
   };
-  for (const [ax, az, bx, bz] of PATHS) {
-    // Main village trails meet the clearing at its edge, never through the
-    // fountain centre. The outfitter-to-spring trail keeps both endpoints.
+  const FLAG = [C("#b9ad98"), C("#a99c87"), C("#c9bfa9"), C("#9c907e")];
+  PATHS.forEach(([ax, az, bx, bz], pi) => {
     const fromCenter = Math.hypot(ax, az) < 0.1;
     const len = Math.hypot(bx - ax, bz - az) || 1;
-    const sx = fromCenter ? (bx - ax) / len * 7.5 : ax;
-    const sz = fromCenter ? (bz - az) / len * 7.5 : az;
-    // A built-up earth route, with a compacted crown above a darker cut edge.
-    // It is physical geometry that follows the hills rather than a floor image.
-    ribbon(sx, sz, bx, bz, 2.08, 0.026, "#9b6d3d");
-    ribbon(sx, sz, bx, bz, 1.68, 0.052, "#d2a45f");
-    // Individually modelled trail stones break up the surface without a tiled
-    // image or repeated decal pattern.
-    const trailLen = Math.hypot(bx - sx, bz - sz) || 1;
-    const stones = Math.floor(trailLen / 3.2);
-    for (let i = 0; i < stones; i++) {
-      const u = (i + 0.55) / stones;
-      const px = sx + (bx - sx) * u, pz = sz + (bz - sz) * u;
-      const side = (hash2(i, bx) - 0.5) * 1.9;
-      const dx = (bx - sx) / trailLen, dz = (bz - sz) / trailLen;
-      const x = px - dz * side, z = pz + dx * side;
-      const size = 0.12 + hash2(i, az) * 0.12;
-      surfaces.sphere(compose(x, heightAt(x, z) + 0.075, z, hash2(i, ax) * 4, 0, 0, size, size * 0.45, size * 0.8), i % 2 ? "#b9854b" : "#e0bb79", 4, 6);
-    }
-    // Larger, irregularly placed cobbles are limited to the plaza end of each
-    // trail. This gives the arrival paths real raised detail without creating
-    // a repetitive painted pattern across the meadow.
-    for (let i = 0; i < Math.min(5, stones); i++) {
-      const u = 0.04 + i * 0.075;
-      const px = sx + (bx - sx) * u, pz = sz + (bz - sz) * u;
-      const side = (hash2(i + 9, bz) - 0.5) * 2.1;
-      const dx = (bx - sx) / trailLen, dz = (bz - sz) / trailLen;
-      const x = px - dz * side, z = pz + dx * side;
-      const size = 0.32 + hash2(i, bx + az) * 0.18;
-      surfaces.sphere(compose(x, heightAt(x, z) + 0.078, z, hash2(i + 4, az) * 5, 0, 0, size, 0.085, size * 0.7), i % 2 ? "#d4b17a" : "#ba8e53", 7, 9);
-    }
-  }
-  // Low sculpted snow drifts make the clearing feel built from material rather
-  // than a flat white decal.
-  for (let i = 0; i < 9; i++) {
-    const a = i / 9 * Math.PI * 2 + 0.18;
-    const d = plazaRadius(a) * 0.78;
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    const s = 0.5 + hash2(i, 12) * 0.35;
-    surfaces.sphere(compose(x, heightAt(x, z) + 0.06, z, a, 0, 0, s, 0.12 + hash2(i, 3) * 0.08, s * 0.65), "#d8e8eb", 6, 8);
-  }
-
-  // Physical grass, built from individual bent blade strips rather than cones
-  // or a flat texture. Each tuft has crossed blades so it reads from any camera
-  // direction, while paths, snow and shorelines remain clear.
-  const grass = new MeshBuilder();
-  const blade = (x: number, y: number, z: number, angle: number, bend: number, width: number, height: number, color: string) => {
-    const sideX = Math.cos(angle + Math.PI / 2) * width, sideZ = Math.sin(angle + Math.PI / 2) * width;
-    const bx = Math.cos(bend), bz = Math.sin(bend);
-    const l0: Vec3 = [x - sideX, y, z - sideZ], r0: Vec3 = [x + sideX, y, z + sideZ];
-    const mx = x + bx * height * 0.10, mz = z + bz * height * 0.10;
-    const l1: Vec3 = [mx - sideX * 0.58, y + height * 0.56, mz - sideZ * 0.58];
-    const r1: Vec3 = [mx + sideX * 0.58, y + height * 0.56, mz + sideZ * 0.58];
-    const tip: Vec3 = [x + bx * height * 0.30, y + height, z + bz * height * 0.30];
-    grass.tri(l0, r0, r1, color); grass.tri(l0, r1, l1, color);
-    grass.tri(l1, r1, tip, color);
-  };
-  for (let x = -58; x <= 58; x += 1.55) {
-    for (let z = -58; z <= 58; z += 1.55) {
-      const jx = x + (hash2(x, z) - 0.5) * 0.9, jz = z + (hash2(z, x) - 0.5) * 0.9;
-      const d = Math.hypot(jx, jz), y = heightAt(jx, jz);
-      if (d < 12 || y < 0.04 || pathDist(jx, jz) < 2.6 || riverDist(jx, jz) < 5.3 || hash2(jx * 4, jz * 3) > 0.27) continue;
-      if (Object.values(PL).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 5.5)) continue;
-      const baseAngle = hash2(jx, jz) * Math.PI * 2;
-      for (let i = 0; i < 3; i++) {
-        const a = baseAngle + i * (Math.PI / 3) + hash2(i, jx) * 0.5;
-        const spread = 0.10 + hash2(jx + i, jz) * 0.12;
-        const h = 0.33 + hash2(jx * (i + 2), jz + i) * 0.32;
-        const col = i === 0 ? P.pineLight : i === 1 ? P.grassA : P.meadowDark;
-        blade(jx + Math.cos(a) * spread, y + 0.015, jz + Math.sin(a) * spread, a, a + 0.45 + hash2(jz, i) * 0.45, 0.045 + hash2(i, jx) * 0.018, h, col);
+    const dx = (bx - ax) / len, dz = (bz - az) / len;
+    const a = Math.atan2(dz, dx);
+    const sx = fromCenter ? dx * (plazaEdge(a) - 0.4) : ax;
+    const sz = fromCenter ? dz * (plazaEdge(a) - 0.4) : az;
+    ribbon(sx, sz, bx, bz, 2.05, 0.02, C("#8d6c45"), C("#a17e52"));
+    ribbon(sx, sz, bx, bz, 1.6, 0.035, C("#bd9a68"), C("#cdae7c"));
+    // Flagstones set into the trail.
+    const tl = Math.hypot(bx - sx, bz - sz);
+    for (let d = 0.6; d < tl - 0.5; d += 0.78) {
+      for (let k = 0; k < 2; k++) {
+        if (hash2(d * 3 + k, pi) < 0.25) continue;
+        const side = (k === 0 ? -0.55 : 0.55) + (hash2(d, k + pi) - 0.5) * 0.5;
+        const x = sx + dx * (d + hash2(k, d) * 0.3) - dz * side, z = sz + dz * (d + hash2(k, d) * 0.3) + dx * side;
+        const s = 0.28 + hash2(d, pi * 3 + k) * 0.18;
+        stoneTile(ground, x, heightAt(x, z) + 0.03, z, s, s * (0.7 + hash2(k, d * 2) * 0.4), hash2(d, k) * 6, FLAG[Math.floor(hash2(k * 7, d) * 4)], 0.06, Math.floor(d * 100) + k + pi * 999);
       }
     }
-  }
+    // Pebbles along the trail edges.
+    for (let d = 0.5; d < tl; d += 0.9) {
+      for (const side of [-1, 1]) {
+        if (hash2(d, side + pi) < 0.45) continue;
+        const off = side * (1.75 + hash2(side, d) * 0.6);
+        const x = sx + dx * d - dz * off, z = sz + dz * d + dx * off;
+        stoneTile(ground, x, heightAt(x, z), z, 0.14, 0.11, d, FLAG[3], 0.08, Math.floor(d * 37) + pi);
+      }
+    }
+  });
 
-  // A soft flattened disc grounds characters without adding a full shadow system.
-  // It is reused below every avatar and remains independent from world geometry.
-  const shadow = new MeshBuilder();
-  shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.68, 0.018, 0.44), "#4d6254", 32);
-
-  // --- Props (outlined) and glowing bits (unlit) ---
-  // Major world pieces are uploaded independently: their ink hulls can no longer
-  // cut through cabins, benches and the plaza statue as one giant combined mesh.
+  // ------------------------------------------------------------ Props
   const props: GpuMesh[] = [];
   let p = new MeshBuilder();
-  const finishProp = () => {
+  const finish = () => {
     if (p.vertexCount) props.push(r.upload(p.build()));
     p = new MeshBuilder();
   };
   const glow = new MeshBuilder();
-  const face = (x: number, z: number) => Math.atan2(-x, -z); // rotate +z to face the plaza
+  const falls = new MeshBuilder();
+  const foam = new MeshBuilder();
+  const w = new MeshBuilder();
+  const face = (x: number, z: number) => Math.atan2(-x, -z);
 
-  // Plaza fountain with a beaver statue.
-  // Recessed fountain bowl: a substantial stone body plus a separate raised lip
-  // keeps the water visibly inside the fountain instead of reading as a flat disc.
-  p.cylinder(compose(0, 0.35, 0, 0, 0, 0, 4.4, 0.7, 4.4), P.stoneDark, 24, 0.5, 0.5, 0.035);
-  p.torus(compose(0, 0.73, 0, 0, 0, 0, 4.02, 0.32, 4.02), P.stone, 1, 0.2, 32, 9);
-  p.cylinder(compose(0, 0.58, 0, 0, 0, 0, 3.75, 0.18, 3.75), P.pavingDark, 20, 0.5, 0.5);
-  // Three distinct carved tiers make the landmark visible from the whole hub.
-  p.cylinder(compose(0, 1.0, 0, 0, 0, 0, 1.78, 1.35, 1.78), P.stoneDark, 16);
-  p.torus(compose(0, 1.7, 0, 0, 0, 0, 1.58, 0.16, 1.58), P.stone, 1, 0.13, 20, 7);
-  p.cylinder(compose(0, 1.83, 0, 0, 0, 0, 2.72, 0.27, 2.72), P.stone, 18);
-  p.cylinder(compose(0, 2.12, 0, 0, 0, 0, 1.15, 0.5, 1.15), P.stoneDark, 14);
-  p.torus(compose(0, 2.43, 0, 0, 0, 0, 1.2, 0.12, 1.2), P.stone, 1, 0.10, 18, 6);
-  bakeBeaver(p, { ...DEFAULT_LOOK, hat: "hat_ranger" }, compose(0, 2.55, 0, 0.4, 0, 0, 1.22));
-  finishProp();
-
-  // Lodge café — big, warm, with a deck.
-  cabin(p, glow, PL.lodge.x, PL.lodge.z, face(PL.lodge.x, PL.lodge.z), 11, 8, 4.4, P.roofGreen);
-  finishProp();
-  campfire(p, PL.lodge.x + 8, PL.lodge.z + 7);
-  finishProp();
-  bench(p, PL.lodge.x + 5, PL.lodge.z + 9.5, -0.6);
-  finishProp();
-  bench(p, PL.lodge.x + 11, PL.lodge.z + 5, -2.2);
-  finishProp();
-  // Outfitter with a canoe rack.
-  cabin(p, glow, PL.outfitter.x, PL.outfitter.z, face(PL.outfitter.x, PL.outfitter.z), 8, 6.5, 3.6, P.roofRed);
-  finishProp();
-  canoe(p, PL.outfitter.x - 6.5, 0.9, PL.outfitter.z + 2, 0.5, "#ffb03b");
-  finishProp();
-  // Riverside arcade — teal roof and a neon ring.
-  cabin(p, glow, PL.arcade.x, PL.arcade.z, face(PL.arcade.x, PL.arcade.z), 7.5, 6.5, 3.4, P.roofTeal);
-  finishProp();
-  glow.torus(compose(PL.arcade.x - 3.2, 7.4, PL.arcade.z - 1.2, face(PL.arcade.x, PL.arcade.z), Math.PI / 2, 0, 1.3), "#ff6fb5", 1, 0.14, 18, 5);
-
-  // Dock into the lake + canoes.
-  const dockA = Math.atan2(PL.lake.x - PL.dock.x, PL.lake.z - PL.dock.z);
-  for (let i = 0; i < 9; i++) {
-    const dx = PL.dock.x + Math.sin(dockA) * i * 1.2, dz = PL.dock.z + Math.cos(dockA) * i * 1.2;
-    p.box(compose(dx, 0.15, dz, dockA, 0, 0, 3.2, 0.2, 1.05), i % 2 ? P.timber : P.timberLight);
-    if (i % 3 === 0) for (const s of [-1, 1]) p.cylinder(compose(dx + Math.cos(dockA) * s * 1.6, -0.3, dz - Math.sin(dockA) * s * 1.6, 0, 0, 0, 0.3, 1.4, 0.3), P.timberDark, 6);
-  }
-  canoe(p, PL.dock.x + 5, WATER_Y + 0.1, PL.dock.z + 9, 0.9, P.roofRed);
-  finishProp();
-  canoe(p, PL.dock.x - 2, WATER_Y + 0.1, PL.dock.z + 13, 2.2, "#2b8fd6");
-  finishProp();
-
-  // Bridge over the river south of the plaza.
-  for (let i = -5; i <= 5; i++) {
-    const y = 0.55 + Math.cos((i / 5) * 1.2) * 0.6;
-    p.box(compose(6 + i * 0.05, y, 41.5 + i * 1.0, 0.05, 0, 0, 4, 0.22, 0.95), i % 2 ? P.timber : P.timberLight);
-  }
-  for (const s of [-1, 1]) p.box(compose(6 + s * 2, 1.4, 41.5, 0.05, 0, 0, 0.18, 0.18, 11), P.timberDark);
-  finishProp();
-
-  // Trailhead portal: timber arch + snowy hill + sign.
-  const th = PL.trailhead;
-  for (const s of [-1, 1]) p.cylinder(compose(th.x + s * 4, 3, th.z, 0, 0, 0, 0.7, 6, 0.7), P.timberDark, 7);
-  p.box(compose(th.x, 6.2, th.z, 0, 0, 0, 10, 0.9, 1.1), P.timber);
-  p.box(compose(th.x, 7.0, th.z, 0, 0, 0.0, 6, 1.1, 0.5), P.roofRed);
-  for (let i = 0; i < 4; i++) snowyPine(p, th.x - 9 - i * 4, heightAt(th.x - 9 - i * 4, th.z - 6 - i * 3), th.z - 6 - i * 3, 1.1, i);
-  for (let i = 0; i < 4; i++) snowyPine(p, th.x + 9 + i * 4, heightAt(th.x + 9 + i * 4, th.z - 6 - i * 3), th.z - 6 - i * 3, 1.1, i + 2);
-  finishProp();
-
-  // Hot spring: ring of rocks.
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    rock(p, PL.hotSpring.x + Math.cos(a) * 3.8, -0.1, PL.hotSpring.z + Math.sin(a) * 3.8, 0.9 + hash2(i, 3) * 0.4);
-  }
-  finishProp();
-
-  // Lamps and benches around the plaza, flower patches, signposts.
+  // Fountain.
+  const fountainInfo = fountain(p, falls, foam, heightAt(0, 0));
+  finish();
+  // Plaza benches and lantern posts (positions match the shared collision layout).
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + 0.5;
-    lamp(p, glow, Math.cos(a) * 11.5, Math.sin(a) * 11.5);
-    bench(p, Math.cos(a + 0.5) * 8.6, Math.sin(a + 0.5) * 8.6, Math.atan2(-Math.cos(a + 0.5), -Math.sin(a + 0.5)) + Math.PI);
+    const lx = Math.cos(a) * 11.5, lz = Math.sin(a) * 11.5;
+    lanternPost(p, glow, lx, heightAt(lx, lz), lz, -a);
+    const bx = Math.cos(a + 0.5) * 8.6, bz = Math.sin(a + 0.5) * 8.6;
+    bench(p, bx, heightAt(bx, bz) + 0.02, bz, Math.atan2(-bx, -bz) + Math.PI, i);
   }
-  finishProp();
-  for (let i = 0; i < 26; i++) {
-    const a = hash2(i, 1) * Math.PI * 2, d = 14 + hash2(i, 2) * 40;
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    if (pathDist(x, z) > 3 && heightAt(x, z) > 0 && riverDist(x, z) > 6) flowers(p, x, z);
-  }
-  sign(p, 4, -12, 0);
-  finishProp();
+  for (const l of PATH_LANTERNS) lanternPost(p, glow, l.x, heightAt(l.x, l.z), l.z, Math.atan2(l.x, l.z));
+  finish();
 
-  // Forest: denser toward the edge so the world feels enclosed.
-  for (let x = -110; x <= 110; x += 4.5) {
-    for (let z = -110; z <= 110; z += 4.5) {
+  // Grand lodge with its fire pit and benches.
+  grandLodge(p, glow, heightAt(LODGE.x, LODGE.z));
+  finish();
+  {
+    const fx = -12, fz = -9, fy = heightAt(fx, fz);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      stoneBlock(p, compose(fx + Math.cos(a) * 1.15, fy + 0.15, fz + Math.sin(a) * 1.15, -a, 0, 0, 0.32, 0.22, 0.26), i + 400);
+    }
+    for (const a of [0.4, 2.0, 3.6]) p.cylinder(compose(fx, fy + 0.25, fz, a, 0, Math.PI / 2 - 0.35, 0.2, 1.2, 0.2), C("#5a3a24"), 6);
+    glow.sphere(compose(fx, fy + 0.45, fz, 0, 0, 0, 0.55, 0.7, 0.55), C("#ffb347"), 4, 6);
+    glow.sphere(compose(fx, fy + 0.7, fz, 0, 0, 0, 0.3, 0.5, 0.3), C("#ffe08a"), 4, 6);
+    bench(p, PL.lodge.x + 5, heightAt(PL.lodge.x + 5, PL.lodge.z + 9.5), PL.lodge.z + 9.5, -0.6 + Math.PI, 11);
+    bench(p, PL.lodge.x + 11, heightAt(PL.lodge.x + 11, PL.lodge.z + 5), PL.lodge.z + 5, -2.2 + Math.PI, 12);
+  }
+  finish();
+
+  // Outfitter and arcade cabins.
+  timberCabin(p, glow, PL.outfitter.x, heightAt(PL.outfitter.x, PL.outfitter.z), PL.outfitter.z, face(PL.outfitter.x, PL.outfitter.z), 8, 6.5, C("#c8473a"), 21);
+  {
+    const rx = PL.outfitter.x - 6.5, rz = PL.outfitter.z + 2, ry = heightAt(rx, rz);
+    const fr = new Frame(rx, ry, rz, 0.5);
+    for (const s of [-1.1, 1.1]) box(p, fr, s, 0.8, 0, 0.18, 1.6, 0.18, C("#6f4426"));
+    for (const h of [0.75, 1.4]) box(p, fr, 0, h, 0, 2.6, 0.12, 0.2, C("#6f4426"));
+    canoe(p, rx, ry + 1.0, rz, 0.5, C("#e08a2c"));
+    canoe(p, rx, ry + 1.6, rz, 0.5, C("#2f7fb0"));
+  }
+  finish();
+  timberCabin(p, glow, PL.arcade.x, heightAt(PL.arcade.x, PL.arcade.z), PL.arcade.z, face(PL.arcade.x, PL.arcade.z), 7.5, 6.5, C("#28b9b7"), 33);
+  glow.torus(compose(PL.arcade.x - 2.6, 7.6, PL.arcade.z - 1.8, face(PL.arcade.x, PL.arcade.z), Math.PI / 2, 0, 1.1), C("#ff6fb5"), 1, 0.12, 20, 5);
+  for (let i = 0; i < 9; i++) {
+    const fr = new Frame(PL.arcade.x, heightAt(PL.arcade.x, PL.arcade.z), PL.arcade.z, face(PL.arcade.x, PL.arcade.z));
+    const pp = fr.p(-3.4 + i * 0.85, 3.9 - Math.sin((i / 8) * Math.PI) * 0.35, 5.3);
+    glow.sphere(compose(pp[0], pp[1], pp[2], 0, 0, 0, 0.16), [C("#ffd166"), C("#ff6fb5"), C("#7ff3f0")][i % 3], 3, 5);
+  }
+  finish();
+
+  // Distant chalets on the forested slopes.
+  const CHALETS: [number, number][] = [[-44, -58], [-27, -68], [27, -68], [63, -26], [-66, 14], [-66, -6]];
+  CHALETS.forEach(([x, z], i) => timberCabin(p, glow, x, heightAt(x, z), z, face(x, z), 6, 5, null, 50 + i, false));
+  finish();
+
+  // Fences with lanterns.
+  const posts = fencePosts();
+  posts.forEach((q, i) => {
+    const y = heightAt(q.x, q.z);
+    fencePost(p, glow, q.x, y, q.z, i, q.lantern);
+    const nx = posts[i + 1];
+    if (nx && Math.hypot(nx.x - q.x, nx.z - q.z) < 2.9) fenceRails(p, [q.x, y, q.z], [nx.x, heightAt(nx.x, nx.z), nx.z], i);
+  });
+  finish();
+
+  // Dock and canoes.
+  const dockA = Math.atan2(PL.lake.x - PL.dock.x, PL.lake.z - PL.dock.z);
+  dock(p, glow, PL.dock.x, PL.dock.z, dockA, 0.25, 10.4);
+  canoe(p, PL.dock.x + 5, WATER_Y + 0.12, PL.dock.z + 9, 0.9, C("#c8473a"));
+  canoe(p, PL.dock.x - 2, WATER_Y + 0.12, PL.dock.z + 13, 2.2, C("#2f7fb0"));
+  finish();
+
+  // Bridge over the river, with railings.
+  {
+    const fr = new Frame(6, 0, 41.5, 0.05);
+    for (let i = -5; i <= 5; i++) {
+      const y = 0.55 + Math.cos((i / 5) * 1.2) * 0.6;
+      box(p, fr, 0, y, i * 1.0, 4, 0.22, 0.95, i % 2 ? C("#b9804c") : C("#9b6338"));
+      if (Math.abs(i) % 2 === 1) for (const s of [-1.9, 1.9]) box(p, fr, s, y + 0.55, i, 0.18, 1.1, 0.18, C("#6f4426"));
+    }
+    for (const s of [-1.9, 1.9]) for (let i = -5; i < 5; i++) {
+      const y0 = 0.55 + Math.cos((i / 5) * 1.2) * 0.6, y1 = 0.55 + Math.cos(((i + 1) / 5) * 1.2) * 0.6;
+      box(p, fr, s, (y0 + y1) / 2 + 1.05, i + 0.5, 0.12, 0.12, 1.05, C("#b9804c"), 0, -Math.atan2(y1 - y0, 1), 0);
+    }
+  }
+  finish();
+
+  // Trailhead arch: big log posts, a crossbeam and a sign, with snowy spruces behind.
+  {
+    const th = PL.trailhead, ty = heightAt(th.x, th.z);
+    const fr = new Frame(th.x, ty, th.z, 0);
+    for (const s of [-4, 4]) {
+      p.cylinder(fr.m(s, 3.4, 0, 0.9, 6.8, 0.9), C("#6f4426"), 8);
+      stoneBlock(p, fr.m(s, 0.3, 0, 1.3, 0.6, 1.3), s + 7);
+    }
+    p.cylinder(fr.m(0, 6.6, 0, 0.7, 10.6, 0.7, 0, 0, Math.PI / 2), C("#8a5532"), 8);
+    box(p, fr, 0, 7.6, 0.1, 5.6, 1.2, 0.25, C("#c8473a"));
+    box(p, fr, 0, 7.6, 0.25, 5.0, 0.8, 0.06, C("#f2e6c8"));
+    for (const s of [-1.6, 1.6]) box(p, fr, s, 7.0, 0.1, 0.08, 0.6, 0.08, C("#2e2b2a"));
+  }
+  finish();
+
+  // Hot spring boulder ring.
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const x = PL.hotSpring.x + Math.cos(a) * 3.8, z = PL.hotSpring.z + Math.sin(a) * 3.8;
+    boulder(p, x, heightAt(x, z) + 0.2, z, 1.25, 0.8, 1.1, i + 300, 0.4);
+  }
+  finish();
+
+  // Loose boulders (same positions as the shared collision rocks).
+  for (let i = 0; i < 30; i++) {
+    const a = hash2(i, 7) * Math.PI * 2, d = 20 + hash2(i, 8) * 45;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    if (pathDist(x, z) <= 2.5) continue;
+    const rr = 0.9 + hash2(i, 9) * 1.2;
+    boulder(p, x, heightAt(x, z) + rr * 0.15, z, rr, rr * 0.7, rr * 0.85, i * 7 + 1, 0.7);
+  }
+  // Decorative small stones along the plaza rim and trails.
+  for (let i = 0; i < 70; i++) {
+    const a = hash2(i, 31) * Math.PI * 2;
+    const d = plazaEdge(a) + 0.8 + hash2(i, 32) * 3;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    if (pathDist(x, z) < 2.2) continue;
+    const s = 0.18 + hash2(i, 33) * 0.32;
+    boulder(p, x, heightAt(x, z) + s * 0.1, z, s, s * 0.6, s * 0.8, i + 700, 0.5);
+  }
+  finish();
+
+  // Waterfall cliffs.
+  const ne = { x: 70, z: -80 };
+  const neDir = Math.atan2(52 - 70, -48 - -80); // facing down the river
+  const lip: Vec3 = [ne.x + Math.sin(neDir + Math.PI) * 5.5, 0, ne.z + Math.cos(neDir + Math.PI) * 5.5];
+  lip[1] = Math.min(heightAt(lip[0], lip[2]), 48);
+  cliff(p, ne.x - Math.sin(neDir) * 7, 0, ne.z - Math.cos(neDir) * 7, neDir, 34, lip[1] + 4, 900);
+  const [sx, sz] = lakePoint(21.8);
+  const swTop = heightAt(...lakePoint(LAKE_FALL.lip + 1.5));
+  cliff(p, sx, heightAt(...lakePoint(19.5)) - 1.5, sz, Math.atan2(-Math.cos(SW), -Math.sin(SW)), 30, swTop + 2, 950);
+  finish();
+
+  // ------------------------------------------------------------ Trees
+  const trees = new MeshBuilder();
+  const clear = CHALETS.map(([x, z]) => ({ x, z }));
+  for (let x = -116; x <= 116; x += 4.5) {
+    for (let z = -116; z <= 116; z += 4.5) {
       const jx = x + (hash2(x, z) - 0.5) * 3.5, jz = z + (hash2(z, x) - 0.5) * 3.5;
-      const r = Math.hypot(jx, jz);
-      const chance = r < 16 ? 0 : r < 40 ? 0.1 : r < 58 ? 0.22 : r < 88 ? 0.55 : 0.18;
+      const rr = Math.hypot(jx, jz);
+      if (rr > 116) continue;
+      const inside = rr <= HUB.radius + 2;
+      // Inside the walkable area the rule matches the server exactly; beyond it the forest thickens.
+      const chance = rr < 16 ? 0 : rr < 40 ? 0.1 : rr < 58 ? 0.22 : rr < 88 ? (inside ? 0.55 : 0.8) : 0.85;
       if (hash2(jx * 1.3, jz * 0.7) > chance) continue;
       if (pathDist(jx, jz) < 4 || riverDist(jx, jz) < 6) continue;
       if (Object.values(PL).some((pl) => Math.hypot(jx - pl.x, jz - pl.z) < pl.r + 7)) continue;
       if (Math.hypot(jx - PL.trailhead.x, jz - PL.trailhead.z) < 12) continue;
       const h = heightAt(jx, jz);
       if (h < 0.05) continue;
-      const s = 0.8 + hash2(jx, jz * 3) * 0.7 + (r > 60 ? 0.4 : 0);
-      if (h > 6 || jz < PL.trailhead.z - 6) snowyPine(p, jx, h - 0.1, jz, s, Math.floor(jx));
-      else pine(p, jx, h - 0.1, jz, s, Math.floor(jx));
+      if (!inside) {
+        if (clear.some((c) => Math.hypot(c.x - jx, c.z - jz) < 8)) continue;
+        if (groundNormal(jx, jz)[1] < 0.55 || h > 70) continue;
+        if (Math.hypot(jx - lakePoint(21)[0], jz - lakePoint(21)[1]) < 9) continue;
+      }
+      const s = 0.8 + hash2(jx, jz * 3) * 0.7 + (rr > 60 ? 0.4 : 0);
+      const snow = h > 30 || (jz < PL.trailhead.z - 6 && rr < 70);
+      spruce(trees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: rr > 70 ? "far" : "near", snow });
     }
   }
-  for (let i = 0; i < 30; i++) {
-    const a = hash2(i, 7) * Math.PI * 2, d = 20 + hash2(i, 8) * 45;
-    const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    if (pathDist(x, z) > 2.5) rock(p, x, heightAt(x, z) - 0.2, z, 0.6 + hash2(i, 9) * 1.2);
+  for (const tr of MEADOW_TREES) spruce(trees, tr.x, heightAt(tr.x, tr.z) - 0.15, tr.z, tr.s, Math.floor(tr.x * 13 + tr.z));
+  // Snowy spruces around the trailhead hill.
+  const th = PL.trailhead;
+  for (let i = 0; i < 4; i++) for (const s of [-1, 1]) {
+    const x = th.x + s * (9 + i * 4), z = th.z - 6 - i * 3;
+    spruce(trees, x, heightAt(x, z) - 0.1, z, 1.15, i + (s > 0 ? 2 : 0), { snow: true });
   }
-  finishProp();
 
-  // --- Water: continuous lake and river surfaces, not a terrain-cell overlay. ---
-  const w = new MeshBuilder();
-  const waterCol = (x: number, _y: number, z: number): Vec3 => {
-    const deep = Math.min(1, Math.max(0, -heightAt(x, z) / 2));
-    return mixRgb(rgb(P.glacier), rgb(P.glacierDeep), deep * 0.7);
+  // ------------------------------------------------------------ Grass & flowers
+  const grass = new MeshBuilder();
+  const flowers = new MeshBuilder();
+  const lodgeSolids = [[-6, -1.5], [0, -1.5], [6, -1.5], [-6, 4.5], [0, 4.5], [6, 4.5]].map(([a, b]) => lodgeToWorld(a, b));
+  const blocked = (x: number, z: number, pad: number) => {
+    const rr = Math.hypot(x, z);
+    if (rr < plazaEdge(Math.atan2(z, x)) + 0.25 + pad * 0.5) return true;
+    if (pathDist(x, z) < 1.95 - pad * 0.3) return true;
+    if (riverDist(x, z) < 4.7) return true;
+    if (Math.hypot(x - PL.lake.x, z - PL.lake.z) < 19.6) return true;
+    if (z < th.z - 4 && heightAt(x, z) > 1.2) return true;
+    if (lodgeSolids.some((q) => Math.hypot(q.x - x, q.z - z) < 4.2)) return true;
+    if (Math.hypot(x - PL.outfitter.x, z - PL.outfitter.z) < 5.6 || Math.hypot(x - PL.arcade.x, z - PL.arcade.z) < 5.4) return true;
+    if (Math.hypot(x - PL.hotSpring.x, z - PL.hotSpring.z) < 4.6) return true;
+    if (dockHeightAt(x, z) !== null) return true;
+    return false;
   };
+  for (let x = -60; x <= 60; x += 0.62) {
+    for (let z = -60; z <= 60; z += 0.62) {
+      const jx = x + (hash2(x, z) - 0.5) * 0.55, jz = z + (hash2(z, x) - 0.5) * 0.55;
+      const rr = Math.hypot(jx, jz);
+      if (rr > 60 || blocked(jx, jz, 0)) continue;
+      const lushN = fbm2(jx * 0.09, jz * 0.09, 3);
+      const nearEdge = pathDist(jx, jz) < 3.2 || rr < plazaEdge(Math.atan2(jz, jx)) + 2.2;
+      const keep = 0.35 + lushN * 0.45 + (nearEdge ? 0.25 : 0);
+      if (hash2(jx * 3.1, jz * 2.7) > keep) continue;
+      const y = heightAt(jx, jz);
+      const dry = Math.max(0, noise2(jx * 0.03 - 4, jz * 0.03 + 2) - 0.6) * 1.6;
+      grassTuft(grass, jx, y - 0.01, jz, Math.floor(jx * 131 + jz * 17), Math.min(1, lushN * 1.2 + (nearEdge ? 0.25 : 0)), dry);
+    }
+  }
+  for (let x = -58; x <= 58; x += 0.95) {
+    for (let z = -58; z <= 58; z += 0.95) {
+      const jx = x + (hash2(x + 3, z) - 0.5) * 0.8, jz = z + (hash2(z, x + 3) - 0.5) * 0.8;
+      if (Math.hypot(jx, jz) > 58 || blocked(jx, jz, 0.4)) continue;
+      const y = heightAt(jx, jz);
+      const seed = Math.floor(jx * 71 + jz * 13);
+      const lupN = fbm2(jx * 0.07 + 30, jz * 0.07, 3);
+      const daisyN = fbm2(jx * 0.09 - 12, jz * 0.09 + 5, 3);
+      const edge = pathDist(jx, jz) < 3.4 || Math.hypot(jx, jz) < plazaEdge(Math.atan2(jz, jx)) + 2.5;
+      const roll = hash2(jx * 1.7, jz * 2.3);
+      if (lupN > 0.62 && roll < (lupN - 0.6) * 2.4 + (edge ? 0.08 : 0)) lupine(flowers, jx, y, jz, 1.0 + hash2(seed, 2) * 0.45, seed);
+      else if (daisyN > 0.52 && roll < (daisyN - 0.45) * 2.8) for (let k = 0; k < 3; k++) daisy(flowers, jx + (hash2(seed, k) - 0.5) * 0.6, y, jz + (hash2(k, seed) - 0.5) * 0.6, 1, seed + k);
+      else if (roll < 0.06) buttercup(flowers, jx, y, jz, seed);
+      else if (roll > 0.985 && Math.hypot(jx, jz) > 30) fern(flowers, jx, y, jz, 1, seed);
+    }
+  }
+  // Flower beds hugging the plaza rim and the lodge terrace.
+  for (let i = 0; i < 160; i++) {
+    const a = (i / 160) * Math.PI * 2 + hash2(i, 1) * 0.03;
+    const d = plazaEdge(a) + 0.7 + hash2(i, 2) * 1.6;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    if (blocked(x, z, -1)) continue;
+    const y = heightAt(x, z);
+    const roll = hash2(i, 3);
+    if (roll < 0.22) lupine(flowers, x, y, z, 0.95 + hash2(i, 4) * 0.4, i * 7);
+    else if (roll < 0.7) daisy(flowers, x, y, z, 1.1, i * 7);
+    else if (roll < 0.85) buttercup(flowers, x, y, z, i * 7);
+  }
+
+  // ------------------------------------------------------------ Water
   const waterY = WATER_Y + 0.035;
-  const up: Vec3 = [0, 1, 0];
-  const disc = (x: number, z: number, radius: number, color: string, segments = 40) => {
-    const center: Vec3 = [x, waterY, z];
-    for (let i = 0; i < segments; i++) {
-      const a = (i / segments) * Math.PI * 2, b = ((i + 1) / segments) * Math.PI * 2;
-      const p: Vec3 = [x + Math.cos(a) * radius, waterY, z + Math.sin(a) * radius];
-      const q: Vec3 = [x + Math.cos(b) * radius, waterY, z + Math.sin(b) * radius];
-      w.triSmooth(center, p, q, color, up, up, up);
+  const disc = (x: number, z: number, radius: number, colFn: (x: number, z: number) => Vec3, y = waterY, segments = 48) => {
+    const rings = 6;
+    for (let ri = 0; ri < rings; ri++) {
+      const r0 = (radius * ri) / rings, r1 = (radius * (ri + 1)) / rings;
+      for (let i = 0; i < segments; i++) {
+        const a0 = (i / segments) * Math.PI * 2, a1 = ((i + 1) / segments) * Math.PI * 2;
+        const pts: Vec3[] = [
+          [x + Math.cos(a0) * r0, y, z + Math.sin(a0) * r0], [x + Math.cos(a0) * r1, y, z + Math.sin(a0) * r1],
+          [x + Math.cos(a1) * r1, y, z + Math.sin(a1) * r1], [x + Math.cos(a1) * r0, y, z + Math.sin(a1) * r0],
+        ];
+        for (const k of [0, 1, 2, 0, 2, 3]) w.vertex(pts[k], up, colFn(pts[k][0], pts[k][2]));
+      }
     }
   };
-  // The lake sits inside its bowl, leaving a clean dry shoreline with no overlapping cells.
-  disc(PL.lake.x, PL.lake.z, 17.2, P.glacier, 56);
-  // Smooth ribbon follows the river centreline. Each section shares edges with the next.
+  const DEEP = C("#1d5d7a"), SHALLOW = C("#3fa3b0");
+  const depthCol = (x: number, z: number) => mixRgb(SHALLOW, DEEP, Math.min(1, Math.max(0, -heightAt(x, z) / 1.8)));
+  disc(PL.lake.x, PL.lake.z, 17.4, depthCol);
+  const [plx, plz] = lakePoint(LAKE_FALL.plunge);
+  disc(plx, plz, 3.0, () => SHALLOW, waterY, 24);
   for (let i = 0; i < RIVER.length - 1; i++) {
     const [ax, az] = RIVER[i], [bx, bz] = RIVER[i + 1];
     const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
-    const nx = -dz / len * 2.65, nz = dx / len * 2.65;
-    const a: Vec3 = [ax + nx, waterY, az + nz], b: Vec3 = [ax - nx, waterY, az - nz];
-    const c: Vec3 = [bx - nx, waterY, bz - nz], d: Vec3 = [bx + nx, waterY, bz + nz];
-    w.triSmooth(a, b, c, waterCol, up, up, up);
-    w.triSmooth(a, c, d, waterCol, up, up, up);
+    const nx = (-dz / len) * 2.7, nz = (dx / len) * 2.7;
+    const steps = Math.ceil(len / 2);
+    for (let k = 0; k < steps; k++) {
+      const t0 = k / steps, t1 = (k + 1) / steps;
+      const x0 = ax + dx * t0, z0 = az + dz * t0, x1 = ax + dx * t1, z1 = az + dz * t1;
+      const pts: Vec3[] = [[x0 + nx, waterY, z0 + nz], [x0 - nx, waterY, z0 - nz], [x1 - nx, waterY, z1 - nz], [x1 + nx, waterY, z1 + nz]];
+      for (const q of [0, 1, 2, 0, 2, 3]) w.vertex(pts[q], up, mixRgb(SHALLOW, DEEP, 0.45));
+    }
   }
-  disc(PL.hotSpring.x, PL.hotSpring.z, 3.1, "#73cfc7", 40);
-  // Fountain water gets its own high-resolution surface instead of a faceted cap.
-  const fountainY = 0.66;
-  for (let i = 0; i < 48; i++) {
-    const a = (i / 48) * Math.PI * 2, b = ((i + 1) / 48) * Math.PI * 2;
-    w.triSmooth([0, fountainY, 0], [Math.cos(a) * 3.48, fountainY, Math.sin(a) * 3.48], [Math.cos(b) * 3.48, fountainY, Math.sin(b) * 3.48], "#5bcfc9", up, up, up);
+  disc(PL.hotSpring.x, PL.hotSpring.z, 3.2, () => C("#7fd6cf"), heightAt(PL.hotSpring.x, PL.hotSpring.z) + 0.25, 32);
+  // Fountain pools.
+  disc(0, 0, 5.25, () => C("#4fa7b3"), fountainInfo.poolY, 48);
+  for (const [rad, y] of fountainInfo.pools) disc(0, 0, rad, () => C("#5ab3bd"), y, 24);
+
+  // Waterfalls: curved falling sheets with mist at the bottom.
+  const waterfall = (top: Vec3, dirX: number, dirZ: number, drop: number, out: number, width: number, strands: number) => {
+    const px = -dirZ, pz = dirX;
+    for (let s = 0; s < strands; s++) {
+      const off = (s - (strands - 1) / 2) * (width / strands) + (hash2(s, top[0]) - 0.5) * 0.6;
+      const wS = (width / strands) * (0.8 + hash2(top[2], s) * 0.5);
+      const rows = 14;
+      for (let j = 0; j < rows; j++) {
+        const t0 = j / rows, t1 = (j + 1) / rows;
+        const at = (t: number, side: number): Vec3 => {
+          const o = out * Math.sqrt(t) * (1 + side * 0.03);
+          const spread = 1 + t * 0.6;
+          return [top[0] + dirX * o + px * (off + side * wS * 0.5 * spread), top[1] - drop * t * t * 0.4 - drop * t * 0.6, top[2] + dirZ * o + pz * (off + side * wS * 0.5 * spread)];
+        };
+        const a = at(t0, -1), b = at(t0, 1), c = at(t1, 1), d = at(t1, -1);
+        const n: Vec3 = [dirX, 0.3, dirZ];
+        const col = C("#bfe3ec");
+        falls.vertex(a, n, col).vertex(b, n, col).vertex(c, n, col);
+        falls.vertex(a, n, col).vertex(c, n, col).vertex(d, n, col);
+      }
+    }
+    const bottom: Vec3 = [top[0] + dirX * out, top[1] - drop, top[2] + dirZ * out];
+    for (let k = 0; k < 9; k++) {
+      const s = 1.6 + hash2(k, top[0]) * 2.2;
+      foam.sphere(compose(bottom[0] + (hash2(k, 1) - 0.5) * width, bottom[1] + 0.6 + hash2(k, 2) * 1.5, bottom[2] + (hash2(k, 3) - 0.5) * width * 0.7, 0, 0, 0, s, s * 0.6, s), C("#ffffff"), 5, 8);
+    }
+  };
+  {
+    const dx = Math.sin(neDir), dz = Math.cos(neDir);
+    waterfall([lip[0] - dx * 0.5, lip[1] - 1, lip[2] - dz * 0.5], dx, dz, lip[1] - waterY, 4.5, 4.2, 4);
+    const [tx, tz] = lakePoint(LAKE_FALL.lip);
+    const ty = heightAt(tx, tz);
+    waterfall([tx, ty - 0.5, tz], -Math.cos(SW), -Math.sin(SW), ty - waterY, 4.8, 3.6, 3);
   }
 
-  // Portal ring (drawn animated) + steam puff (drawn many times).
+  // ------------------------------------------------------------ Mountains, portal, steam
+  const mountains = buildMountainMesh({ inner: 112, outer: 620, baseHeight: heightAt, heroAngle: -Math.PI / 2 - 0.12 });
   const portal = new MeshBuilder().torus(compose(0, 0, 0, 0, Math.PI / 2, 0), P.portal, 3, 0.35, 24, 6);
   const steam = new MeshBuilder().sphere(compose(0, 0, 0), "#ffffff", 4, 6);
+  const shadow = new MeshBuilder();
+  shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.68, 0.018, 0.44), "#2d3a30", 32);
 
   return {
     terrain: r.upload(t.build()),
-    surfaces: r.upload(surfaces.build()),
+    ground: r.upload(ground.build()),
     grass: r.upload(grass.build()),
-    shadow: r.upload(shadow.build()),
+    flowers: r.upload(flowers.build()),
+    trees: r.upload(trees.build()),
     props,
     glow: r.upload(glow.build()),
     water: r.upload(w.build()),
-    mountains: buildMountains(r, 3, [150, 230], 16),
-    sky: buildSky(r, "#287fb8", "#b9dce9", "#ffe39b"),
+    falls: r.upload(falls.build()),
+    foam: r.upload(foam.build()),
+    mountains: r.upload(mountains.build()),
     portal: r.upload(portal.build()),
     steam: r.upload(steam.build()),
+    shadow: r.upload(shadow.build()),
     labels: [
-      { text: "☕ Lodge Café", x: PL.lodge.x, y: 9.5, z: PL.lodge.z },
-      { text: "🎒 Outfitter", x: PL.outfitter.x, y: 8, z: PL.outfitter.z },
-      { text: "🕹️ Riverside Arcade", x: PL.arcade.x, y: 8.5, z: PL.arcade.z },
+      { text: "☕ Lodge Café", x: PL.lodge.x, y: 15, z: PL.lodge.z },
+      { text: "🎒 Outfitter", x: PL.outfitter.x, y: 9, z: PL.outfitter.z },
+      { text: "🕹️ Riverside Arcade", x: PL.arcade.x, y: 9, z: PL.arcade.z },
       { text: "🛶 Lake Dock", x: PL.dock.x, y: 3, z: PL.dock.z },
-      { text: "🛷 Toboggan Rush", x: PL.trailhead.x, y: 9.2, z: PL.trailhead.z },
+      { text: "🛷 Toboggan Rush", x: PL.trailhead.x, y: 9.4, z: PL.trailhead.z },
       { text: "♨️ Hot Springs", x: PL.hotSpring.x, y: 3.5, z: PL.hotSpring.z },
-      { text: "⛲ Village Plaza", x: 0, y: 6.4, z: 0 },
+      { text: "⛲ Village Plaza", x: 0, y: 7.8, z: 0 },
     ],
   };
+}
+
+/** Golden-hour lighting for the village. */
+export function applyVillageLight(r: Renderer) {
+  const e = r.env;
+  e.lightDir = [0.86, 0.42, 0.22];
+  e.sunColor = [1.0, 0.8, 0.56];
+  e.sunIntensity = 1.45;
+  e.skyTop = [0.2, 0.46, 0.82];
+  e.skyHorizon = [0.78, 0.87, 0.94];
+  e.ground = [0.5, 0.44, 0.3];
+  e.ambient = 0.78;
+  e.exposure = 1.08;
+  e.fogNear = 45;
+  e.fogFar = 760;
+  e.fogHeight = 0.011;
+  e.clouds = 1;
+  e.sky = true;
+}
+
+/** Draws the whole village (everything except characters and particles). */
+export function drawHub(r: Renderer, w: HubWorld, time: number) {
+  const I = compose(0, 0, 0);
+  r.draw(w.mountains, I, { noCast: true });
+  r.draw(w.terrain, I, { noCast: true });
+  r.draw(w.ground, I, { noCast: true });
+  r.draw(w.grass, I, { sway: 0.06, noCast: true });
+  r.draw(w.flowers, I, { sway: 0.05, noCast: true });
+  r.draw(w.trees, I, { sway: 0.22 });
+  for (const prop of w.props) r.draw(prop, I);
+  r.draw(w.glow, I, { unlit: true, emissive: 0.25 });
+  const pulse = 1 + Math.sin(time * 3) * 0.05;
+  r.draw(w.portal, compose(PL.trailhead.x, heightAt(PL.trailhead.x, PL.trailhead.z) + 3.3, PL.trailhead.z, 0, 0, time * 0.8, pulse), { unlit: true, emissive: 0.3 });
+  r.draw(w.water, I, { wave: 1, alpha: 0.84 });
+  r.draw(w.falls, I, { wave: 2, alpha: 0.82 });
+  r.draw(w.foam, I, { unlit: true, alpha: 0.42 });
 }

@@ -1,32 +1,24 @@
 import { compose, hash2, hexToRgb, mixRgb, type Vec3 } from "../engine/math";
 import type { MeshBuilder } from "../engine/mesh";
 import { P } from "./palette";
+import { boulder, spruce } from "./village/nature";
 
 /** Reusable rounded 3D props in the Beaver Banff style. All take world position + optional rotation. */
 
 export function pine(m: MeshBuilder, x: number, y: number, z: number, s = 1, seed = 0) {
-  const tint = 0.9 + hash2(x, z) * 0.2;
-  const g = (h: string): Vec3 => hexToRgb(h).map((c) => c * tint) as Vec3;
-  m.cylinder(compose(x, y + 0.6 * s, z, 0, 0, 0, 0.35 * s, 1.2 * s, 0.35 * s), P.trunk, 16);
-  const layers = 3 + (seed % 2);
-  for (let i = 0; i < layers; i++) {
-    const k = 1 - i / (layers + 0.5);
-    const col = i === layers - 1 ? g(P.pineLight) : i % 2 ? g(P.pine) : g(P.pineDark);
-    // High-sided, gently rounded bough layers read as foliage instead of a
-    // stack of primitive cones when the player approaches a tree.
-    m.cone(compose(x, y + (1.5 + i * 1.25) * s, z, seed + i, 0, 0, 3.2 * k * s, 2.4 * s, 3.2 * k * s), col, 20, 0.16);
-  }
+  spruce(m, x, y, z, s * 0.8, seed, { lod: "far" });
 }
+
 
 export function snowyPine(m: MeshBuilder, x: number, y: number, z: number, s = 1, seed = 0) {
-  pine(m, x, y, z, s, seed);
-  m.cone(compose(x, y + 5.0 * s, z, seed, 0, 0, 1.1 * s, 1.0 * s, 1.1 * s), P.snow, 16);
+  spruce(m, x, y, z, s * 0.8, seed, { lod: "far", snow: true });
 }
 
+
 export function rock(m: MeshBuilder, x: number, y: number, z: number, s = 1) {
-  const r = hash2(x, z);
-  m.sphere(compose(x, y + 0.3 * s, z, r * 6, r * 0.3, 0, 1.2 * s, 0.75 * s, 1.0 * s), P.rock, 8, 12, 0.15);
+  boulder(m, x, y + 0.3 * s, z, 1.2 * s, 0.75 * s, 1.0 * s, Math.floor(x * 13 + z * 7), 0.2);
 }
+
 
 export function flowers(m: MeshBuilder, x: number, z: number) {
   const cols = [P.flowerPink, P.flowerYellow, P.flowerPurple, P.white];

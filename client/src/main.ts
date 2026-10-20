@@ -3,7 +3,7 @@ import { compose, lookAt, perspective, type Vec3 } from "./engine/math";
 import { Renderer } from "./engine/renderer";
 import { drawBeaver, getBeaverMeshes, type Expression } from "./game/beaver";
 import { HubScene } from "./game/hubScene";
-import { buildHub, heightAt, type HubWorld } from "./game/hubWorld";
+import { applyVillageLight, buildHub, drawHub, heightAt, type HubWorld } from "./game/hubWorld";
 import { Input } from "./game/input";
 import { RaceScene } from "./game/raceScene";
 import type { Ctx, Scene } from "./game/scene";
@@ -46,7 +46,9 @@ try {
 }
 
 const input = new Input(canvas);
+const buildStart = performance.now();
 const hub: HubWorld = buildHub(renderer);
+const buildMs = Math.round(performance.now() - buildStart);
 
 let scene: Scene | null = null;
 let ctx: Ctx | null = null;
@@ -153,25 +155,18 @@ function renderTitleBackdrop(dt: number) {
   const r = renderer;
   r.time = titleT;
   r.resize();
-  const a = titleT * 0.08 + 0.6;
-  const cam: Vec3 = [Math.sin(a) * 15, 7.5, Math.cos(a) * 15 + 4];
+  // A slow drifting postcard shot: fountain in the middle, lodge on the left, peaks behind.
+  const a = Math.sin(titleT * 0.06) * 0.3 - 0.08;
+  const cam: Vec3 = [Math.sin(a) * 25, 4.6, Math.cos(a) * 25];
   const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
-  r.env.fogNear = 90;
-  r.env.fogFar = 420;
-  r.begin(lookAt(cam, [0, 2.4, 4]), perspective(aspect < 0.8 ? 1.1 : 0.85, aspect, 0.5, 1600), cam);
-  const I = compose(0, 0, 0);
-  r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
-  r.draw(hub.mountains, I, { outline: 0.6 });
-  r.draw(hub.terrain, I);
-  r.draw(hub.surfaces, I);
-  r.draw(hub.grass, I);
-  for (const prop of hub.props) r.draw(prop, I, { outline: 0.045 });
-  r.draw(hub.glow, I, { unlit: true });
-  drawBeaver(r, getBeaverMeshes(r, titleLook), compose(0, heightAt(0, 5), 5, a, 0, 0, 1.2), {
+  applyVillageLight(r);
+  r.shadowFocus = [0, 0, 6];
+  r.begin(lookAt(cam, [0, 6.5, -4]), perspective(aspect < 0.8 ? 1.15 : 0.86, aspect, 0.4, 2400), cam);
+  drawHub(r, hub, titleT);
+  drawBeaver(r, getBeaverMeshes(r, titleLook), compose(3.2, heightAt(3.2, 15.5), 15.5, a + 0.35, 0, 0, 1.15), {
     walk: 0, moving: 0, swim: 0, jump: 0, wave: (Math.sin(titleT * 0.9) > 0.6 ? 1 : 0), sled: 0, time: titleT,
     expr: Math.sin(titleT * 0.9) > 0.6 ? "happy" : "neutral", talk: 0, seed: 1,
   });
-  r.draw(hub.water, I, { wave: true, alpha: 0.86 });
   r.end();
 }
 
@@ -200,10 +195,10 @@ function renderCharacterSheet(dt: number) {
   const rows = Math.ceil(sheet.length / cols);
   const spacing = close ? 1.6 : 2.4;
   const cam: Vec3 = close ? [0, 1.75, 4.2] : [0, 3.2 + rows * 1.9, 5.5 + rows * 2.4];
-  r.env.fogNear = 200; r.env.fogFar = 600;
+  applyVillageLight(r);
+  r.shadowFocus = [0, 0, 0];
   r.begin(lookAt(cam, close ? [0, 1.45, 0] : [0, 0.6, 0.4]), perspective(aspect < 0.9 ? 0.95 : 0.72, aspect, 0.5, 1600), cam);
-  r.draw(hub.sky, compose(cam[0], 0, cam[2]), { unlit: true, noFog: true });
-  r.draw(hub.terrain, compose(0, -0.02, 0));
+  r.draw(hub.terrain, compose(0, -0.02, 30), { noCast: true });
   if (!sheetLabels.length) {
     sheetLabels = sheet.map((c) => { const el = h("div.place", {}, c.label); ui.append(el); return el; });
     ui.append(h("div.pill.pe", { style: "position:absolute;left:12px;top:12px;cursor:pointer", onclick: () => { sheetBack = !sheetBack; } }, "🔄 Turn around"));
@@ -222,7 +217,7 @@ function renderCharacterSheet(dt: number) {
   r.end();
 }
 
-(window as unknown as { __bb: unknown }).__bb = { get scene() { return scene; } };
+(window as unknown as { __bb: unknown }).__bb = { get scene() { return scene; }, hub, buildMs };
 if (params.has("characters")) {
   const loop = (now: number) => { const dt = Math.min(0.05, (now - last) / 1000); last = now; renderCharacterSheet(dt); requestAnimationFrame(loop); };
   requestAnimationFrame(loop);

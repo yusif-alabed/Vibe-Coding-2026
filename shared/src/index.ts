@@ -7,3 +7,4 @@ export * from "./rewards";
 export * from "./chat";
 export * from "./movement";
 export * from "./race";
+export * from "./village";
