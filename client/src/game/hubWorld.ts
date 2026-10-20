@@ -38,8 +38,20 @@ export function bridgeHeightAt(x: number, z: number): number | null {
   const lx = dx * Math.cos(BRIDGE.ry) - dz * Math.sin(BRIDGE.ry);
   const lz = dx * Math.sin(BRIDGE.ry) + dz * Math.cos(BRIDGE.ry);
   if (Math.abs(lx) > 1.58 || Math.abs(lz) > BRIDGE.halfLength) return null;
-  // Matches the subtle arched boards built below, including their top surface.
-  return 0.55 + Math.cos((lz / 5) * 1.2) * 0.6 + 0.12;
+  return bridgeDeckTop(lz);
+}
+
+/** Ground height at each end of the bridge, so the deck lands on the banks instead of floating. */
+let bridgeEnds: [number, number] | null = null;
+/** Top of the arched bridge deck at a point along its length (local z, -halfLength..halfLength). */
+function bridgeDeckTop(lz: number): number {
+  if (!bridgeEnds) {
+    const at = (l: number) => heightAt(BRIDGE.x + l * Math.sin(BRIDGE.ry), BRIDGE.z + l * Math.cos(BRIDGE.ry));
+    bridgeEnds = [at(-BRIDGE.halfLength), at(BRIDGE.halfLength)];
+  }
+  const t = (lz + BRIDGE.halfLength) / (BRIDGE.halfLength * 2);
+  const base = bridgeEnds[0] + (bridgeEnds[1] - bridgeEnds[0]) * Math.max(0, Math.min(1, t));
+  return base + 0.04 + Math.pow(Math.max(0, Math.cos((lz / BRIDGE.halfLength) * (Math.PI / 2))), 0.7) * 1.05;
 }
 
 /** River centreline: down from the north-east peaks, past the arcade, around the south of the village, into the lake. */
@@ -429,13 +441,25 @@ export function buildHub(r: Renderer): HubWorld {
   // Bridge over the river, with railings.
   {
     const fr = new Frame(BRIDGE.x, 0, BRIDGE.z, BRIDGE.ry);
+    // Each board follows the arch at its own position, so the ends sit right on the banks.
+    const deck = (lz: number) => bridgeDeckTop(Math.max(-BRIDGE.halfLength, Math.min(BRIDGE.halfLength, lz))) - 0.11;
     for (let i = -5; i <= 5; i++) {
-      const y = 0.55 + Math.cos((i / 5) * 1.2) * 0.6;
-      box(p, fr, 0, y, i * 1.0, 4, 0.22, 0.95, i % 2 ? C("#b9804c") : C("#9b6338"));
-      if (Math.abs(i) % 2 === 1) for (const s of [-1.9, 1.9]) box(p, fr, s, y + 0.55, i, 0.18, 1.1, 0.18, C("#6f4426"));
+      const lz = i * 1.0;
+      const y = deck(lz), y0 = deck(lz - 0.48), y1 = deck(lz + 0.48);
+      box(p, fr, 0, y, lz, 4, 0.22, 0.98, i % 2 ? C("#b9804c") : C("#9b6338"), 0, -Math.atan2(y1 - y0, 0.96), 0);
+      if (Math.abs(i) % 2 === 1) for (const s of [-1.9, 1.9]) box(p, fr, s, y + 0.55, lz, 0.18, 1.1, 0.18, C("#6f4426"));
+    }
+    // Stout posts under the deck, down into the riverbed, plus a log sill on each bank.
+    for (const lz of [-3, 3]) for (const s of [-1.7, 1.7]) {
+      const top = deck(lz) - 0.1;
+      const bed = heightAt(BRIDGE.x + lz * Math.sin(BRIDGE.ry) + s * Math.cos(BRIDGE.ry), BRIDGE.z + lz * Math.cos(BRIDGE.ry) - s * Math.sin(BRIDGE.ry)) - 0.4;
+      p.cylinder(fr.m(s, (top + bed) / 2, lz, 0.32, top - bed, 0.32), C("#6f4426"), 8);
+    }
+    for (const lz of [-BRIDGE.halfLength + 0.15, BRIDGE.halfLength - 0.15]) {
+      p.cylinder(fr.m(0, deck(lz) - 0.18, lz, 0.34, 4.4, 0.34, 0, 0, Math.PI / 2), C("#7a4b2c"), 8);
     }
     for (const s of [-1.9, 1.9]) for (let i = -5; i < 5; i++) {
-      const y0 = 0.55 + Math.cos((i / 5) * 1.2) * 0.6, y1 = 0.55 + Math.cos(((i + 1) / 5) * 1.2) * 0.6;
+      const y0 = deck(i), y1 = deck(i + 1);
       box(p, fr, s, (y0 + y1) / 2 + 1.05, i + 0.5, 0.12, 0.12, 1.05, C("#b9804c"), 0, -Math.atan2(y1 - y0, 1), 0);
     }
   }

@@ -302,7 +302,8 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const w = pose.walk;
   const mv = pose.moving;
   const seed = pose.seed ?? 0;
-  const cheer = pose.cheer ?? 0;
+  // Holding something (a mug) takes priority over waving or cheering arms.
+  const cheer = (pose.cheer ?? 0) * (1 - (pose.hold ?? 0));
   const expr: Expression = pose.expr ?? (pose.swim > 0.5 ? "happy" : "neutral");
 
   // Squash & stretch: stretch while rising, squash on take-off/landing.
@@ -342,12 +343,13 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   // Arms: swing when walking, paddle when swimming, wave or cheer.
   const armSwing = Math.sin(w) * 0.7 * mv;
   const swimStroke = Math.sin(t * 6) * 1.1 * pose.swim;
-  const waveL = pose.wave * (2.4 + Math.sin(t * 14) * 0.35);
+  const waveL = pose.wave * (1 - hold) * (2.4 + Math.sin(t * 14) * 0.35);
   const cheerA = cheer * (2.05 + Math.sin(t * 12) * 0.22);
   // Cheering lifts both arms forward-and-out into a "V" so they clear the big head.
-  const holdX = -hold * (1.15 + sip * 0.55), holdZ = -hold * 0.5;
-  r.draw(meshes.parts.armL, at("armL", armSwing + swimStroke - pose.sled * 0.9 - cheer * 0.5 + holdX, 0, Math.max(waveL, cheerA) - holdZ), opts);
-  r.draw(meshes.parts.armR, at("armR", -armSwing - swimStroke - pose.sled * 0.9 - cheer * 0.5 + holdX, 0, -cheerA + holdZ), opts);
+  // Holding: both paws come forward and wrap around the sides of a mug in front of the chest.
+  const holdX = -hold * (1.3 + sip * 0.45), holdZ = hold * 0.95;
+  r.draw(meshes.parts.armL, at("armL", armSwing * (1 - hold) + swimStroke - pose.sled * 0.9 - cheer * 0.5 + holdX, 0, Math.max(waveL, cheerA) - holdZ), opts);
+  r.draw(meshes.parts.armR, at("armR", -armSwing * (1 - hold) - swimStroke - pose.sled * 0.9 - cheer * 0.5 + holdX, 0, -cheerA + holdZ), opts);
   r.draw(meshes.parts.footL, at("footL", -Math.sin(w) * 0.8 * mv - pose.sled * 1.2, 0, 0), opts);
   r.draw(meshes.parts.footR, at("footR", Math.sin(w) * 0.8 * mv - pose.sled * 1.2, 0, 0), opts);
   // Tail stays connected to the body: a gentle sway, a little livelier when happy.

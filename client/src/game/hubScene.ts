@@ -783,7 +783,8 @@ export class HubScene implements Scene {
   private mugPos(a: Avatar): Vec3 {
     const d = this.drawPos(a);
     const sip = this.sipAmount(a);
-    const up = 0.86 + sip * 0.5, fwd = 0.6 + sip * 0.12;
+    // Cradled between the paws at the chest; raised to the mouth for a sip.
+    const up = 1.0 + sip * 0.3, fwd = 0.62 + sip * 0.05;
     return [d.x + Math.sin(d.ry) * fwd, d.y + up, d.z + Math.cos(d.ry) * fwd];
   }
 
@@ -892,7 +893,7 @@ export class HubScene implements Scene {
       if (a.soak < 0.3) r.draw(this.world.shadow, compose(a.x, this.groundY(a) + 0.014, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.68 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.03 : 0.07 });
       if (a.act === "cocoa") {
         const mp = this.mugPos(a);
-        r.draw(cozyM.mug, compose(mp[0], mp[1], mp[2], d.ry, -sip * 0.9, 0), { outline: 0.02 });
+        r.draw(cozyM.mug, compose(mp[0], mp[1], mp[2], d.ry, sip * 0.6, 0, 1.45), { outline: 0.02 });
       }
       if (a.soak > 0.6 && !a.info.look.hat) {
         // A folded spa towel balanced on the head.

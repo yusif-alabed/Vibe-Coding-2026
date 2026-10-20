@@ -217,7 +217,7 @@ function renderCharacterSheet(dt: number) {
     const jumpT = c.jumpEvery ? (titleT % c.jumpEvery) / 0.55 : 1;
     drawBeaver(r, getBeaverMeshes(r, c.look), compose(x, 0, z, sheetBack ? Math.PI : close ? 0 : Math.sin(titleT * 0.6 + i) * 0.25), {
       walk: 0, moving: 0, swim: c.swim ?? 0, jump: jumpT < 1 ? Math.sin(jumpT * Math.PI) : 0, wave: c.wave ?? 0, sled: 0,
-      time: titleT, expr: c.expr, cheer: c.cheer, talk: c.talk, seed: i * 1.3,
+      time: titleT, expr: c.expr, cheer: c.cheer, talk: c.talk, seed: i * 1.3, hold: params.has("hold") ? 1 : 0, sip: params.get("hold") === "sip" ? 1 : 0,
     });
     const s = r.project(x, 2.75, z);
     if (s) { sheetLabels[i].style.left = `${s.x}px`; sheetLabels[i].style.top = `${s.y}px`; }
