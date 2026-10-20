@@ -9,6 +9,8 @@ export class Input {
   tap: { x: number; y: number } | null = null;
   /** For the race: -1..1 from holding the left/right half of the screen. */
   touchSteer = 0;
+  /** Where the mouse is hovering (canvas CSS pixels), for placement previews. */
+  hover: { x: number; y: number } | null = null;
   private pointers = new Map<number, { x: number; y: number; sx: number; sy: number; moved: boolean }>();
 
   constructor(private el: HTMLElement) {
@@ -24,6 +26,8 @@ export class Input {
       this.updateTouchSteer();
     });
     el.addEventListener("pointermove", (e) => {
+      const rect = el.getBoundingClientRect();
+      this.hover = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       const p = this.pointers.get(e.pointerId);
       if (!p) return;
       const dx = e.clientX - p.x;
@@ -44,6 +48,7 @@ export class Input {
       this.updateTouchSteer();
     };
     el.addEventListener("pointerup", end);
+    el.addEventListener("pointerleave", () => { if (!this.pointers.size) this.hover = null; });
     el.addEventListener("pointercancel", end);
     el.addEventListener("wheel", (e) => {
       this.zoom += Math.sign(e.deltaY);

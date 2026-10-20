@@ -12,6 +12,9 @@ A cozy 3D multiplayer social game set in a Banff-inspired mountain village. Expl
 - 💬 **Safe chat** — filtered text chat, quick-chat phrases, emotes, block and report.
 - 🛷 **Toboggan Rush** — 4-racer downhill race, bots fill empty seats, server-calculated results.
 - 🪙 **Coins & shop** — earn coins racing, spend them on cosmetics (no pay-to-win).
+- 📜 **Daily quests** — three new quests every day (UTC), a bonus for finishing all three, and 12 golden pinecones hidden around the village.
+- 🏡 **Cabin decorating** — every beaver has a log cabin. Buy furniture (15 pieces), arrange it on a tile grid, and visit friends' cabins.
+- 📷 **Photo mode** — free camera, poses, filters and a postcard frame; save the picture to your device.
 - 🎮 **Solo mode** — the whole game also runs in the browser with friendly bot beavers.
 
 ## Play now (no install)
@@ -75,4 +78,4 @@ Vibe-Coding-2026/
 
 ## Controls
 
-**Walk** WASD / arrows or tap the ground · **Camera** drag, Q/E, scroll · **Chat** Enter · **Hop** Space · **Use place** F · **Steer toboggan** A/D or ←/→ (phones: hold left/right side)
+**Walk** WASD / arrows or tap the ground · **Camera** drag, Q/E, scroll · **Chat** Enter · **Hop** Space · **Use place** F · **Photo mode** P (Space to snap) · **Cabin** 🏡 button, R to turn furniture · **Steer toboggan** A/D or ←/→ (phones: hold left/right side)

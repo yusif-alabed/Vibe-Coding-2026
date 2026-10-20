@@ -11,6 +11,8 @@ export class RaceRoom {
   private timer: NodeJS.Timeout | null = null;
   private startTimer: NodeJS.Timeout;
   private finished = false;
+  /** Final standings, kept so the server can count daily-quest progress. */
+  results: { id: string; place: number; finished: boolean }[] = [];
 
   constructor(
     readonly id: string,
@@ -66,6 +68,7 @@ export class RaceRoom {
       ...r,
       coins: r.isBot ? 0 : coinsForRace({ place: r.place, finished: r.finished, racers }),
     }));
+    this.results = results;
     for (const c of this.players) {
       const mine = results.find((r) => r.id === c.id);
       if (mine) c.record.coins += mine.coins;

@@ -59,6 +59,26 @@ New players start with 100 coins so they can buy something on day one.
 
 Hats, scarves, backpacks and trails (12 items, 0–350 coins) plus 6 fur colours. Cosmetics never affect gameplay. The catalog lives in `shared/src/cosmetics.ts`.
 
+## Daily quests & golden pinecones
+
+- Three quests a day from a pool of 14 (visit a landmark, race, podium, pinecones, emotes, quick-chat, buy something, decorate, take a photo). Picked deterministically per player and UTC day; never two of the same kind.
+- Rewards 15–50 coins each, plus a 50-coin bonus for finishing all three.
+- 12 golden pinecones spawn around the village each day (same spots for everyone, 3 coins each, once per player per day). Walk into one to collect it.
+- The server counts progress only from things it can check itself (position, races, purchases), so quests can't be faked from the client. Rules live in `shared/src/quests.ts` and `shared/src/progress.ts`.
+
+## Cabins & furniture
+
+- Every player owns a cabin: a 10 × 8 tile floor with a stone fireplace. Rugs sit on their own layer so furniture can stand on them.
+- 15 furniture pieces (20–120 coins, up to 6 of each). New players start with a rug, armchair and stump table.
+- Decorate mode: pick an item from your basket, tap a tile (green = fits, red = blocked), R / ⟳ to turn it, tap placed furniture to move it. Layouts are validated on the server (`shared/src/cabin.ts`).
+- Tap another beaver → 🏡 Visit cabin. Visitors can look around but not change anything.
+
+## Photo mode
+
+- 📷 button or P. Hides the HUD; drag to orbit, scroll to zoom, ▲▼ to tilt. Your beaver holds a pose (smile, wave, cheer, mid-hop, surprised, cool).
+- Filters: Natural, Golden, Film, Vivid, Mono, Dreamy. Optional postcard frame with a caption and date. Save or share the JPEG.
+- Taking a photo counts for the photo daily quest.
+
 ## Safety
 
 - Chat filter (catches common disguises like `stup1d`), and a hard block on emails, phone numbers and links.

@@ -2,6 +2,7 @@ import { DEFAULT_LOOK, FUR_COLORS, NAME_MAX, type Look, type ServerMsg } from "@
 import { compose, lookAt, perspective, type Vec3 } from "./engine/math";
 import { Renderer } from "./engine/renderer";
 import { drawBeaver, getBeaverMeshes, type Expression } from "./game/beaver";
+import { CabinScene } from "./game/cabinScene";
 import { HubScene } from "./game/hubScene";
 import { applyVillageLight, buildHub, drawHub, heightAt, type HubWorld } from "./game/hubWorld";
 import { Input } from "./game/input";
@@ -98,7 +99,7 @@ function start(rawName: string, room?: string) {
   storageSet("bb-name", name);
   storageSet("bb-fur", titleLook.fur);
   const net: Net = room && serverUrl ? new OnlineNet(serverUrl) : new OfflineNet();
-  ctx = { r: renderer, input, net, ui, state: { you: "", name, coins: 0, owned: [], look: titleLook } };
+  ctx = { r: renderer, input, net, ui, state: { you: "", name, coins: 0, owned: [], look: titleLook, furniture: {}, quests: null } };
   titleEl?.remove();
   titleEl = null;
   const loading = h("div.title", {}, h("div.card", { style: "padding:18px 26px;font:600 20px var(--font-display)" }, "Paddling over… 🦫"));
@@ -113,6 +114,13 @@ function start(rawName: string, room?: string) {
       scene = new HubScene(ctx, hub, m);
       return;
     }
+    if (m.t === "cabin" && !(scene instanceof CabinScene)) {
+      scene?.dispose();
+      scene = new CabinScene(ctx, m);
+      return;
+    }
+    if (m.t === "quests") ctx.state.quests = m;
+    if (m.t === "furniture") ctx.state.furniture = m.counts;
     if (m.t === "raceStart") {
       scene?.dispose();
       scene = new RaceScene(ctx, m);

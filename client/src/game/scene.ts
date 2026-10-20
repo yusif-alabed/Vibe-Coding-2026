@@ -1,4 +1,4 @@
-import type { Look, ServerMsg } from "@beaver/shared";
+import type { Look, QuestsWire, ServerMsg } from "@beaver/shared";
 import type { Renderer } from "../engine/renderer";
 import type { Net } from "../net/net";
 import type { Input } from "./input";
@@ -9,6 +9,8 @@ export interface PlayerState {
   coins: number;
   owned: string[];
   look: Look;
+  furniture: Record<string, number>;
+  quests: QuestsWire | null;
 }
 
 export interface Ctx {

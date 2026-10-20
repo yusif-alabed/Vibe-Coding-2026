@@ -8,13 +8,19 @@ import {
   PORTAL_RADIUS,
   QUICK_CHAT,
   validateMove,
+  visitedPlace,
   type Look,
+  type QuestsWire,
   type PlayerInfo,
   type ServerMsg,
   type Slot,
 } from "@beaver/shared";
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
+import { MeshBuilder } from "../engine/mesh";
+import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
+import { furnitureGrid } from "../ui/furnitureShop";
+import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { applyVillageLight, bridgeHeightAt, dockHeightAt, drawHub, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import type { Ctx, Scene } from "./scene";
@@ -35,6 +41,31 @@ interface Avatar {
 }
 
 interface Particle { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; color: Vec3; size: number; }
+
+const PLACE_NAMES: Record<string, string> = { lodge: "Lodge Café", hotSpring: "Hot Springs", dock: "Lake Dock", trailhead: "Trailhead", outfitter: "Outfitter", arcade: "Riverside Arcade" };
+
+/** A chunky golden pinecone (built once per renderer). */
+const coneMeshes = new WeakMap<Renderer, GpuMesh>();
+function pineconeMesh(r: Renderer): GpuMesh {
+  let g = coneMeshes.get(r);
+  if (g) return g;
+  const m = new MeshBuilder();
+  const gold = hexToRgb("#ffc93c"), deep = hexToRgb("#e09a1f"), tip = hexToRgb("#fff1a8");
+  for (let ring = 0; ring < 6; ring++) {
+    const y = 0.12 + ring * 0.13, rad = 0.26 * Math.sin(((ring + 0.8) / 6.6) * Math.PI) + 0.05;
+    const n = 7 - Math.floor(ring / 2);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ring * 0.45;
+      m.sphere(compose(Math.cos(a) * rad, y, Math.sin(a) * rad, -a, 0.5, 0, 0.12, 0.08, 0.1), ring % 2 ? gold : deep, 4, 6);
+    }
+  }
+  m.sphere(compose(0, 0.45, 0, 0, 0, 0, 0.2, 0.42, 0.2), deep, 6, 10);
+  m.cone(compose(0, 0.95, 0, 0, 0, 0, 0.14, 0.18, 0.14), tip, 6);
+  m.cylinder(compose(0, 0.02, 0, 0, 0, 0, 0.08, 0.1, 0.08), hexToRgb("#8a5a2b"), 6);
+  g = r.upload(m.build());
+  coneMeshes.set(r, g);
+  return g;
+}
 
 const ITEM_ICON: Record<string, string> = { toque: "🧶", ranger: "🤠", antlers: "🦌", crown: "👑", scarf: "🧣", pack: "🎒", canoe: "🛶", snow: "❄️", leaf: "🍁" };
 
@@ -65,6 +96,12 @@ export class HubScene implements Scene {
   private queueInfo: { count: number; size: number; until: number } | null = null;
   private actionKey = "";
   private blocked = new Set<string>();
+  private questsEl: HTMLElement;
+  private questsOpen = typeof innerWidth === "number" ? innerWidth > 560 : true;
+  private cones: { id: number; x: number; z: number }[] = [];
+  private conesGot = new Set<number>();
+  private conePending = new Set<number>();
+  private photo: PhotoMode;
 
   constructor(private ctx: Ctx, private world: HubWorld, welcome: Extract<ServerMsg, { t: "welcome" }>) {
     this.root = h("div", { style: "position:absolute;inset:0" });
@@ -128,13 +165,27 @@ export class HubScene implements Scene {
         h("button.btn.gold.icon.pe", { title: "Outfitter & wardrobe", onclick: () => this.openShop("hat") }, "🎒"),
       ]),
     );
+    this.questsEl = h("div.card.quests.pe", { onclick: () => { this.questsOpen = !this.questsOpen; this.renderQuests(); } });
+    this.root.append(this.questsEl);
+    this.renderQuests();
+    this.root.append(h("div.dock", {}, [
+      h("button.btn.cream.icon.pe", { title: "My cabin", onclick: () => this.goHome() }, "🏡"),
+      h("button.btn.cream.icon.pe", { title: "Photo mode", onclick: () => this.openPhoto() }, "📷"),
+    ]));
+    this.photo = new PhotoMode(ctx, this.root, {
+      place: () => {
+        const p = visitedPlace(this.me.x, this.me.z);
+        return p ? `${PLACE_NAMES[p]}, Banff` : "Beaver Banff";
+      },
+      onShot: () => ctx.net.send({ t: "photo" }),
+    });
     window.addEventListener("keydown", this.onKey);
     if (room.isPrivate && room.code !== "SOLO") this.log(null, `Private cabin code: ${room.code} — share it with friends so they can join!`);
   }
 
   private onKey = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement;
-    if (t?.tagName === "INPUT") return;
+    if (t?.tagName === "INPUT" || this.photo.active) return;
     if (e.key === "Enter") {
       (this.root.querySelector("input.field") as HTMLInputElement | null)?.focus();
       e.preventDefault();
@@ -142,7 +193,58 @@ export class HubScene implements Scene {
     if (e.key === " ") this.ctx.net.send({ t: "emote", i: 1 });
     if (e.key.toLowerCase() === "f") this.runAction();
     if (e.key === "Escape") this.closeOverlays();
+    if (e.key.toLowerCase() === "p") this.openPhoto();
   };
+
+  private openPhoto() {
+    this.closeOverlays();
+    this.target = null;
+    this.photo.open(this.me.ry, 6.5);
+  }
+
+  private goHome() {
+    this.closeOverlays();
+    if (this.queueInfo) { this.ctx.net.send({ t: "leaveQueue" }); this.queueInfo = null; }
+    this.ctx.net.send({ t: "enterCabin" });
+  }
+
+  private renderQuests() {
+    const q = this.ctx.state.quests;
+    if (!q) { this.questsEl.style.display = "none"; return; }
+    this.questsEl.style.display = "";
+    const done = q.list.filter((x) => x.done).length;
+    this.questsEl.classList.toggle("closed", !this.questsOpen);
+    this.questsEl.replaceChildren(
+      h("header", {}, [h("span", {}, "📜 Daily quests"), h("span.n", {}, `${done}/${q.list.length} ${this.questsOpen ? "▴" : "▾"}`)]),
+      h("div.ql", {}, [
+        ...q.list.map((x) => h("div.quest" + (x.done ? ".done" : ""), {}, [
+          h("span.qi", {}, x.done ? "✅" : x.icon),
+          h("span.lbl", {}, `${x.label}${x.goal > 1 ? ` (${x.progress}/${x.goal})` : ""} · 🪙${x.reward}`),
+          h("div.bar", {}, h("i", { style: { width: `${(100 * x.progress) / x.goal}%` } })),
+        ])),
+        h("div.bonus" + (q.bonus ? ".got" : ""), {}, q.bonus ? "🎉 All done today! Bonus collected." : "Finish all three for a 🪙50 bonus · new quests at midnight UTC"),
+        this.cones.length ? h("div.bonus", {}, `🌰 Golden pinecones found today: ${this.conesGot.size}/${this.cones.length}`) : null,
+      ]),
+    );
+  }
+
+  private questDone(q: QuestsWire) {
+    for (const label of q.justCompleted ?? []) {
+      const pop = h("div.card.quest-pop", {}, [h("b", {}, "✅ Quest complete!"), label]);
+      this.root.append(pop);
+      setTimeout(() => pop.remove(), 2600);
+      this.me.cheerT = 1.8;
+      this.me.expr = "excited";
+      this.me.exprT = 2;
+    }
+    if (q.bonusNow) {
+      setTimeout(() => {
+        const pop = h("div.card.quest-pop", {}, [h("b", {}, "🎉 All daily quests done!"), "+50 bonus coins"]);
+        this.root.append(pop);
+        setTimeout(() => pop.remove(), 3000);
+      }, 2700);
+    }
+  }
 
   private addAvatar(p: PlayerInfo) {
     const tag = h("div.tag" + (p.id === this.ctx.state.you ? ".me" : ""), {}, p.name);
@@ -228,6 +330,25 @@ export class HubScene implements Scene {
         this.coinsEl.textContent = String(m.coins);
         this.refreshShop();
         break;
+      case "quests":
+        this.ctx.state.quests = m;
+        this.questDone(m);
+        this.renderQuests();
+        break;
+      case "pinecones": {
+        const fresh = m.collected.filter((id) => !this.conesGot.has(id));
+        const first = this.cones.length === 0;
+        this.cones = m.spots;
+        this.conesGot = new Set(m.collected);
+        this.conePending.clear();
+        if (!first) for (const id of fresh) this.coneBurst(id);
+        this.renderQuests();
+        break;
+      }
+      case "furniture":
+        this.ctx.state.furniture = m.counts;
+        this.refreshShop();
+        break;
       case "queue":
         this.queueInfo = { count: m.count, size: m.size, until: performance.now() + m.startsInMs };
         this.actionKey = "";
@@ -271,9 +392,24 @@ export class HubScene implements Scene {
     this.panelEl = null;
   }
 
-  private shopTab: Slot | "fur" = "hat";
+  private coneBurst(id: number) {
+    const c = this.cones.find((s) => s.id === id);
+    if (!c) return;
+    const y = heightAt(c.x, c.z) + 0.8;
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      this.particles.push({ x: c.x, y, z: c.z, vx: Math.cos(a) * 2.2, vy: 2 + Math.random() * 2, vz: Math.sin(a) * 2.2, life: 0, max: 0.9, color: [1, 0.84, 0.3], size: 0.14 });
+    }
+    const el = h("div.cone-pop", {}, "+3 🪙");
+    this.labels.append(el);
+    const s = this.ctx.r.project(c.x, y + 1.4, c.z);
+    if (s) { el.style.left = `${s.x}px`; el.style.top = `${s.y}px`; }
+    setTimeout(() => el.remove(), 1400);
+  }
 
-  private openShop(tab: Slot | "fur") {
+  private shopTab: Slot | "fur" | "cabin" = "hat";
+
+  private openShop(tab: Slot | "fur" | "cabin") {
     this.shopTab = tab;
     this.closeOverlays();
     this.panelEl = h("div.overlay.pe", { onclick: (e: Event) => { if (e.target === this.panelEl) this.closeOverlays(); } });
@@ -284,10 +420,12 @@ export class HubScene implements Scene {
   private refreshShop() {
     if (!this.panelEl) return;
     const st = this.ctx.state;
-    const tabs: [Slot | "fur", string][] = [["hat", "Hats"], ["scarf", "Scarves"], ["backpack", "Packs"], ["trail", "Trails"], ["fur", "Fur"]];
+    const tabs: [Slot | "fur" | "cabin", string][] = [["hat", "Hats"], ["scarf", "Scarves"], ["backpack", "Packs"], ["trail", "Trails"], ["fur", "Fur"], ["cabin", "🏡 Cabin"]];
     const setLook = (look: Look) => this.ctx.net.send({ t: "look", look });
     let grid: HTMLElement;
-    if (this.shopTab === "fur") {
+    if (this.shopTab === "cabin") {
+      grid = furnitureGrid(this.ctx);
+    } else if (this.shopTab === "fur") {
       grid = h("div.grid", {}, FUR_COLORS.map((c) =>
         h("div.item", {}, [
           h("div.ico", { style: { background: c } }, "🦫"),
@@ -317,7 +455,9 @@ export class HubScene implements Scene {
         h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${st.coins}`), h("button.btn.cream.small", { onclick: () => this.closeOverlays() }, "✕")]),
       ]),
       h("div.tabs", {}, tabs.map(([k, label]) => h("button.tab" + (k === this.shopTab ? ".on" : ""), { onclick: () => { this.shopTab = k; this.refreshShop(); } }, label))),
-      h("div", { style: "padding:0 16px 6px;font-size:13px;color:var(--muted);font-weight:700" }, "Cosmetics are just for looks — they never change how you play. Earn coins in Toboggan Rush!"),
+      h("div", { style: "padding:0 16px 6px;font-size:13px;color:var(--muted);font-weight:700" }, this.shopTab === "cabin"
+        ? "Furniture for your cabin — tap 🏡 to go home and decorate."
+        : "Cosmetics are just for looks — they never change how you play. Earn coins in Toboggan Rush, daily quests and golden pinecones!"),
       grid,
     ]);
     this.panelEl.replaceChildren(panel);
@@ -332,7 +472,9 @@ export class HubScene implements Scene {
       h("div", {}, [h("b", {}, "Chat: "), h("kbd", {}, "Enter"), " · 💬 quick chat · 😀 emotes · ", h("kbd", {}, "Space"), " to hop"]),
       h("div", {}, [h("b", {}, "Do things: "), "walk up to a place and press the big button (or ", h("kbd", {}, "F"), ")"]),
       h("div", { style: "margin-top:8px" }, "🛷 Head north to the trailhead portal for Toboggan Rush. Win coins, then spend them at the 🎒 Outfitter."),
-      h("div", { style: "margin-top:8px" }, "🛡️ Tap another beaver to wave, block or report them."),
+      h("div", { style: "margin-top:8px" }, "📜 Daily quests (top right) earn coins — and look out for ✨ golden pinecones around the village!"),
+      h("div", { style: "margin-top:8px" }, ["🏡 Visit your cabin to decorate it with furniture · 📷 Photo mode (", h("kbd", {}, "P"), ") for postcards."]),
+      h("div", { style: "margin-top:8px" }, "🛡️ Tap another beaver to wave, visit their cabin, block or report them."),
     ]));
     this.root.append(this.panelEl);
   }
@@ -343,6 +485,7 @@ export class HubScene implements Scene {
     const card = h("div.card.playercard.pe", { style: { left: `${sx}px`, top: `${sy}px` } }, [
       h("h3", {}, a.info.name),
       h("button.btn.small", { onclick: () => { this.ctx.net.send({ t: "emote", i: 0 }); close(); } }, "👋 Wave"),
+      h("button.btn.small.gold", { onclick: () => { close(); this.ctx.net.send({ t: "visitCabin", id: a.info.id }); } }, "🏡 Visit cabin"),
       h("button.btn.small.cream", { onclick: () => { this.blocked.add(a.info.id); this.ctx.net.send({ t: "block", id: a.info.id }); toast(this.root, `You won't see chat from ${a.info.name}.`); close(); } }, "🚫 Block"),
       h("button.btn.small.red", { onclick: () => { this.ctx.net.send({ t: "report", id: a.info.id, reason: "Reported from player card" }); close(); } }, "🚩 Report"),
     ]);
@@ -399,6 +542,12 @@ export class HubScene implements Scene {
   update(dt: number) {
     this.time += dt;
     const inp = this.ctx.input;
+    if (this.photo.active) {
+      this.photo.update(dt);
+      this.me.moving = lerp(this.me.moving, 0, Math.min(1, dt * 10));
+      this.animate(dt);
+      return;
+    }
     this.yaw -= inp.consumeDrag() * 0.006;
     // Drag up to look upward and drag down to look toward the ground. The cap
     // still permits a deliberate skyward look, but prevents a full inversion.
@@ -457,6 +606,15 @@ export class HubScene implements Scene {
     me.tx = me.x; me.tz = me.z;
     me.moving = lerp(me.moving, len > 0 ? 1 : 0, Math.min(1, dt * 10));
 
+    // Golden pinecones: walk into one to pick it up.
+    for (const c of this.cones) {
+      if (this.conesGot.has(c.id) || this.conePending.has(c.id)) continue;
+      if (Math.hypot(c.x - me.x, c.z - me.z) < 1.6) {
+        this.conePending.add(c.id);
+        this.ctx.net.send({ t: "collect", id: c.id });
+      }
+    }
+
     this.sendAcc += dt;
     if (this.sendAcc > 1 / 12) {
       this.sendAcc = 0;
@@ -466,6 +624,12 @@ export class HubScene implements Scene {
       }
     }
 
+    this.animate(dt);
+    this.updateAction();
+  }
+
+  private animate(dt: number) {
+    const me = this.me;
     // Animate all avatars.
     for (const a of this.avatars.values()) {
       if (a !== me) {
@@ -520,7 +684,6 @@ export class HubScene implements Scene {
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     }
     this.particles = this.particles.filter((p) => p.life < p.max);
-    this.updateAction();
   }
 
   private groundY(a: Avatar) {
@@ -575,22 +738,49 @@ export class HubScene implements Scene {
     const focusY = py + 1.65;
     let cy = py + 2.6 + Math.sin(pitch) * cd;
     cy = Math.max(cy, heightAt(cx, cz) + 1.5, focusY + 1.05);
-    const cam: Vec3 = [cx, cy, cz];
+    let cam: Vec3 = [cx, cy, cz];
+    let look: Vec3 = [me.x, focusY + this.lookOffset, me.z];
+    if (this.photo.active) {
+      const pc = this.photo.camera([me.x, py + 1.2, me.z]);
+      pc.eye[1] = Math.max(pc.eye[1], heightAt(pc.eye[0], pc.eye[2]) + 0.4, WATER_Y + 0.3);
+      cam = pc.eye;
+      look = pc.target;
+    }
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     r.shadowFocus = [me.x, py, me.z];
-    r.begin(lookAt(cam, [me.x, focusY + this.lookOffset, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
+    r.begin(lookAt(cam, look), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
 
     drawHub(r, this.world, this.time);
 
+    const coneMesh = pineconeMesh(r);
+    for (const c of this.cones) {
+      if (this.conesGot.has(c.id)) continue;
+      const d = Math.hypot(c.x - me.x, c.z - me.z);
+      if (d > 120) continue;
+      const y = heightAt(c.x, c.z) + 0.45 + Math.sin(this.time * 2.2 + c.id) * 0.15;
+      r.draw(coneMesh, compose(c.x, y, c.z, this.time * 1.6 + c.id, 0, 0, 1.15), { unlit: true, emissive: 0.08 });
+      // Little sparkles circling it so it catches your eye from across the meadow.
+      for (let k = 0; k < 3; k++) {
+        const a = this.time * 2.4 + (k * Math.PI * 2) / 3 + c.id;
+        const tw = 0.5 + 0.5 * Math.sin(this.time * 6 + k * 2 + c.id);
+        r.draw(this.world.steam, compose(c.x + Math.cos(a) * 0.62, y + 0.55 + Math.sin(a * 1.3) * 0.3, c.z + Math.sin(a) * 0.62, 0, 0, 0, 0.06 + tw * 0.05), { unlit: true, emissive: 0.8, tint: [1, 0.92, 0.5, 1], alpha: 0.9 });
+      }
+      r.draw(this.world.shadow, compose(c.x, heightAt(c.x, c.z) + 0.02, c.z, 0, 0, 0, 0.45), { unlit: true, alpha: 0.08 });
+    }
+
+    const pose = this.photo.active ? this.photo.pose() : null;
     for (const a of this.avatars.values()) {
       const y = this.groundY(a);
+      const posed = a === me && pose;
       // Soft contact shadow keeps beavers planted; the sun adds the real cast shadow.
       r.draw(this.world.shadow, compose(a.x, y + 0.014, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.68 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.03 : 0.07 });
       drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(a.x, y, a.z, a.ry), {
-        walk: a.walk, moving: a.moving, swim: a.swim, jump: Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0), wave: Math.min(1, a.waveT), sled: 0, time: this.time,
-        seed: a.seed, cheer: Math.min(1, a.cheerT * 2), talk: a.talkT > 0 ? 1 : 0,
-        expr: a.exprT > 0 ? a.expr : a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
+        walk: a.walk, moving: a.moving, swim: a.swim, time: this.time, sled: 0, seed: a.seed, talk: a.talkT > 0 ? 1 : 0,
+        jump: posed ? pose.jump : Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0),
+        wave: posed ? pose.wave : Math.min(1, a.waveT),
+        cheer: posed ? pose.cheer : Math.min(1, a.cheerT * 2),
+        expr: posed ? pose.expr : a.exprT > 0 ? a.expr : a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
       });
     }
     for (const p of this.particles) {
@@ -599,6 +789,8 @@ export class HubScene implements Scene {
       r.draw(this.world.steam, compose(p.x, p.y, p.z, 0, 0, 0, s), { unlit: true, tint: [...p.color, 1], alpha: 0.55 * (1 - k) });
     }
     r.end();
+    this.photo.afterRender();
+    this.labels.style.visibility = this.photo.active ? "hidden" : "";
     this.updateLabels();
   }
 
@@ -629,6 +821,7 @@ export class HubScene implements Scene {
   }
 
   dispose() {
+    this.photo.dispose();
     window.removeEventListener("keydown", this.onKey);
     this.root.remove();
   }

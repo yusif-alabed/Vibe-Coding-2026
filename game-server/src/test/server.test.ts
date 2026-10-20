@@ -129,3 +129,57 @@ describe("game server", () => {
     a.ws.close();
   });
 });
+
+describe("quests, pinecones and cabins on the server", () => {
+  it("sends today's quests and pinecones on arrival and pays for a pinecone only when close", async () => {
+    const a = await connect("Gatherer");
+    const quests = await a.waitFor("quests");
+    assert.equal(quests.list.length, 3);
+    const cones = await a.waitFor("pinecones");
+    const spot = cones.spots[0];
+    a.send({ t: "collect", id: spot.id });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(a.inbox.filter((m) => m.t === "pinecones").length, 1, "too far away: nothing happens");
+    // Walk there at a legal speed.
+    const me = a.welcome.players.find((p) => p.id === a.welcome.you)!;
+    let x = me.x, z = me.z;
+    const hub = game.hubs.get(a.welcome.room.id)!;
+    const c = hub.clients.get(a.welcome.you)!;
+    // Teleport the server-side position directly for the test (movement rules are tested elsewhere).
+    c.x = spot.x + 0.5; c.z = spot.z;
+    void x; void z;
+    a.send({ t: "collect", id: spot.id });
+    const after = await a.waitFor("pinecones", (m) => m.collected.includes(spot.id));
+    assert.ok(after);
+    a.ws.close();
+  });
+
+  it("lets you decorate your own cabin, rejects bad layouts, and lets friends visit", async () => {
+    const owner = await connect("Decorator");
+    await owner.waitFor("quests");
+    owner.send({ t: "enterCabin" });
+    const cabin = await owner.waitFor("cabin");
+    assert.equal(cabin.editable, true);
+    owner.send({ t: "saveCabin", items: [{ id: "bed", x: 0, z: 0, rot: 0 }] });
+    await owner.waitFor("error", (m) => /only have/.test(m.text));
+    owner.send({ t: "saveCabin", items: [{ id: "armchair", x: 7, z: 5, rot: 0 }] });
+    await new Promise((r) => setTimeout(r, 80));
+    const friend = await connect("Visitor");
+    friend.send({ t: "visitCabin", id: owner.welcome.you });
+    const seen = await friend.waitFor("cabin");
+    assert.equal(seen.editable, false);
+    assert.deepEqual(seen.items, [{ id: "armchair", x: 7, z: 5, rot: 0 }]);
+    friend.send({ t: "leaveCabin" });
+    await friend.waitFor("welcome", (m) => m !== friend.welcome);
+    owner.ws.close();
+    friend.ws.close();
+  });
+
+  it("buys furniture with coins", async () => {
+    const a = await connect("Shopper2");
+    a.send({ t: "buyFurniture", item: "chair" });
+    const f = await a.waitFor("furniture", (m) => (m.counts.chair ?? 0) === 1);
+    assert.equal(f.counts.chair, 1);
+    a.ws.close();
+  });
+});

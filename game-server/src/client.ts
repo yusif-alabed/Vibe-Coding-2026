@@ -14,6 +14,12 @@ export class Client {
   hubId: string | null = null;
   raceId: string | null = null;
   queued = false;
+  /** Whose cabin this player is in (their own id, or a friend's), if any. */
+  cabinOf: string | null = null;
+  returnHubId: string | null = null;
+  returnPos: { x: number; z: number } | null = null;
+  /** Last landmark counted for a "visit" quest, so standing still doesn't count twice. */
+  lastVisit: string | null = null;
 
   constructor(
     readonly id: string,

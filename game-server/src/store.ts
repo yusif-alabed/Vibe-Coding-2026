@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { DEFAULT_LOOK, ECONOMY, STARTER_ITEMS, type Look } from "@beaver/shared";
+import { DEFAULT_LOOK, ECONOMY, newProgress, STARTER_ITEMS, type Look, type ProgressRecord } from "@beaver/shared";
 
 /**
  * Player records held by the game server.
@@ -8,7 +8,7 @@ import { DEFAULT_LOOK, ECONOMY, STARTER_ITEMS, type Look } from "@beaver/shared"
  * so a refresh or reconnect keeps your coins and outfit. Phase 3 moves this to the API
  * service + PostgreSQL (see api/migrations) behind the same interface.
  */
-export interface PlayerRecord {
+export interface PlayerRecord extends ProgressRecord {
   token: string;
   name: string;
   look: Look;
@@ -44,6 +44,7 @@ export class PlayerStore {
       coins: ECONOMY.startingCoins,
       owned: [...STARTER_ITEMS],
       blocked: new Set(),
+      ...newProgress(),
     };
     this.byToken.set(rec.token, rec);
     return rec;

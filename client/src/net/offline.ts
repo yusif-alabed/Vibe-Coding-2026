@@ -22,6 +22,18 @@ import {
   type Look,
   type PlayerInfo,
   type ServerMsg,
+  buyFurniture,
+  collectPinecone,
+  FURNITURE_BY_ID,
+  newProgress,
+  pineconesWire,
+  questEvent,
+  questsWire,
+  validateLayout,
+  visitedPlace,
+  type PlacedItem,
+  type ProgressRecord,
+  type QuestEvent,
 } from "@beaver/shared";
 import type { Net } from "./net";
 
@@ -33,11 +45,18 @@ import type { Net } from "./net";
 
 const SAVE_KEY = "beaver-banff-solo";
 
-interface Save {
+interface Save extends ProgressRecord {
   coins: number;
   owned: string[];
   look: Look;
 }
+
+/** Furnished cabins for the bot beavers, so you can visit them in solo mode. */
+const BOT_CABINS: PlacedItem[][] = [
+  [{ id: "rug_plaid", x: 3, z: 3, rot: 0 }, { id: "sofa", x: 3, z: 5, rot: 0 }, { id: "coffee_table", x: 4, z: 3, rot: 0 }, { id: "bookshelf", x: 0, z: 1, rot: 1 }, { id: "plant", x: 9, z: 0, rot: 0 }, { id: "lamp", x: 2, z: 5, rot: 0 }, { id: "bed", x: 8, z: 5, rot: 0 }],
+  [{ id: "rug_round", x: 1, z: 2, rot: 0 }, { id: "dining_table", x: 1, z: 2, rot: 0 }, { id: "chair", x: 1, z: 1, rot: 2 }, { id: "chair", x: 2, z: 3, rot: 0 }, { id: "canoe", x: 7, z: 7, rot: 0 }, { id: "telescope", x: 9, z: 3, rot: 0 }, { id: "plush", x: 6, z: 1, rot: 0 }],
+  [{ id: "rug_round", x: 4, z: 4, rot: 0 }, { id: "armchair", x: 3, z: 4, rot: 1 }, { id: "armchair", x: 6, z: 4, rot: 3 }, { id: "sled", x: 0, z: 7, rot: 0 }, { id: "plant", x: 0, z: 0, rot: 0 }, { id: "lamp", x: 9, z: 7, rot: 0 }, { id: "bookshelf", x: 7, z: 0, rot: 0 }],
+];
 
 function load(): Save | null {
   try {
@@ -78,9 +97,12 @@ export class OfflineNet implements Net {
   private steer = 0;
   private inHub = false;
   private queued = false;
+  private lastVisit: string | null = null;
+  private inCabin = false;
+  private returnPos: { x: number; z: number } | null = null;
 
   constructor() {
-    this.save = load() ?? { coins: ECONOMY.startingCoins, owned: [...STARTER_ITEMS], look: DEFAULT_LOOK };
+    this.save = { coins: ECONOMY.startingCoins, owned: [...STARTER_ITEMS], look: DEFAULT_LOOK, ...newProgress(), ...(load() ?? {}) };
   }
 
   private emit(m: ServerMsg) {
@@ -130,6 +152,24 @@ export class OfflineNet implements Net {
       owned: this.save.owned,
       look: this.me.look,
     });
+    this.lastVisit = visitedPlace(this.me.x, this.me.z);
+    this.emit(questsWire(this.save, "solo"));
+    this.emit(pineconesWire(this.save));
+    this.emit({ t: "furniture", counts: this.save.furniture });
+    store(this.save);
+  }
+
+  private progress(ev: QuestEvent) {
+    const w = questEvent(this.save, "solo", ev);
+    if (!w) return;
+    store(this.save);
+    this.emit(w);
+    if (w.justCompleted?.length || w.bonusNow) this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
+  }
+
+  private sendCabin(owner: { id: string; name: string; look: Look }, items: PlacedItem[], editable: boolean) {
+    this.emit({ t: "furniture", counts: this.save.furniture });
+    this.emit({ t: "cabin", owner: owner.id, ownerName: owner.name, items, editable, look: owner.look });
   }
 
   send(msg: ClientMsg): void {
@@ -154,6 +194,9 @@ export class OfflineNet implements Net {
         this.me.x = p.x;
         this.me.z = p.z;
         this.me.ry = msg.ry;
+        const place = visitedPlace(this.me.x, this.me.z);
+        if (place && place !== this.lastVisit) this.progress({ kind: "visit", place });
+        this.lastVisit = place;
         break;
       }
       case "chat": {
@@ -172,11 +215,15 @@ export class OfflineNet implements Net {
         if (text && this.limiter.allow(text)) {
           this.emit({ t: "chat", id: this.me.id, name: this.me.name, text });
           this.maybeReply(text);
+          this.progress({ kind: "quickchat" });
         }
         break;
       }
       case "emote":
-        if (EMOTES[msg.i]) this.emit({ t: "emote", id: this.me.id, i: msg.i });
+        if (EMOTES[msg.i]) {
+          this.emit({ t: "emote", id: this.me.id, i: msg.i });
+          this.progress({ kind: "emote" });
+        }
         break;
       case "look":
         this.me.look = sanitizeLook(msg.look, this.save.owned, this.me.look.fur);
@@ -192,6 +239,7 @@ export class OfflineNet implements Net {
           this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
           const item = CATALOG.find((c) => c.id === msg.item);
           this.emit({ t: "system", text: `You bought the ${item?.name}! 🎉` });
+          this.progress({ kind: "buy" });
         } else {
           this.emit({ t: "error", text: r.reason === "not_enough_coins" ? "Not enough coins yet — try a toboggan race!" : "You can't buy that." });
         }
@@ -216,6 +264,73 @@ export class OfflineNet implements Net {
         break;
       case "steer":
         this.steer = Math.max(-1, Math.min(1, Number(msg.v) || 0));
+        break;
+      case "buyFurniture": {
+        const r = buyFurniture(this.save.coins, this.save.furniture, msg.item);
+        if (!r.ok) {
+          this.emit({ t: "error", text: r.reason === "not_enough_coins" ? "Not enough coins yet — try a race or a daily quest!" : r.reason === "too_many" ? "Your cabin has room for 6 of those." : "You can't buy that." });
+          break;
+        }
+        this.save.coins = r.coins;
+        this.save.furniture = r.counts;
+        store(this.save);
+        this.emit({ t: "furniture", counts: this.save.furniture });
+        this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
+        this.emit({ t: "system", text: `You bought a ${FURNITURE_BY_ID[msg.item].name}! 🏡` });
+        this.progress({ kind: "buy" });
+        break;
+      }
+      case "collect": {
+        if (!this.inHub) break;
+        const r = collectPinecone(this.save, "solo", Number(msg.id), this.me.x, this.me.z);
+        if (!r.ok) break;
+        store(this.save);
+        this.emit(pineconesWire(this.save));
+        this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
+        if (r.quests) this.emit(r.quests);
+        break;
+      }
+      case "photo":
+        this.progress({ kind: "photo" });
+        break;
+      case "enterCabin":
+      case "visitCabin": {
+        if (!this.inHub || this.queued) break;
+        let owner: { id: string; name: string; look: Look } = this.me;
+        let items = this.save.cabin;
+        if (msg.t === "visitCabin") {
+          const i = this.bots.findIndex((b) => b.id === msg.id);
+          if (i < 0) break;
+          owner = this.bots[i];
+          items = BOT_CABINS[i % BOT_CABINS.length];
+        }
+        this.inHub = false;
+        this.inCabin = true;
+        this.returnPos = { x: this.me.x, z: this.me.z };
+        this.sendCabin(owner, items, owner === this.me);
+        break;
+      }
+      case "saveCabin": {
+        if (!this.inCabin) break;
+        const r = validateLayout(msg.items, this.save.furniture);
+        if (!r.ok) {
+          this.emit({ t: "error", text: r.reason });
+          this.sendCabin(this.me, this.save.cabin, true);
+          break;
+        }
+        this.save.cabin = r.items;
+        store(this.save);
+        if (r.items.length > 0) this.progress({ kind: "decorate" });
+        break;
+      }
+      case "leaveCabin":
+        if (!this.inCabin) break;
+        this.inCabin = false;
+        if (this.returnPos) {
+          this.me.x = this.returnPos.x;
+          this.me.z = this.returnPos.z;
+        }
+        this.welcome();
         break;
       case "block":
       case "report":
@@ -263,6 +378,10 @@ export class OfflineNet implements Net {
     const results = race.results().map((r) => ({ ...r, coins: r.isBot ? 0 : coinsForRace({ place: r.place, finished: r.finished, racers: n }) }));
     const mine = results.find((r) => r.id === this.me.id);
     this.save.coins += mine?.coins ?? 0;
+    if (mine?.finished) {
+      this.progress({ kind: "race" });
+      if (mine.place <= 2) this.progress({ kind: "podium" });
+    }
     store(this.save);
     this.race = null;
     this.emit({ t: "raceEnd", results });

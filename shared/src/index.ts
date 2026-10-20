@@ -8,3 +8,6 @@ export * from "./chat";
 export * from "./movement";
 export * from "./race";
 export * from "./village";
+export * from "./quests";
+export * from "./cabin";
+export * from "./progress";

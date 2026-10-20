@@ -2,6 +2,15 @@ import { randomBytes, randomInt } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+  buyFurniture,
+  collectPinecone,
+  FURNITURE_BY_ID,
+  pineconesWire,
+  questEvent,
+  questsWire,
+  validateLayout,
+  visitedPlace,
+  type QuestEvent,
   CATALOG_BY_ID,
   DEFAULT_LOOK,
   HUB_PLACES,
@@ -86,7 +95,7 @@ export class GameServer {
       if (!hub) c.send({ t: "system", text: `No room with code ${String(want).toUpperCase()} — sending you to the public village.` });
     }
     if (!hub || hub.full) hub = this.publicHub();
-    hub.add(c);
+    this.joinHub(c, hub);
     if (hub.info.isPrivate) c.send({ t: "system", text: `Private room code: ${hub.info.code}. Share it with friends!` });
     return true;
   }
@@ -95,17 +104,26 @@ export class GameServer {
     const hub = c.hubId ? this.hubs.get(c.hubId) : undefined;
     const race = c.raceId ? this.races.get(c.raceId) : undefined;
     switch (msg.t) {
-      case "move":
-        hub?.move(c, Number(msg.x), Number(msg.z), Number(msg.ry));
+      case "move": {
+        if (!hub) break;
+        hub.move(c, Number(msg.x), Number(msg.z), Number(msg.ry));
+        const place = visitedPlace(c.x, c.z);
+        if (place && place !== c.lastVisit) this.progress(c, { kind: "visit", place });
+        c.lastVisit = place;
         break;
+      }
       case "chat":
         hub?.chat(c, msg.text);
         break;
       case "quick":
-        hub?.quick(c, Number(msg.i));
+        if (!hub) break;
+        hub.quick(c, Number(msg.i));
+        this.progress(c, { kind: "quickchat" });
         break;
       case "emote":
-        hub?.emote(c, Number(msg.i));
+        if (!hub) break;
+        hub.emote(c, Number(msg.i));
+        this.progress(c, { kind: "emote" });
         break;
       case "look":
         c.record.look = sanitizeLook(msg.look, c.record.owned, c.record.look.fur);
@@ -119,6 +137,7 @@ export class GameServer {
           c.record.owned = r.wallet.owned;
           c.send({ t: "wallet", coins: c.record.coins, owned: c.record.owned });
           c.send({ t: "system", text: `You bought the ${item.name}! 🎉` });
+          this.progress(c, { kind: "buy" });
         } else {
           const why = r.reason === "not_enough_coins" ? "Not enough coins yet — try a toboggan race!" : "You can't buy that.";
           c.send({ t: "error", text: why });
@@ -145,7 +164,86 @@ export class GameServer {
       case "ping":
         c.send({ t: "pong" });
         break;
+      case "buyFurniture": {
+        const id = String(msg.item);
+        const r = buyFurniture(c.record.coins, c.record.furniture, id);
+        if (!r.ok) {
+          c.send({ t: "error", text: r.reason === "not_enough_coins" ? "Not enough coins yet — try a race or a daily quest!" : r.reason === "too_many" ? "Your cabin has room for 6 of those." : "You can't buy that." });
+          break;
+        }
+        c.record.coins = r.coins;
+        c.record.furniture = r.counts;
+        c.send({ t: "furniture", counts: c.record.furniture });
+        c.send({ t: "wallet", coins: c.record.coins, owned: c.record.owned });
+        c.send({ t: "system", text: `You bought a ${FURNITURE_BY_ID[id].name}! 🏡` });
+        this.progress(c, { kind: "buy" });
+        break;
+      }
+      case "collect": {
+        if (!hub) break;
+        const r = collectPinecone(c.record, c.record.token, Number(msg.id), c.x, c.z);
+        if (!r.ok) break;
+        c.send(pineconesWire(c.record));
+        c.send({ t: "wallet", coins: c.record.coins, owned: c.record.owned });
+        if (r.quests) c.send(r.quests);
+        break;
+      }
+      case "photo":
+        this.progress(c, { kind: "photo" });
+        break;
+      case "enterCabin":
+      case "visitCabin": {
+        if (!hub || c.queued) break;
+        const owner = msg.t === "enterCabin" ? c : [...this.clients.values()].find((o) => o.id === String(msg.id));
+        if (!owner) {
+          c.send({ t: "error", text: "That beaver isn't online right now." });
+          break;
+        }
+        c.returnHubId = hub.info.id;
+        c.returnPos = { x: c.x, z: c.z };
+        hub.remove(c);
+        c.cabinOf = owner.id;
+        c.send({ t: "furniture", counts: c.record.furniture });
+        c.send({ t: "cabin", owner: owner.id, ownerName: owner.name, items: owner.record.cabin, editable: owner === c, look: owner.record.look });
+        break;
+      }
+      case "saveCabin": {
+        if (c.cabinOf !== c.id) break;
+        const r = validateLayout(msg.items, c.record.furniture);
+        if (!r.ok) {
+          c.send({ t: "error", text: r.reason });
+          c.send({ t: "cabin", owner: c.id, ownerName: c.name, items: c.record.cabin, editable: true, look: c.record.look });
+          break;
+        }
+        c.record.cabin = r.items;
+        if (r.items.length > 0) this.progress(c, { kind: "decorate" });
+        break;
+      }
+      case "leaveCabin": {
+        if (!c.cabinOf) break;
+        c.cabinOf = null;
+        const back = (c.returnHubId && this.hubs.get(c.returnHubId)) || this.publicHub();
+        this.joinHub(c, back.full ? this.publicHub() : back, c.returnPos ?? undefined);
+        break;
+      }
     }
+  }
+
+  /** Puts a player in a village and sends their quests, pinecones and furniture. */
+  private joinHub(c: Client, hub: HubRoom, spawn?: { x: number; z: number }): void {
+    hub.add(c, spawn);
+    c.lastVisit = visitedPlace(c.x, c.z);
+    c.send(questsWire(c.record, c.record.token));
+    c.send(pineconesWire(c.record));
+    c.send({ t: "furniture", counts: c.record.furniture });
+  }
+
+  /** Counts a daily-quest event and pays out any reward. */
+  private progress(c: Client, ev: QuestEvent): void {
+    const update = questEvent(c.record, c.record.token, ev);
+    if (!update) return;
+    c.send(update);
+    if (update.justCompleted?.length || update.bonusNow) c.send({ t: "wallet", coins: c.record.coins, owned: c.record.owned });
   }
 
   private publicHub(): HubRoom {
@@ -227,13 +325,19 @@ export class GameServer {
   private endRace(room: RaceRoom, hubId: string): void {
     this.races.delete(room.id);
     room.dispose();
+    for (const c of room.players) {
+      const mine = room.results.find((r) => r.id === c.id);
+      if (!mine?.finished) continue;
+      this.progress(c, { kind: "race" });
+      if (mine.place <= 2) this.progress(c, { kind: "podium" });
+    }
     // Give players a few seconds on the results screen, then return them to the village by the trailhead.
     setTimeout(() => {
       const hub = this.hubs.get(hubId) ?? this.publicHub();
       for (const c of room.players) {
         if (!this.isConnected(c)) continue;
         const t = HUB_PLACES.trailhead;
-        hub.add(c, { x: t.x + (Math.random() - 0.5) * 6, z: t.z + 8 + Math.random() * 3 });
+        this.joinHub(c, hub, { x: t.x + (Math.random() - 0.5) * 6, z: t.z + 8 + Math.random() * 3 });
       }
     }, 5000);
   }

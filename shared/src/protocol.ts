@@ -1,5 +1,7 @@
 import type { Look } from "./cosmetics";
 import type { RaceSnapshot } from "./race";
+import type { PlacedItem } from "./cabin";
+import type { QuestsWire } from "./progress";
 
 /** Wire protocol between the browser client and the game server (JSON over WebSocket). */
 
@@ -33,7 +35,14 @@ export type ClientMsg =
   | { t: "steer"; v: number }
   | { t: "block"; id: string }
   | { t: "report"; id: string; reason: string }
-  | { t: "ping" };
+  | { t: "ping" }
+  | { t: "collect"; id: number }
+  | { t: "photo" }
+  | { t: "buyFurniture"; item: string }
+  | { t: "enterCabin" }
+  | { t: "visitCabin"; id: string }
+  | { t: "leaveCabin" }
+  | { t: "saveCabin"; items: PlacedItem[] };
 
 export interface RaceResultWire {
   id: string;
@@ -60,4 +69,8 @@ export type ServerMsg =
   | { t: "raceEnd"; results: RaceResultWire[] }
   | { t: "system"; text: string }
   | { t: "error"; text: string }
-  | { t: "pong" };
+  | { t: "pong" }
+  | QuestsWire
+  | { t: "pinecones"; day: string; spots: { id: number; x: number; z: number }[]; collected: number[] }
+  | { t: "furniture"; counts: Record<string, number> }
+  | { t: "cabin"; owner: string; ownerName: string; items: PlacedItem[]; editable: boolean; look: Look };
