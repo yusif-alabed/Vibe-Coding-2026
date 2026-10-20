@@ -125,6 +125,13 @@ export class GameServer {
         hub.emote(c, Number(msg.i));
         this.progress(c, { kind: "emote" });
         break;
+      case "act": {
+        if (!hub) break;
+        const a = msg.a;
+        const place = visitedPlace(c.x, c.z);
+        if (a === "stop" || (a === "cocoa" && place === "lodge") || (a === "soak" && place === "hotSpring")) hub.act(c, a);
+        break;
+      }
       case "look":
         c.record.look = sanitizeLook(msg.look, c.record.owned, c.record.look.fur);
         hub?.updateLook(c);

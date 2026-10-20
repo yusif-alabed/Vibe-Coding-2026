@@ -290,6 +290,10 @@ export interface BeaverPose {
   talk?: number;
   /** Per-beaver offset so blinks and idle looks don't happen in unison. */
   seed?: number;
+  /** Both paws held forward at the chest, e.g. cradling a mug (0..1). */
+  hold?: number;
+  /** Lifts the held thing to the mouth and tips the head back (0..1). */
+  sip?: number;
 }
 
 /** Draws an animated beaver at a world transform. */
@@ -326,7 +330,8 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const idleLook = (Math.sin(t * 0.45 + seed * 3.1) + Math.sin(t * 0.23 + seed)) * 0.5;
   const dizzy = expr === "dizzy" ? 1 : 0;
   const headYaw = idleLook * 0.35 * (1 - mv) * (1 - pose.sled * 0.6) + Math.sin(t * 7) * 0.25 * dizzy;
-  const headPitch = -0.05 * mv + Math.sin(w * 2) * 0.04 * mv + Math.sin(t * 1.3 + seed) * 0.03 - pose.sled * 0.05 - 0.12 * cheer;
+  const hold = pose.hold ?? 0, sip = pose.sip ?? 0;
+  const headPitch = -0.16 * sip - 0.05 * mv + Math.sin(w * 2) * 0.04 * mv + Math.sin(t * 1.3 + seed) * 0.03 - pose.sled * 0.05 - 0.12 * cheer;
   const headRoll = Math.sin(t * 5) * 0.15 * dizzy + Math.sin(t * 0.8 + seed) * 0.04 * (1 - mv);
   const head = at("head", headPitch, headYaw, headRoll);
   r.draw(meshes.parts.head, head, opts);
@@ -340,8 +345,9 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const waveL = pose.wave * (2.4 + Math.sin(t * 14) * 0.35);
   const cheerA = cheer * (2.05 + Math.sin(t * 12) * 0.22);
   // Cheering lifts both arms forward-and-out into a "V" so they clear the big head.
-  r.draw(meshes.parts.armL, at("armL", armSwing + swimStroke - pose.sled * 0.9 - cheer * 0.5, 0, Math.max(waveL, cheerA)), opts);
-  r.draw(meshes.parts.armR, at("armR", -armSwing - swimStroke - pose.sled * 0.9 - cheer * 0.5, 0, -cheerA), opts);
+  const holdX = -hold * (1.15 + sip * 0.55), holdZ = -hold * 0.5;
+  r.draw(meshes.parts.armL, at("armL", armSwing + swimStroke - pose.sled * 0.9 - cheer * 0.5 + holdX, 0, Math.max(waveL, cheerA) - holdZ), opts);
+  r.draw(meshes.parts.armR, at("armR", -armSwing - swimStroke - pose.sled * 0.9 - cheer * 0.5 + holdX, 0, -cheerA + holdZ), opts);
   r.draw(meshes.parts.footL, at("footL", -Math.sin(w) * 0.8 * mv - pose.sled * 1.2, 0, 0), opts);
   r.draw(meshes.parts.footR, at("footR", Math.sin(w) * 0.8 * mv - pose.sled * 1.2, 0, 0), opts);
   // Tail stays connected to the body: a gentle sway, a little livelier when happy.

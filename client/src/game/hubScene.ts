@@ -9,6 +9,7 @@ import {
   QUICK_CHAT,
   validateMove,
   visitedPlace,
+  type HubAct,
   type Look,
   type QuestsWire,
   type PlayerInfo,
@@ -38,6 +39,10 @@ interface Avatar {
   tag: HTMLElement;
   bubble: HTMLElement | null; bubbleUntil: number;
   trailAcc: number;
+  /** Cozy activity: sipping cocoa or soaking in the hot spring. */
+  act: HubAct | null; actT: number; actX: number; actZ: number;
+  /** 0 = standing on land, 1 = settled in the hot spring. */
+  soak: number;
 }
 
 interface Particle { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; color: Vec3; size: number; }
@@ -67,6 +72,28 @@ function pineconeMesh(r: Renderer): GpuMesh {
   return g;
 }
 
+/** A steaming mug of maple hot cocoa and a folded spa towel (built once per renderer). */
+const cozyMeshes = new WeakMap<Renderer, { mug: GpuMesh; towel: GpuMesh }>();
+function cozy(r: Renderer) {
+  let c = cozyMeshes.get(r);
+  if (c) return c;
+  const mug = new MeshBuilder();
+  mug.cylinder(compose(0, 0, 0, 0, 0, 0, 0.22, 0.26, 0.22), hexToRgb("#e2483d"), 12);
+  mug.cylinder(compose(0, 0.115, 0, 0, 0, 0, 0.18, 0.04, 0.18), hexToRgb("#6b3a22"), 12);
+  mug.sphere(compose(0.03, 0.15, 0, 0, 0, 0, 0.07, 0.04, 0.07), hexToRgb("#fffaf0"), 4, 6);
+  mug.box(compose(0, 0.02, 0.112, 0, 0, 0, 0.2, 0.05, 0.01), hexToRgb("#fffaf0"));
+  mug.torus(compose(0.13, 0, 0, 0, Math.PI / 2, 0, 0.07, 0.07, 0.07), hexToRgb("#e2483d"), 1, 0.28, 10, 4);
+  const towel = new MeshBuilder();
+  towel.box(compose(0, 0, 0, 0, 0, 0, 0.5, 0.1, 0.32), hexToRgb("#fffaf0"), 0.03);
+  towel.box(compose(0, 0.07, 0, 0, 0, 0, 0.42, 0.06, 0.26), hexToRgb("#7fd6cf"), 0.03);
+  towel.box(compose(0, 0.11, 0, 0, 0, 0, 0.34, 0.04, 0.2), hexToRgb("#fffaf0"), 0.03);
+  c = { mug: r.upload(mug.build()), towel: r.upload(towel.build()) };
+  cozyMeshes.set(r, c);
+  return c;
+}
+
+const SPRING_Y = () => heightAt(PL.hotSpring.x, PL.hotSpring.z) + 0.25;
+
 const ITEM_ICON: Record<string, string> = { toque: "🧶", ranger: "🤠", antlers: "🦌", crown: "👑", scarf: "🧣", pack: "🎒", canoe: "🛶", snow: "❄️", leaf: "🍁" };
 
 export class HubScene implements Scene {
@@ -78,6 +105,7 @@ export class HubScene implements Scene {
   private lookOffset = 0;
   private dist = 13;
   private camDist = 13;
+  private camLift = 0;
   private target: { x: number; z: number } | null = null;
   private sendAcc = 0;
   private lastSent = { x: NaN, z: NaN, ry: NaN };
@@ -253,6 +281,7 @@ export class HubScene implements Scene {
       info: p, x: p.x, z: p.z, ry: p.ry, tx: p.x, tz: p.z, tr: p.ry,
       walk: 0, moving: 0, swim: 0, jumpT: 0, waveT: 0, cheerT: 0, expr: "neutral", exprT: 0, talkT: 0,
       seed: [...p.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1000, 7) / 100, tag, bubble: null, bubbleUntil: 0, trailAcc: 0,
+      act: null, actT: 0, actX: p.x, actZ: p.z, soak: 0,
     };
     this.avatars.set(p.id, a);
     if (this.countEl) this.countEl.textContent = String(this.avatars.size);
@@ -319,6 +348,22 @@ export class HubScene implements Scene {
         if (react.wave) a.waveT = 1.6;
         if (react.cheer) a.cheerT = 1.8;
         const el = h("div.emote", {}, EMOTES[m.i] ?? "");
+        this.labels.append(el);
+        (el as HTMLElement & { _follow?: Avatar })._follow = a;
+        setTimeout(() => el.remove(), 1600);
+        break;
+      }
+      case "act": {
+        const a = this.avatars.get(m.id);
+        if (!a) break;
+        if (m.a === "stop") { a.act = null; break; }
+        a.act = m.a;
+        a.actT = 0;
+        a.actX = a === this.me ? a.x : a.tx;
+        a.actZ = a === this.me ? a.z : a.tz;
+        a.expr = "happy";
+        a.exprT = 1.5;
+        const el = h("div.emote", {}, m.a === "cocoa" ? "☕" : "♨️");
         this.labels.append(el);
         (el as HTMLElement & { _follow?: Avatar })._follow = a;
         setTimeout(() => el.remove(), 1600);
@@ -510,9 +555,15 @@ export class HubScene implements Scene {
     if (k === "race") this.ctx.net.send(this.queueInfo ? { t: "leaveQueue" } : { t: "queueRace" });
     if (k === "race" && this.queueInfo) this.queueInfo = null;
     if (k === "shop") this.openShop("hat");
-    if (k === "lodge") { this.ctx.net.send({ t: "emote", i: 1 }); toast(this.root, "☕ Mmm… maple hot cocoa. Cozy!"); }
+    if (k === "lodge") {
+      if (this.me.act === "cocoa") this.ctx.net.send({ t: "act", a: "stop" });
+      else { this.ctx.net.send({ t: "act", a: "cocoa" }); toast(this.root, "☕ Mmm… maple hot cocoa. Cozy!"); }
+    }
     if (k === "arcade") toast(this.root, "🕹️ Coming soon: Log Rolling & Dam Builder!");
-    if (k === "spring") { this.ctx.net.send({ t: "emote", i: 7 }); toast(this.root, "♨️ Ahh, toasty warm."); }
+    if (k === "spring") {
+      if (this.me.act === "soak") this.ctx.net.send({ t: "act", a: "stop" });
+      else { this.target = null; this.ctx.net.send({ t: "act", a: "soak" }); toast(this.root, "♨️ Ahh, toasty warm."); }
+    }
     this.actionKey = "";
   }
 
@@ -529,9 +580,9 @@ export class HubScene implements Scene {
       this.queueInfo = null;
     }
     if (k === "shop") label = "🎒 Open the Outfitter";
-    if (k === "lodge") label = "☕ Grab a hot cocoa";
+    if (k === "lodge") label = this.me.act === "cocoa" ? "☕ Finish your cocoa" : "☕ Grab a hot cocoa";
     if (k === "arcade") label = "🕹️ Peek inside the arcade";
-    if (k === "spring") label = "♨️ Soak in the hot spring";
+    if (k === "spring") label = this.me.act === "soak" ? "♨️ Hop out" : "♨️ Soak in the hot spring";
     if (label === this.actionKey) return;
     this.actionKey = label;
     this.actionEl.replaceChildren(label ? h("button.btn" + (k === "race" ? ".orange" : ""), { onclick: () => this.runAction(), style: "font-size:19px;padding:12px 20px" }, label) : "");
@@ -594,6 +645,10 @@ export class HubScene implements Scene {
     }
     const len = Math.hypot(mx, mz);
     const me = this.me;
+    if (len > 0 && me.act) {
+      me.act = null;
+      this.ctx.net.send({ t: "act", a: "stop" });
+    }
     if (len > 0) {
       const swimming = dockHeightAt(me.x, me.z) === null && bridgeHeightAt(me.x, me.z) === null && heightAt(me.x, me.z) < WATER_Y - 0.3;
       const sp = WALK_SPEED * (swimming ? 0.7 : 1);
@@ -640,6 +695,21 @@ export class HubScene implements Scene {
         const sp = Math.hypot(a.x - before.x, a.z - before.z) / Math.max(dt, 1e-4);
         a.moving = lerp(a.moving, sp > 0.6 ? 1 : 0, Math.min(1, dt * 8));
       }
+      if (a.act) {
+        a.actT += dt;
+        // Someone else wandered off (or the cocoa ran out): end the activity.
+        if (a !== me && Math.hypot(a.tx - a.actX, a.tz - a.actZ) > 0.8) a.act = null;
+        if (a.act === "cocoa" && a.actT > 14) a.act = null;
+      }
+      a.soak = Math.max(0, Math.min(1, a.soak + (a.act === "soak" ? dt / 0.7 : -dt / 0.5)));
+      if (a.act === "cocoa" && Math.random() < dt * 5) {
+        const p = this.mugPos(a);
+        this.particles.push({ x: p[0] + (Math.random() - 0.5) * 0.08, y: p[1] + 0.2, z: p[2] + (Math.random() - 0.5) * 0.08, vx: 0.05, vy: 0.45, vz: 0, life: 0, max: 1.1, color: [1, 1, 1], size: 0.09 });
+      }
+      if (a.soak > 0.9 && Math.random() < dt * 1.5) {
+        const d = this.drawPos(a);
+        this.particles.push({ x: d.x + (Math.random() - 0.5) * 1.2, y: SPRING_Y() + 0.1, z: d.z + (Math.random() - 0.5) * 1.2, vx: 0, vy: 0.7, vz: 0, life: 0, max: 1.6, color: [1, 1, 1], size: 0.16 });
+      }
       a.ry = lerpAngle(a.ry, a.tr, Math.min(1, dt * 12));
       a.walk += dt * 11 * a.moving;
       a.swim = lerp(a.swim, dockHeightAt(a.x, a.z) === null && bridgeHeightAt(a.x, a.z) === null && heightAt(a.x, a.z) < WATER_Y - 0.3 ? 1 : 0, Math.min(1, dt * 5));
@@ -676,7 +746,7 @@ export class HubScene implements Scene {
       });
       this.particles.push({
         x: PL.hotSpring.x + (Math.random() - 0.5) * 5, y: 0, z: PL.hotSpring.z + (Math.random() - 0.5) * 5,
-        vx: 0, vy: 1.0, vz: 0, life: 0, max: 2.4, color: [1, 1, 1], size: 0.7,
+        vx: 0, vy: 1.0, vz: 0, life: 0, max: 2.4, color: [1, 1, 1], size: 0.45,
       });
     }
     for (const p of this.particles) {
@@ -684,6 +754,37 @@ export class HubScene implements Scene {
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     }
     this.particles = this.particles.filter((p) => p.life < p.max);
+  }
+
+  /** Where an avatar is drawn: normally where it stands, but tucked into the hot spring while soaking. */
+  private drawPos(a: Avatar): { x: number; y: number; z: number; ry: number } {
+    const y = this.groundY(a);
+    if (a.soak <= 0) return { x: a.x, y, z: a.z, ry: a.ry };
+    const cx = PL.hotSpring.x, cz = PL.hotSpring.z;
+    const ang = Math.atan2(a.actX - cx, a.actZ - cz);
+    const sx = cx + Math.sin(ang) * 1.2, sz = cz + Math.cos(ang) * 1.2;
+    const k = a.soak, e = k * k * (3 - 2 * k);
+    const hop = Math.sin(Math.min(1, k * 1.15) * Math.PI) * 1.3;
+    const sunk = SPRING_Y() - 0.42 + Math.sin(this.time * 1.4 + a.seed) * 0.04;
+    return {
+      x: lerp(a.x, sx, e), z: lerp(a.z, sz, e),
+      y: lerp(y, sunk, e) + hop,
+      // Face outward, toward the path, so you can see their blissful face.
+      ry: lerpAngle(a.ry, ang, e),
+    };
+  }
+
+  /** The cocoa mug in world space: at the chest, rising to the mouth for a sip every few seconds. */
+  private sipAmount(a: Avatar) {
+    const c = (a.actT % 3.6) / 3.6;
+    return a.actT < 0.6 ? 0 : c > 0.62 && c < 0.92 ? Math.sin(((c - 0.62) / 0.3) * Math.PI) : 0;
+  }
+
+  private mugPos(a: Avatar): Vec3 {
+    const d = this.drawPos(a);
+    const sip = this.sipAmount(a);
+    const up = 0.86 + sip * 0.5, fwd = 0.6 + sip * 0.12;
+    return [d.x + Math.sin(d.ry) * fwd, d.y + up, d.z + Math.cos(d.ry) * fwd];
   }
 
   private groundY(a: Avatar) {
@@ -715,28 +816,39 @@ export class HubScene implements Scene {
       const side = Math.abs(ox * sz - oz * sx);
       if (side > reach) continue;
       const hit = along - Math.sqrt(reach * reach - side * side);
-      clearDist = Math.min(clearDist, Math.max(3.2, hit - 0.6));
+      clearDist = Math.min(clearDist, hit - 0.6);
     }
+    // Never zoom right onto the beaver's hat: keep a comfortable distance and rise up
+    // over whatever is in the way instead (a higher, steeper view).
+    const MIN_DIST = 6.5;
+    let lift = clearDist < MIN_DIST ? Math.min(5, (MIN_DIST - clearDist) * 0.75) : 0;
+    clearDist = Math.max(Math.min(MIN_DIST, this.dist), clearDist);
     this.camDist += (clearDist - this.camDist) * Math.min(1, (clearDist < this.camDist ? 6 : 2) / 60);
     const cd = this.camDist;
     let cx = me.x + sx * Math.cos(pitch) * cd;
     let cz = me.z + sz * Math.cos(pitch) * cd;
-    // The follow camera is a physical point too: push it out of buildings so it never looks through a wall.
+    // The follow camera is a physical point too: push it out of buildings so it never looks through a wall,
+    // and gently swing around to the open side so it doesn't stay squeezed against the building.
     for (const solid of [PL.lodge, PL.outfitter, PL.arcade]) {
       const dx = cx - solid.x, dz = cz - solid.z;
       const d = Math.hypot(dx, dz);
       const radius = solid.r + (solid === PL.lodge ? 3.5 : 1.6);
+      if (d < radius && !this.photo.active) this.yaw = lerpAngle(this.yaw, Math.atan2(me.x - solid.x, me.z - solid.z), 0.03);
       if (d < radius) {
         const k = d < 0.001 ? 1 : radius / d;
         cx = solid.x + (d < 0.001 ? radius : dx * k);
         cz = solid.z + (d < 0.001 ? 0 : dz * k);
       }
     }
+    // Being pushed out of a building can slide the camera in close; lift it instead of hugging the beaver.
+    const hd = Math.hypot(cx - me.x, cz - me.z);
+    if (hd < MIN_DIST) lift = Math.max(lift, Math.min(5, (MIN_DIST - hd) * 0.9));
+    this.camLift += (lift - this.camLift) * Math.min(1, 3 / 60);
     // Keep the eye above the avatar focus even if a wall or tree shortens the
     // follow distance. Previously the shortened camera could end up lower than
     // its target (the beaver's head), which made the game suddenly look skyward.
     const focusY = py + 1.65;
-    let cy = py + 2.6 + Math.sin(pitch) * cd;
+    let cy = py + 2.6 + Math.sin(pitch) * cd + this.camLift;
     cy = Math.max(cy, heightAt(cx, cz) + 1.5, focusY + 1.05);
     let cam: Vec3 = [cx, cy, cz];
     let look: Vec3 = [me.x, focusY + this.lookOffset, me.z];
@@ -770,17 +882,29 @@ export class HubScene implements Scene {
     }
 
     const pose = this.photo.active ? this.photo.pose() : null;
+    const cozyM = cozy(r);
     for (const a of this.avatars.values()) {
-      const y = this.groundY(a);
+      const d = this.drawPos(a);
+      const y = d.y;
       const posed = a === me && pose;
+      const sip = a.act === "cocoa" ? this.sipAmount(a) : 0;
       // Soft contact shadow keeps beavers planted; the sun adds the real cast shadow.
-      r.draw(this.world.shadow, compose(a.x, y + 0.014, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.68 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.03 : 0.07 });
-      drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(a.x, y, a.z, a.ry), {
+      if (a.soak < 0.3) r.draw(this.world.shadow, compose(a.x, this.groundY(a) + 0.014, a.z, a.ry, 0, 0, a.swim > 0.5 ? 0.68 : 1), { unlit: true, alpha: a.swim > 0.5 ? 0.03 : 0.07 });
+      if (a.act === "cocoa") {
+        const mp = this.mugPos(a);
+        r.draw(cozyM.mug, compose(mp[0], mp[1], mp[2], d.ry, -sip * 0.9, 0), { outline: 0.02 });
+      }
+      if (a.soak > 0.6 && !a.info.look.hat) {
+        // A folded spa towel balanced on the head.
+        r.draw(cozyM.towel, compose(d.x, y + 2.12 + Math.sin(this.time * 1.4 + a.seed) * 0.02, d.z, d.ry + 0.2, 0, 0.08), { outline: 0.02 });
+      }
+      drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(d.x, y, d.z, d.ry), {
+        hold: a.act === "cocoa" ? 1 : 0, sip,
         walk: a.walk, moving: a.moving, swim: a.swim, time: this.time, sled: 0, seed: a.seed, talk: a.talkT > 0 ? 1 : 0,
         jump: posed ? pose.jump : Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0),
         wave: posed ? pose.wave : Math.min(1, a.waveT),
         cheer: posed ? pose.cheer : Math.min(1, a.cheerT * 2),
-        expr: posed ? pose.expr : a.exprT > 0 ? a.expr : a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
+        expr: posed ? pose.expr : a.exprT > 0 ? a.expr : a.soak > 0.6 || sip > 0.3 || a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
       });
     }
     for (const p of this.particles) {
@@ -805,9 +929,9 @@ export class HubScene implements Scene {
     };
     this.world.labels.forEach((l, i) => place(this.placeEls[i], l.x, heightAt(l.x, l.z) + l.y, l.z, 110));
     for (const a of this.avatars.values()) {
-      const y = this.groundY(a);
-      place(a.tag, a.x, y + 2.75, a.z, 70);
-      if (a.bubble) place(a.bubble, a.x, y + 3.5, a.z, 90);
+      const d = this.drawPos(a);
+      place(a.tag, d.x, d.y + 2.75, d.z, 70);
+      if (a.bubble) place(a.bubble, d.x, d.y + 3.5, d.z, 90);
     }
     for (const el of this.labels.querySelectorAll<HTMLElement & { _follow?: Avatar }>(".emote")) {
       const a = el._follow;

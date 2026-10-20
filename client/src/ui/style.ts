@@ -8,6 +8,8 @@ export const CSS = `
   --font-body: "Nunito", ui-rounded, system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
+:root { color-scheme: light; }
+button, input { color: var(--ink); }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #ffd9b0; font-family: var(--font-body); color: var(--ink); -webkit-tap-highlight-color: transparent; }
 #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
@@ -57,7 +59,7 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
 .menu { position: absolute; bottom: 74px; right: 12px; padding: 10px; display: grid; gap: 6px; max-width: min(320px, calc(100vw - 24px)); }
 .emotes { grid-template-columns: repeat(4, 1fr); }
 .emotes button { font-size: 26px; background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 6px; cursor: pointer; }
-.quick button { text-align: left; font: 700 15px var(--font-body); background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; cursor: pointer; }
+.quick button { text-align: left; font: 700 15px var(--font-body); color: var(--ink); background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 8px 10px; cursor: pointer; }
 .quick button:hover, .emotes button:hover { background: #fff2cc; }
 
 /* World labels */
@@ -75,7 +77,7 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
 .panel header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 6px; }
 .panel h2 { font-family: var(--font-display); margin: 0; font-size: 26px; }
 .tabs { display: flex; gap: 6px; padding: 6px 16px 10px; flex-wrap: wrap; }
-.tab { font: 600 14px var(--font-display); background: var(--cream-2); border: 2.5px solid var(--ink); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.tab { font: 600 14px var(--font-display); color: var(--ink); background: var(--cream-2); border: 2.5px solid var(--ink); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
 .tab.on { background: var(--ink); color: var(--cream); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 4px 16px 16px; overflow: auto; }
 .item { background: #fff; border: 2.5px solid var(--ink); border-radius: 14px; padding: 10px; display: grid; gap: 6px; justify-items: center; text-align: center; }

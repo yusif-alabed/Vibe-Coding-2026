@@ -5,6 +5,7 @@ import {
   QUICK_CHAT,
   randomSpawn,
   validateMove,
+  type HubAct,
   type PlayerInfo,
   type RoomInfo,
   type ServerMsg,
@@ -101,6 +102,10 @@ export class HubRoom {
   emote(c: Client, i: number): void {
     if (!EMOTES[i]) return;
     this.broadcast({ t: "emote", id: c.id, i });
+  }
+
+  act(c: Client, a: HubAct): void {
+    this.broadcast({ t: "act", id: c.id, a });
   }
 
   updateLook(c: Client): void {

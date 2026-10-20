@@ -219,6 +219,11 @@ export class OfflineNet implements Net {
         }
         break;
       }
+      case "act": {
+        const place = visitedPlace(this.me.x, this.me.z);
+        if (msg.a === "stop" || (msg.a === "cocoa" && place === "lodge") || (msg.a === "soak" && place === "hotSpring")) this.emit({ t: "act", id: this.me.id, a: msg.a });
+        break;
+      }
       case "emote":
         if (EMOTES[msg.i]) {
           this.emit({ t: "emote", id: this.me.id, i: msg.i });

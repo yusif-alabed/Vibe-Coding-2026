@@ -22,7 +22,11 @@ export interface RoomInfo {
   code?: string;
 }
 
+/** Cozy things you can do at a place: sip cocoa at the lodge, soak in the hot spring. */
+export type HubAct = "cocoa" | "soak" | "stop";
+
 export type ClientMsg =
+  | { t: "act"; a: HubAct }
   | { t: "join"; name: string; look: Look; room?: "public" | "private-new" | string; token?: string }
   | { t: "move"; x: number; z: number; ry: number }
   | { t: "chat"; text: string }
@@ -62,6 +66,7 @@ export type ServerMsg =
   | { t: "look"; id: string; look: Look }
   | { t: "chat"; id: string; name: string; text: string }
   | { t: "emote"; id: string; i: number }
+  | { t: "act"; id: string; a: HubAct }
   | { t: "wallet"; coins: number; owned: string[] }
   | { t: "queue"; count: number; size: number; startsInMs: number }
   | { t: "raceStart"; seed: number; racers: { id: string; name: string; look: Look | null; isBot: boolean }[]; countdownMs: number }
