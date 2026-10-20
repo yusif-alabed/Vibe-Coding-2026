@@ -1,4 +1,4 @@
-import { BOT_NAMES, coinsForRace, RACE, TobogganRace, type ServerMsg } from "@beaver/shared";
+import { BOT_NAMES, coinsForRace, RACE, TobogganRace, type RaceGame, type ServerMsg } from "@beaver/shared";
 import type { Client } from "../client";
 
 /**
@@ -19,6 +19,7 @@ export class RaceRoom {
     readonly players: Client[],
     seed: number,
     private readonly onDone: (room: RaceRoom) => void,
+    readonly game: RaceGame = "toboggan",
   ) {
     const bots = Math.max(0, RACE.size - players.length);
     const entrants = [
@@ -32,6 +33,7 @@ export class RaceRoom {
     }
     this.broadcast({
       t: "raceStart",
+      game,
       seed,
       countdownMs: RACE.countdownMs,
       racers: entrants.map((e) => ({

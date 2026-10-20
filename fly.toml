@@ -1,0 +1,26 @@
+# Hosting on Fly.io: `fly launch --copy-config` then `fly volumes create beaver_data --size 1` and `fly deploy`.
+app = "beaver-banff"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "2567"
+  DATA_FILE = "/data/players.json"
+
+[[mounts]]
+  source = "beaver_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 2567
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"

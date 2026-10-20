@@ -25,6 +25,24 @@ export const CATALOG: CosmeticItem[] = [
   { id: "pack_canoe", name: "Mini Canoe", slot: "backpack", price: 220, color: "#d4572a", shape: "canoe" },
   { id: "trail_snow", name: "Snowflake Trail", slot: "trail", price: 150, color: "#ffffff", shape: "snow" },
   { id: "trail_leaf", name: "Maple Leaf Trail", slot: "trail", price: 150, color: "#e8582a", shape: "leaf" },
+  // Seasonal and fun extras.
+  { id: "hat_flowers", name: "Spring Flower Crown", slot: "hat", price: 90, color: "#ff7eb3", shape: "flowers" },
+  { id: "hat_sun", name: "Summer Sun Hat", slot: "hat", price: 110, color: "#e9cf8a", shape: "sunhat" },
+  { id: "hat_pumpkin", name: "Pumpkin Hat", slot: "hat", price: 140, color: "#e7792c", shape: "pumpkin" },
+  { id: "hat_holiday", name: "Holiday Pom Hat", slot: "hat", price: 160, color: "#d33b2c", shape: "holiday" },
+  { id: "hat_earmuffs", name: "Cozy Earmuffs", slot: "hat", price: 80, color: "#a77bff", shape: "earmuffs" },
+  { id: "hat_propeller", name: "Propeller Beanie", slot: "hat", price: 180, color: "#3a8fd6", shape: "propeller" },
+  { id: "hat_party", name: "Party Hat", slot: "hat", price: 70, color: "#ffd166", shape: "party" },
+  { id: "scarf_mint", name: "Spring Mint Scarf", slot: "scarf", price: 60, color: "#7fd6b5", shape: "scarf" },
+  { id: "scarf_rust", name: "Autumn Rust Scarf", slot: "scarf", price: 70, color: "#b5562a", shape: "scarf" },
+  { id: "scarf_candy", name: "Candy Stripe Scarf", slot: "scarf", price: 120, color: "#e2483d", shape: "candy" },
+  { id: "pack_basket", name: "Picnic Basket", slot: "backpack", price: 120, color: "#c9a062", shape: "basket" },
+  { id: "pack_firewood", name: "Firewood Bundle", slot: "backpack", price: 100, color: "#7a4b2c", shape: "firewood" },
+  { id: "pack_guitar", name: "Travel Guitar", slot: "backpack", price: 240, color: "#c47a35", shape: "guitar" },
+  { id: "pack_board", name: "Snowboard", slot: "backpack", price: 260, color: "#7ff3f0", shape: "board" },
+  { id: "trail_bubbles", name: "Bubble Trail", slot: "trail", price: 140, color: "#a8e6ff", shape: "bubbles" },
+  { id: "trail_hearts", name: "Heart Trail", slot: "trail", price: 180, color: "#ff6fa5", shape: "hearts" },
+  { id: "trail_sparkle", name: "Golden Sparkle Trail", slot: "trail", price: 300, color: "#ffd14f", shape: "sparkle" },
 ];
 
 export const CATALOG_BY_ID: Record<string, CosmeticItem> = Object.fromEntries(CATALOG.map((i) => [i.id, i]));

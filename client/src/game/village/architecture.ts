@@ -55,20 +55,20 @@ export function box(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number
 }
 
 /** Horizontal log along local x (axis "x") or local z (axis "z"). */
-function log(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, len: number, r: number, axis: "x" | "z", col: Vec3) {
+export function log(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, len: number, r: number, axis: "x" | "z", col: Vec3) {
   if (axis === "x") m.cylinder(f.m(lx, ly, lz, r * 2, len, r * 2, 0, 0, Math.PI / 2), col, 7);
   else m.cylinder(f.m(lx, ly, lz, r * 2, len, r * 2, 0, Math.PI / 2, 0), col, 7);
 }
 
 /** Flat polygon (triangle fan) with an explicit normal, in local coordinates. */
-function panel(m: MeshBuilder, f: Frame, pts: [number, number, number][], normal: Vec3, col: Vec3) {
+export function panel(m: MeshBuilder, f: Frame, pts: [number, number, number][], normal: Vec3, col: Vec3) {
   const n = f.dir(...normal);
   const w = pts.map((p) => f.p(...p));
   for (let i = 1; i < w.length - 1; i++) m.vertex(w[0], n, col).vertex(w[i], n, col).vertex(w[i + 1], n, col);
 }
 
 /** A glowing window with a timber frame and mullions, on a wall facing local +z (or rotated by ry). */
-function windowPane(m: MeshBuilder, glow: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, w: number, h: number, ry = 0, arched = false) {
+export function windowPane(m: MeshBuilder, glow: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, w: number, h: number, ry = 0, arched = false) {
   const fr = new Frame(...f.p(lx, ly, lz), f.ry + ry);
   box(m, fr, 0, 0, 0.02, w + 0.24, h + 0.24, 0.14, TRIM);
   glow.box(fr.m(0, 0, 0.1, w, h, 0.04), mixRgb(GLASS_WARM, GLASS_DEEP, 0.35));
@@ -80,7 +80,7 @@ function windowPane(m: MeshBuilder, glow: MeshBuilder, f: Frame, lx: number, ly:
 
 const FLOWERS = ["#e2483d", "#ff7eb3", "#a77bff", "#ffffff", "#ffb03b"].map(C);
 
-function flowerBox(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, w: number, seed: number) {
+export function flowerBox(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, w: number, seed: number) {
   box(m, f, lx, ly, lz, w, 0.28, 0.32, LOG_DARK);
   const n = Math.max(3, Math.round(w / 0.22));
   for (let i = 0; i < n; i++) {
@@ -91,7 +91,7 @@ function flowerBox(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number,
 }
 
 /** Stacked stone chimney from y0 to y1 at local (lx, lz). */
-function chimney(m: MeshBuilder, f: Frame, lx: number, lz: number, y0: number, y1: number, w: number, seed: number) {
+export function chimney(m: MeshBuilder, f: Frame, lx: number, lz: number, y0: number, y1: number, w: number, seed: number) {
   box(m, f, lx, (y0 + y1) / 2, lz, w, y1 - y0, w, STONE_DARK);
   const rows = Math.floor((y1 - y0) / 0.48);
   for (let r = 0; r < rows; r++) {
@@ -114,7 +114,7 @@ function chimney(m: MeshBuilder, f: Frame, lx: number, lz: number, y0: number, y
 }
 
 /** Pitched roof along local x: two slabs plus shingle courses. */
-function gableRoofX(m: MeshBuilder, f: Frame, cx: number, eaveY: number, halfDepth: number, len: number, pitch: number, overhang: number) {
+export function gableRoofX(m: MeshBuilder, f: Frame, cx: number, eaveY: number, halfDepth: number, len: number, pitch: number, overhang: number) {
   const run = halfDepth + overhang;
   const t = Math.tan(pitch);
   const ridgeY = eaveY + halfDepth * t;
@@ -137,7 +137,7 @@ function gableRoofX(m: MeshBuilder, f: Frame, cx: number, eaveY: number, halfDep
 }
 
 /** Pitched roof along local z (gable facing +z). */
-function gableRoofZ(m: MeshBuilder, f: Frame, cx: number, z0: number, z1: number, eaveY: number, halfWidth: number, pitch: number, overhang: number) {
+export function gableRoofZ(m: MeshBuilder, f: Frame, cx: number, z0: number, z1: number, eaveY: number, halfWidth: number, pitch: number, overhang: number) {
   const run = halfWidth + overhang;
   const t = Math.tan(pitch);
   const ridgeY = eaveY + halfWidth * t;
@@ -180,7 +180,7 @@ function truss(m: MeshBuilder, glow: MeshBuilder, f: Frame, cx: number, z: numbe
 }
 
 /** Railing along local x at height y. */
-function railingX(m: MeshBuilder, f: Frame, x0: number, x1: number, y: number, z: number, h = 1.0, skip?: [number, number]) {
+export function railingX(m: MeshBuilder, f: Frame, x0: number, x1: number, y: number, z: number, h = 1.0, skip?: [number, number]) {
   const n = Math.max(1, Math.round((x1 - x0) / 1.4));
   for (let i = 0; i <= n; i++) {
     const x = x0 + ((x1 - x0) * i) / n;
@@ -201,7 +201,7 @@ function railingX(m: MeshBuilder, f: Frame, x0: number, x1: number, y: number, z
   }
 }
 
-function umbrellaTable(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, seed: number) {
+export function umbrellaTable(m: MeshBuilder, f: Frame, lx: number, ly: number, lz: number, seed: number) {
   box(m, f, lx, ly + 0.4, lz, 0.12, 0.8, 0.12, LOG_DARK);
   m.cylinder(f.m(lx, ly + 0.82, lz, 1.1, 0.08, 1.1), LOG_LIGHT, 10);
   for (const a of [0, 2.1, 4.2]) m.cylinder(f.m(lx + Math.cos(a + seed) * 0.95, ly + 0.25, lz + Math.sin(a + seed) * 0.95, 0.42, 0.5, 0.42), LOG, 8);

@@ -6,16 +6,24 @@ A cozy 3D multiplayer social game set in a Banff-inspired mountain village. Expl
 
 ## What works today
 
-- 🏔️ **3D village** — plaza fountain, lodge café, outfitter, riverside arcade, lake dock, river with bridge, hot springs, trailhead portal, forest and snowy peaks.
-- 🦫 **Beaver avatars** — 6 fur colours, hats, scarves, backpacks and trails. Waddle, swim, wave and hop.
-- 👥 **Multiplayer** — public villages (up to 50 beavers each) and private cabins with a share code.
+- 🏔️ **A whole mountain town** — the original village (plaza fountain, lodge café, outfitter, arcade, lake dock, hot springs, trailhead) plus cobbled **Main Street** (bakery, post office, general store, flower shop, ice-cream parlour, toy shop, maple shop, library), a **town hall** with a clock tower, the **town square** bandstand and market, **Cottage Lane** up to the **windmill**, a **skating pond**, a **lighthouse**, an east quarter across a second bridge (**watermill**, **greenhouse**, **observatory**, **fire lookout**) and a **fairground** with a Ferris wheel, a **campground** and a **ranger station** south of the river.
+- ☕ **Things to do everywhere** — sip cocoa, soak in the hot spring, eat croissants / ice cream / maple taffy / toasted marshmallows, play guitar on the bandstand, ride the Ferris wheel, go skating, climb the fire lookout, ring the town bell, read Banff facts at the library.
+- 🌗 **Day and night** — a real day/night cycle (shared by everyone), stars and a moon, glowing windows and lanterns at night. Or pick golden hour, day or night in ⚙️ Settings.
+- 🦋 **A living world** — butterflies, fireflies, jumping fish, birds overhead, chimney smoke, a busker by the fountain and skaters on the pond.
+- 🔊 **Sound and music** — a gentle generated acoustic soundtrack (racier in races), footsteps that change on grass/stone/wood/snow, splashes, coin chimes, the town bell, crackling campfires, birdsong by day and crickets at night.
+- 🦫 **Beaver avatars** — 9 fur colours and 30 cosmetics, including seasonal hats (flower crown, sun hat, pumpkin, holiday pom hat), earmuffs, a propeller beanie, picnic basket, guitar, snowboard and sparkle/heart/bubble trails.
+- 👥 **Multiplayer** — public villages (up to 50 beavers each) and private rooms with a share code.
+- 🤝 **Friends and parties** — add friends (tap a beaver or use their friend code), see who's online and where, jump to their village, and form a party of up to 4 that races together.
+- 💾 **Saved progress across devices** — the server saves every beaver; use your recovery code (⚙️ Settings) to bring your beaver to another device.
 - 💬 **Safe chat** — filtered text chat, quick-chat phrases, emotes, block and report.
 - 🛷 **Toboggan Rush** — 4-racer downhill race, bots fill empty seats, server-calculated results.
+- 🛶 **Canoe Dash** — a second minigame: paddle down a forest river from the Lake Dock, dodging rocks, logs and buoys and riding the rapids.
 - 🪙 **Coins & shop** — earn coins racing, spend them on cosmetics (no pay-to-win).
 - 📜 **Daily quests** — three new quests every day (UTC), a bonus for finishing all three, and 12 golden pinecones hidden around the village.
 - 🏡 **Cabin decorating** — every beaver has a log cabin. Buy furniture (15 pieces), arrange it on a tile grid, and visit friends' cabins.
 - 📷 **Photo mode** — free camera, poses, filters and a postcard frame; save the picture to your device.
-- 🎮 **Solo mode** — the whole game also runs in the browser with friendly bot beavers.
+- 📱 **Phones** — on-screen joystick, a ⚡ Fast graphics setting for older phones.
+- 🎮 **Solo mode** — the whole game also runs in the browser with friendly bot beavers (you can befriend them and party up too).
 
 ## Play now (no install)
 
@@ -44,6 +52,22 @@ Other commands:
 | `npm run dev:client` | Client only |
 | `npm run build` | Production client in `client/dist/` (set `GAME_SERVER_URL=wss://your-server`), and refreshes the playable `index.html` |
 | `npm run build:preview` | Refreshes the one-file playable `index.html` (solo mode) |
+
+## Put it online (so friends anywhere can play)
+
+The game server also serves the game itself, so hosting is one service and one link:
+
+```bash
+npm start            # builds the client and starts everything on http://localhost:2567
+```
+
+Deploy the included **`Dockerfile`** to any host that runs containers:
+
+- **Render**: New → Blueprint → choose this repo (uses `render.yaml`, includes a disk for saves).
+- **Fly.io**: `fly launch --copy-config`, `fly volumes create beaver_data --size 1`, `fly deploy` (uses `fly.toml`).
+- **Anywhere with Docker**: `docker build -t beaver-banff . && docker run -p 2567:2567 -v beaver-data:/data beaver-banff`
+
+Then share the URL (e.g. `https://beaver-banff.onrender.com`). Player progress is saved in `DATA_FILE` (`/data/players.json` in the container), so keep that folder on a persistent disk.
 
 ### Accounts API + database (optional for now)
 

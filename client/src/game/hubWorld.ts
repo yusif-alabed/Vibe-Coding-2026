@@ -1,10 +1,11 @@
-import { BRIDGE, fencePosts, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS } from "@beaver/shared";
+import { BRIDGES, fencePosts, FOOTHILLS_R, FOREST_GRID, forestTreeAt, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS, RIVER_LINE, STREETS, TOWN_AREAS, TOWN_PLACES, TRAILS, townClear } from "@beaver/shared";
 import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { P, rgb } from "./palette";
 import { bench, canoe, cliff, dock, fencePost, fenceRails, Frame, fountain, grandLodge, lanternPost, timberCabin, box } from "./village/architecture";
 import { buildMountainMesh, type MountainOpts } from "./village/mountains";
+import { buildTown, type FerrisInfo } from "./village/town";
 import { boulder, buttercup, daisy, fern, grassTuft, lupine, spruce, stoneBlock } from "./village/nature";
 
 /**
@@ -30,44 +31,43 @@ export function dockHeightAt(x: number, z: number): number | null {
   return 0.25;
 }
 
-/** Height of the timber bridge deck at a world point, if it is walkable. */
+type Bridge = (typeof BRIDGES)[number];
+
+/** Height of a timber bridge deck at a world point, if it is walkable. */
 export function bridgeHeightAt(x: number, z: number): number | null {
-  const dx = x - BRIDGE.x, dz = z - BRIDGE.z;
-  // Inverse of the architecture Frame transform: local x is across the deck,
-  // local z runs along it.
-  const lx = dx * Math.cos(BRIDGE.ry) - dz * Math.sin(BRIDGE.ry);
-  const lz = dx * Math.sin(BRIDGE.ry) + dz * Math.cos(BRIDGE.ry);
-  if (Math.abs(lx) > 1.58 || Math.abs(lz) > BRIDGE.halfLength) return null;
-  return bridgeDeckTop(lz);
+  for (const br of BRIDGES) {
+    const dx = x - br.x, dz = z - br.z;
+    // Inverse of the architecture Frame transform: local x is across the deck, local z runs along it.
+    const lx = dx * Math.cos(br.ry) - dz * Math.sin(br.ry);
+    const lz = dx * Math.sin(br.ry) + dz * Math.cos(br.ry);
+    if (Math.abs(lx) > 1.58 || Math.abs(lz) > br.halfLength) continue;
+    return bridgeDeckTop(br, lz);
+  }
+  return null;
 }
 
-/** Ground height at each end of the bridge, so the deck lands on the banks instead of floating. */
-let bridgeEnds: [number, number] | null = null;
-/** Top of the arched bridge deck at a point along its length (local z, -halfLength..halfLength). */
-function bridgeDeckTop(lz: number): number {
-  if (!bridgeEnds) {
-    const at = (l: number) => heightAt(BRIDGE.x + l * Math.sin(BRIDGE.ry), BRIDGE.z + l * Math.cos(BRIDGE.ry));
-    bridgeEnds = [at(-BRIDGE.halfLength), at(BRIDGE.halfLength)];
+/** Ground height at each end of each bridge, so decks land on the banks instead of floating. */
+const bridgeEnds = new Map<Bridge, [number, number]>();
+/** Top of an arched bridge deck at a point along its length (local z, -halfLength..halfLength). */
+function bridgeDeckTop(br: Bridge, lz: number): number {
+  let ends = bridgeEnds.get(br);
+  if (!ends) {
+    const at = (l: number) => heightAt(br.x + l * Math.sin(br.ry), br.z + l * Math.cos(br.ry));
+    ends = [at(-br.halfLength), at(br.halfLength)];
+    bridgeEnds.set(br, ends);
   }
-  const t = (lz + BRIDGE.halfLength) / (BRIDGE.halfLength * 2);
-  const base = bridgeEnds[0] + (bridgeEnds[1] - bridgeEnds[0]) * Math.max(0, Math.min(1, t));
-  return base + 0.04 + Math.pow(Math.max(0, Math.cos((lz / BRIDGE.halfLength) * (Math.PI / 2))), 0.7) * 1.05;
+  const t = (lz + br.halfLength) / (br.halfLength * 2);
+  const base = ends[0] + (ends[1] - ends[0]) * Math.max(0, Math.min(1, t));
+  return base + 0.04 + Math.pow(Math.max(0, Math.cos((lz / br.halfLength) * (Math.PI / 2))), 0.7) * 1.05;
 }
 
 /** River centreline: down from the north-east peaks, past the arcade, around the south of the village, into the lake. */
-const RIVER: [number, number][] = [
-  [70, -80], [52, -48], [38, -20], [34, 2], [32, 22], [18, 40], [-6, 44], [-26, 40], [-38, 36],
-];
+const RIVER = RIVER_LINE as [number, number][];
 
-const PATHS: [number, number, number, number][] = [
-  [0, 0, PL.lodge.x, PL.lodge.z],
-  [0, 0, PL.outfitter.x, PL.outfitter.z],
-  [0, 0, PL.arcade.x, PL.arcade.z],
-  [0, 0, PL.dock.x, PL.dock.z],
-  [0, 0, PL.trailhead.x, PL.trailhead.z + 2],
-  [PL.outfitter.x, PL.outfitter.z, PL.hotSpring.x, PL.hotSpring.z],
-  [0, 0, 6, 40], // to the bridge
-];
+/** Trails and town streets (shared with the server, which keeps trees off them). */
+const PATHS = TRAILS as [number, number, number, number][];
+const MAIN_STREET = STREETS[0];
+const SQUARE = TOWN_AREAS.find((a) => a.kind === "square")!;
 
 function distSeg(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
   const dx = bx - ax, dz = bz - az;
@@ -107,7 +107,7 @@ export function heightAt(x: number, z: number): number {
   let h = 0;
   if (r > 12) h += 0.35 * Math.sin(x * 0.13) * Math.cos(z * 0.11) * Math.min(1, (r - 12) / 10);
   // Beyond the walkable area the land rises into gentle forested foothills.
-  if (r > 66) h += Math.pow(r - 66, 1.25) * 0.18 + fbm2(x * 0.03, z * 0.03, 3) * 3 * Math.min(1, (r - 66) / 15);
+  if (r > FOOTHILLS_R) h += Math.pow(r - FOOTHILLS_R, 1.25) * 0.18 + fbm2(x * 0.03, z * 0.03, 3) * 3 * Math.min(1, (r - FOOTHILLS_R) / 15);
   // Snowy hill behind the trailhead.
   const th = Math.hypot(x - PL.trailhead.x, (z - PL.trailhead.z + 14) * 0.8);
   if (z < PL.trailhead.z - 3) h += Math.max(0, 16 - th) * 0.45;
@@ -159,9 +159,11 @@ function groundColor(x: number, y: number, z: number, ny: number): Vec3 {
   if (y < 0.12 && nearWater) return mixRgb(SAND, C("#8f8a7c"), fine * 0.5);
   const a = Math.atan2(z, x);
   if (r < plazaEdge(a) + 0.15) return GROUT;
+  // Cobbled Main Street and town square.
+  if (distSeg(x, z, ...MAIN_STREET) < 2.9 && r > 12 || Math.hypot(x - SQUARE.x, z - SQUARE.z) < SQUARE.r) return mixRgb(GROUT, C("#7d7262"), fine * 0.4);
   const pd = pathDist(x, z);
   if (pd < 2.3 && r > 6) return mixRgb(DIRT, C("#80643f"), fine * 0.4);
-  if (r > 66) {
+  if (r > FOOTHILLS_R) {
     if (ny < 0.55) return mixRgb(ROCKY, C("#6d665f"), fine);
     return mixRgb(FOREST_FLOOR, MEADOW_DEEP, n * 0.8);
   }
@@ -175,6 +177,13 @@ function groundColor(x: number, y: number, z: number, ny: number): Vec3 {
 
 export interface HubWorld {
   terrain: GpuMesh;
+  townGlass: GpuMesh;
+  townIce: GpuMesh;
+  spins: { mesh: GpuMesh; x: number; y: number; z: number; ry: number; speed: number; axis: "z" | "y"; mode: "lit" | "glow" | "beam" }[];
+  gondola: GpuMesh;
+  ferris: FerrisInfo | null;
+  chimneys: Vec3[];
+  fires: Vec3[];
   ground: GpuMesh;
   grass: GpuMesh;
   flowers: GpuMesh;
@@ -257,7 +266,7 @@ export function buildHub(r: Renderer): HubWorld {
 
   // ------------------------------------------------------------ Terrain
   const t = new MeshBuilder();
-  const S = 1.5, R = 118;
+  const S = 1.5, R = 160;
   const cache = new Map<string, { p: Vec3; n: Vec3; c: Vec3 }>();
   const vtx = (x: number, z: number) => {
     const k = `${x},${z}`;
@@ -272,7 +281,7 @@ export function buildHub(r: Renderer): HubWorld {
   };
   for (let x = -R; x < R; x += S) {
     for (let z = -R; z < R; z += S) {
-      if (Math.hypot(x + S / 2, z + S / 2) > 116) continue;
+      if (Math.hypot(x + S / 2, z + S / 2) > 158) continue;
       const a = vtx(x, z), b = vtx(x + S, z), c = vtx(x + S, z + S), d = vtx(x, z + S);
       for (const v of [a, b, c, a, c, d]) t.vertex(v.p, v.n, v.c);
     }
@@ -301,6 +310,32 @@ export function buildHub(r: Renderer): HubWorld {
     if (pathDist(x, z) < 1.9) continue;
     stoneTile(ground, x, heightAt(x, z) + 0.01, z, 0.36, 0.28, a + Math.PI / 2, mixRgb(COBBLES[2], C("#8d8272"), hash2(i, 5)), 0.11, i * 17);
   }
+  // Cobbled Main Street and the town square.
+  {
+    const [ax, az, bx, bz] = MAIN_STREET;
+    const len = Math.hypot(bx - ax, bz - az), dx = (bx - ax) / len, dz = (bz - az) / len;
+    for (let d = 13.6; d < len; d += 0.46) {
+      for (let k = -5; k <= 5; k++) {
+        const off = k * 0.5 + (Math.floor(d / 0.46) % 2 ? 0.25 : 0);
+        if (Math.abs(off) > 2.7) continue;
+        const x = ax + dx * d - dz * off, z = az + dz * d + dx * off;
+        if (Math.hypot(x - SQUARE.x, z - SQUARE.z) < SQUARE.r - 0.3) continue;
+        const col = COBBLES[Math.floor(hash2(d * 3, k) * COBBLES.length)];
+        stoneTile(ground, x, heightAt(x, z) + 0.01, z, 0.22, 0.24, Math.atan2(dz, dx), col, 0.07, Math.floor(d * 31) + k * 7);
+      }
+    }
+    for (let ri = 0; ; ri++) {
+      const rr = 0.5 + ri * 0.46;
+      if (rr > SQUARE.r - 0.2) break;
+      const n = Math.max(6, Math.floor((Math.PI * 2 * rr) / 0.48));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + ri * 0.3;
+        const x = SQUARE.x + Math.cos(a) * rr, z = SQUARE.z + Math.sin(a) * rr;
+        const col = COBBLES[Math.floor(hash2(i, ri * 5 + 1) * COBBLES.length)];
+        stoneTile(ground, x, heightAt(x, z) + 0.01, z, 0.22, 0.24, a, col, 0.07, i * 97 + ri);
+      }
+    }
+  }
   const up: Vec3 = [0, 1, 0];
   const ribbon = (ax: number, az: number, bx: number, bz: number, half: number, lift: number, colA: Vec3, colB: Vec3) => {
     const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
@@ -322,6 +357,7 @@ export function buildHub(r: Renderer): HubWorld {
   };
   const FLAG = [C("#b9ad98"), C("#a99c87"), C("#c9bfa9"), C("#9c907e")];
   PATHS.forEach(([ax, az, bx, bz], pi) => {
+    if (ax === MAIN_STREET[0] && az === MAIN_STREET[1] && bx === MAIN_STREET[2] && bz === MAIN_STREET[3]) return;
     const fromCenter = Math.hypot(ax, az) < 0.1;
     const len = Math.hypot(bx - ax, bz - az) || 1;
     const dx = (bx - ax) / len, dz = (bz - az) / len;
@@ -417,7 +453,7 @@ export function buildHub(r: Renderer): HubWorld {
   finish();
 
   // Distant chalets on the forested slopes.
-  const CHALETS: [number, number][] = [[-44, -58], [-27, -68], [27, -68], [63, -26], [-66, 14], [-66, -6]];
+  const CHALETS: [number, number][] = [[-60, -106], [-28, -118], [32, -116], [112, -30], [-116, 18], [-114, -22], [108, 52], [-70, 100], [40, 112]];
   CHALETS.forEach(([x, z], i) => timberCabin(p, glow, x, heightAt(x, z), z, face(x, z), 6, 5, null, 50 + i, false));
   finish();
 
@@ -438,12 +474,13 @@ export function buildHub(r: Renderer): HubWorld {
   canoe(p, PL.dock.x - 2, WATER_Y + 0.12, PL.dock.z + 13, 2.2, C("#2f7fb0"));
   finish();
 
-  // Bridge over the river, with railings.
-  {
+  // Bridges over the river, with railings.
+  for (const BRIDGE of BRIDGES) {
     const fr = new Frame(BRIDGE.x, 0, BRIDGE.z, BRIDGE.ry);
     // Each board follows the arch at its own position, so the ends sit right on the banks.
-    const deck = (lz: number) => bridgeDeckTop(Math.max(-BRIDGE.halfLength, Math.min(BRIDGE.halfLength, lz))) - 0.11;
-    for (let i = -5; i <= 5; i++) {
+    const deck = (lz: number) => bridgeDeckTop(BRIDGE, Math.max(-BRIDGE.halfLength, Math.min(BRIDGE.halfLength, lz))) - 0.11;
+    const nb = Math.floor(BRIDGE.halfLength);
+    for (let i = -nb; i <= nb; i++) {
       const lz = i * 1.0;
       const y = deck(lz), y0 = deck(lz - 0.48), y1 = deck(lz + 0.48);
       box(p, fr, 0, y, lz, 4, 0.22, 0.98, i % 2 ? C("#b9804c") : C("#9b6338"), 0, -Math.atan2(y1 - y0, 0.96), 0);
@@ -458,7 +495,7 @@ export function buildHub(r: Renderer): HubWorld {
     for (const lz of [-BRIDGE.halfLength + 0.15, BRIDGE.halfLength - 0.15]) {
       p.cylinder(fr.m(0, deck(lz) - 0.18, lz, 0.34, 4.4, 0.34, 0, 0, Math.PI / 2), C("#7a4b2c"), 8);
     }
-    for (const s of [-1.9, 1.9]) for (let i = -5; i < 5; i++) {
+    for (const s of [-1.9, 1.9]) for (let i = -nb; i < nb; i++) {
       const y0 = deck(i), y1 = deck(i + 1);
       box(p, fr, s, (y0 + y1) / 2 + 1.05, i + 0.5, 0.12, 0.12, 1.05, C("#b9804c"), 0, -Math.atan2(y1 - y0, 1), 0);
     }
@@ -492,7 +529,7 @@ export function buildHub(r: Renderer): HubWorld {
   for (let i = 0; i < 30; i++) {
     const a = hash2(i, 7) * Math.PI * 2, d = 20 + hash2(i, 8) * 45;
     const x = Math.cos(a) * d, z = Math.sin(a) * d;
-    if (pathDist(x, z) <= 2.5) continue;
+    if (pathDist(x, z) <= 2.5 || townClear(x, z, 1)) continue;
     const rr = 0.9 + hash2(i, 9) * 1.2;
     boulder(p, x, heightAt(x, z) + rr * 0.15, z, rr, rr * 0.7, rr * 0.85, i * 7 + 1, 0.7);
   }
@@ -521,28 +558,32 @@ export function buildHub(r: Renderer): HubWorld {
   // ------------------------------------------------------------ Trees
   const trees = new MeshBuilder();
   const clear = CHALETS.map(([x, z]) => ({ x, z }));
-  for (let x = -116; x <= 116; x += 4.5) {
-    for (let z = -116; z <= 116; z += 4.5) {
+  // Inside the walkable area: exactly the server's solid trees.
+  for (let x = FOREST_GRID.from; x <= FOREST_GRID.to; x += FOREST_GRID.step) {
+    for (let z = FOREST_GRID.from; z <= FOREST_GRID.to; z += FOREST_GRID.step) {
+      const tr = forestTreeAt(x, z);
+      if (!tr) continue;
+      const h = heightAt(tr.x, tr.z);
+      const rr = Math.hypot(tr.x, tr.z);
+      const snow = h > 30 || (tr.z < PL.trailhead.z - 6 && rr < 70);
+      spruce(trees, tr.x, h - 0.15, tr.z, tr.s, Math.floor(tr.x * 7 + tr.z), { lod: rr > 70 ? "far" : "near", snow });
+    }
+  }
+  // Beyond the edge: a dense, purely visual forest climbing the foothills.
+  for (let x = -158; x <= 158; x += 4.5) {
+    for (let z = -158; z <= 158; z += 4.5) {
       const jx = x + (hash2(x, z) - 0.5) * 3.5, jz = z + (hash2(z, x) - 0.5) * 3.5;
       const rr = Math.hypot(jx, jz);
-      if (rr > 116) continue;
-      const inside = rr <= HUB.radius + 2;
-      // Inside the walkable area the rule matches the server exactly; beyond it the forest thickens.
-      const chance = rr < 16 ? 0 : rr < 40 ? 0.1 : rr < 58 ? 0.22 : rr < 88 ? (inside ? 0.55 : 0.8) : 0.85;
-      if (hash2(jx * 1.3, jz * 0.7) > chance) continue;
-      if (pathDist(jx, jz) < 4 || riverDist(jx, jz) < 6) continue;
-      if (Object.values(PL).some((pl) => Math.hypot(jx - pl.x, jz - pl.z) < pl.r + 7)) continue;
-      if (Math.hypot(jx - PL.trailhead.x, jz - PL.trailhead.z) < 12) continue;
+      if (rr > 158 || rr <= HUB.radius + 2) continue;
+      if (hash2(jx * 1.3, jz * 0.7) > (rr < 125 ? 0.75 : 0.5)) continue;
+      if (riverDist(jx, jz) < 6) continue;
       const h = heightAt(jx, jz);
       if (h < 0.05) continue;
-      if (!inside) {
-        if (clear.some((c) => Math.hypot(c.x - jx, c.z - jz) < 8)) continue;
-        if (groundNormal(jx, jz)[1] < 0.55 || h > 70) continue;
-        if (Math.hypot(jx - lakePoint(21)[0], jz - lakePoint(21)[1]) < 9) continue;
-      }
-      const s = 0.8 + hash2(jx, jz * 3) * 0.7 + (rr > 60 ? 0.4 : 0);
-      const snow = h > 30 || (jz < PL.trailhead.z - 6 && rr < 70);
-      spruce(trees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: rr > 70 ? "far" : "near", snow });
+      if (clear.some((c) => Math.hypot(c.x - jx, c.z - jz) < 8)) continue;
+      if (groundNormal(jx, jz)[1] < 0.55 || h > 70) continue;
+      if (Math.hypot(jx - lakePoint(21)[0], jz - lakePoint(21)[1]) < 9) continue;
+      const s = 1.2 + hash2(jx, jz * 3) * 0.7;
+      spruce(trees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: "far", snow: h > 30 });
     }
   }
   for (const tr of MEADOW_TREES) spruce(trees, tr.x, heightAt(tr.x, tr.z) - 0.15, tr.z, tr.s, Math.floor(tr.x * 13 + tr.z));
@@ -568,13 +609,17 @@ export function buildHub(r: Renderer): HubWorld {
     if (Math.hypot(x - PL.outfitter.x, z - PL.outfitter.z) < 5.6 || Math.hypot(x - PL.arcade.x, z - PL.arcade.z) < 5.4) return true;
     if (Math.hypot(x - PL.hotSpring.x, z - PL.hotSpring.z) < 4.6) return true;
     if (dockHeightAt(x, z) !== null) return true;
+    if (bridgeHeightAt(x, z) !== null) return true;
+    if (townClear(x, z, 0.6 + pad)) return true;
+    if (distSeg(x, z, ...MAIN_STREET) < 3.0 && rr > 12) return true;
     return false;
   };
-  for (let x = -60; x <= 60; x += 0.62) {
-    for (let z = -60; z <= 60; z += 0.62) {
+  for (let x = -98; x <= 98; x += 0.62) {
+    for (let z = -98; z <= 98; z += 0.62) {
       const jx = x + (hash2(x, z) - 0.5) * 0.55, jz = z + (hash2(z, x) - 0.5) * 0.55;
       const rr = Math.hypot(jx, jz);
-      if (rr > 60 || blocked(jx, jz, 0)) continue;
+      // Out in the town and countryside the grass thins a little to keep the frame rate up.
+      if (rr > 98 || (rr > 62 && hash2(jx * 5.3, jz * 4.1) > 0.34) || blocked(jx, jz, 0)) continue;
       const lushN = fbm2(jx * 0.09, jz * 0.09, 3);
       const nearEdge = pathDist(jx, jz) < 3.2 || rr < plazaEdge(Math.atan2(jz, jx)) + 2.2;
       const keep = 0.35 + lushN * 0.45 + (nearEdge ? 0.25 : 0);
@@ -584,10 +629,11 @@ export function buildHub(r: Renderer): HubWorld {
       grassTuft(grass, jx, y - 0.01, jz, Math.floor(jx * 131 + jz * 17), Math.min(1, lushN * 1.2 + (nearEdge ? 0.25 : 0)), dry);
     }
   }
-  for (let x = -58; x <= 58; x += 0.95) {
-    for (let z = -58; z <= 58; z += 0.95) {
+  for (let x = -96; x <= 96; x += 0.95) {
+    for (let z = -96; z <= 96; z += 0.95) {
       const jx = x + (hash2(x + 3, z) - 0.5) * 0.8, jz = z + (hash2(z, x + 3) - 0.5) * 0.8;
-      if (Math.hypot(jx, jz) > 58 || blocked(jx, jz, 0.4)) continue;
+      const fr = Math.hypot(jx, jz);
+      if (fr > 96 || (fr > 60 && hash2(jx * 2.9, jz * 3.7) > 0.35) || blocked(jx, jz, 0.4)) continue;
       const y = heightAt(jx, jz);
       const seed = Math.floor(jx * 71 + jz * 13);
       const lupN = fbm2(jx * 0.07 + 30, jz * 0.07, 3);
@@ -687,7 +733,8 @@ export function buildHub(r: Renderer): HubWorld {
   }
 
   // ------------------------------------------------------------ Mountains, portal, steam
-  const mountains = buildMountainMesh({ inner: 112, outer: 620, baseHeight: heightAt, heroAngle: -Math.PI / 2 - 0.12 });
+  const mountains = buildMountainMesh({ inner: 152, outer: 720, baseHeight: heightAt, heroAngle: -Math.PI / 2 - 0.12 });
+  const town = buildTown(heightAt);
   const portal = new MeshBuilder().torus(compose(0, 0, 0, 0, Math.PI / 2, 0), P.portal, 3, 0.35, 24, 6);
   const steam = new MeshBuilder().sphere(compose(0, 0, 0), "#ffffff", 4, 6);
   const shadow = new MeshBuilder();
@@ -695,12 +742,19 @@ export function buildHub(r: Renderer): HubWorld {
 
   return {
     terrain: r.upload(t.build()),
+    townGlass: r.upload(town.glass.build()),
+    townIce: r.upload(town.ice.build()),
+    spins: town.spins.map((sp) => ({ ...sp, mesh: r.upload(sp.mesh.build()) })),
+    gondola: r.upload(town.gondola.build()),
+    ferris: town.ferris,
+    chimneys: town.chimneys,
+    fires: town.fires,
     ground: r.upload(ground.build()),
     grass: r.upload(grass.build()),
     flowers: r.upload(flowers.build()),
     trees: r.upload(trees.build()),
-    props,
-    glow: r.upload(glow.build()),
+    props: [...props, r.upload(town.body.build())],
+    glow: r.upload(glow.merge(town.glow).build()),
     water: r.upload(w.build()),
     falls: r.upload(falls.build()),
     foam: r.upload(foam.build()),
@@ -716,8 +770,31 @@ export function buildHub(r: Renderer): HubWorld {
       { text: "🛷 Toboggan Rush", x: PL.trailhead.x, y: 9.4, z: PL.trailhead.z },
       { text: "♨️ Hot Springs", x: PL.hotSpring.x, y: 3.5, z: PL.hotSpring.z },
       { text: "⛲ Village Plaza", x: 0, y: 7.8, z: 0 },
+      { text: "🥐 Bakery", x: TOWN_PLACES.bakery.x, y: 10.5, z: -7.5 },
+      { text: "📮 Post Office", x: TOWN_PLACES.post.x, y: 10.5, z: -7.5 },
+      { text: "📚 Library", x: TOWN_PLACES.library.x, y: 11, z: -8.5 },
+      { text: "🍦 Ice Cream", x: TOWN_PLACES.icecream.x, y: 10.5, z: 7 },
+      { text: "🏛️ Town Hall", x: -96, y: 19, z: 0.4 },
+      { text: "🎺 Town Square", x: -74, y: 7.5, z: 0 },
+      { text: "🌾 Windmill", x: -46, y: 14, z: -69 },
+      { text: "⛸️ Skating Pond", x: TOWN_PLACES.rink.x, y: 3.5, z: TOWN_PLACES.rink.z },
+      { text: "🗼 Lighthouse", x: -61, y: 15.5, z: 29 },
+      { text: "⚙️ Watermill", x: 41, y: 8.5, z: 7 },
+      { text: "🔥 Fire Lookout", x: 68, y: 18, z: -22 },
+      { text: "🔭 Observatory", x: 76, y: 10, z: 0 },
+      { text: "🌻 Greenhouse", x: 56, y: 6.5, z: -1 },
+      { text: "🎡 Fairground", x: 27, y: 16.5, z: 66 },
+      { text: "🌲 Ranger Station", x: -8, y: 8, z: 80 },
+      { text: "🏕️ Campground", x: -19, y: 4, z: 62 },
     ],
   };
+}
+
+/** World position of a Ferris wheel gondola's hanging point (gondolas stay upright). */
+export function ferrisSeat(fw: FerrisInfo, i: number, time: number): Vec3 {
+  const a = time * fw.speed + (i / fw.seats) * Math.PI * 2;
+  const lx = Math.cos(a) * fw.radius, ly = Math.sin(a) * fw.radius;
+  return [fw.x + lx * Math.cos(fw.ry), fw.y + ly, fw.z - lx * Math.sin(fw.ry)];
 }
 
 /** Golden-hour lighting for the village. */
@@ -739,16 +816,36 @@ export function applyVillageLight(r: Renderer) {
 }
 
 /** Draws the whole village (everything except characters and particles). */
-export function drawHub(r: Renderer, w: HubWorld, time: number) {
+export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   const I = compose(0, 0, 0);
   r.draw(w.mountains, I, { noCast: true });
   r.draw(w.terrain, I, { noCast: true });
   r.draw(w.ground, I, { noCast: true });
-  r.draw(w.grass, I, { sway: 0.06, noCast: true });
-  r.draw(w.flowers, I, { sway: 0.05, noCast: true });
+  // The fast graphics setting skips the (very many) grass blades and flowers.
+  if (r.quality !== "low") {
+    r.draw(w.grass, I, { sway: 0.06, noCast: true });
+    r.draw(w.flowers, I, { sway: 0.05, noCast: true });
+  }
   r.draw(w.trees, I, { sway: 0.22 });
   for (const prop of w.props) r.draw(prop, I);
-  r.draw(w.glow, I, { unlit: true, emissive: 0.25 });
+  // Windows and lanterns glow brighter as night falls.
+  r.draw(w.glow, I, { unlit: true, emissive: 0.25 + night * 0.9 });
+  r.draw(w.townIce, I, { unlit: true, emissive: 0.05, noCast: true });
+  r.draw(w.townGlass, I, { alpha: 0.38 });
+  for (const sp of w.spins) {
+    const a = time * sp.speed;
+    const m = sp.axis === "y" ? compose(sp.x, sp.y, sp.z, sp.ry + a) : compose(sp.x, sp.y, sp.z, sp.ry, 0, a);
+    if (sp.mode === "lit") r.draw(sp.mesh, m);
+    else if (sp.mode === "glow") r.draw(sp.mesh, m, { unlit: true, emissive: 0.4 });
+    else r.draw(sp.mesh, m, { unlit: true, alpha: 0.13, noFog: true });
+  }
+  const fw = w.ferris;
+  if (fw) {
+    for (let i = 0; i < fw.seats; i++) {
+      const p = ferrisSeat(fw, i, time);
+      r.draw(w.gondola, compose(p[0], p[1], p[2], fw.ry));
+    }
+  }
   const pulse = 1 + Math.sin(time * 3) * 0.05;
   r.draw(w.portal, compose(PL.trailhead.x, heightAt(PL.trailhead.x, PL.trailhead.z) + 3.3, PL.trailhead.z, 0, 0, time * 0.8, pulse), { unlit: true, emissive: 0.3 });
   r.draw(w.water, I, { wave: 1, alpha: 0.84 });

@@ -197,6 +197,53 @@ function addHat(m: MeshBuilder, id: string | null) {
         for (let i = 0; i < 3; i++) m.cone(at((0.42 + i * 0.1) * s, 0.48, 0, 0, 0, 0, 0.07, 0.22, 0.07), c, 5);
       }
       break;
+    case "flowers": {
+      const cols = ["#ff7eb3", "#ffd93b", "#a77bff", "#ffffff", "#7fd6ff"];
+      m.torus(at(0, 0.02, 0, 0, -0.08, 0, 0.36), "#4f8a3a", 1, 0.12, 16, 5);
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        m.sphere(at(Math.cos(a) * 0.36, 0.05, Math.sin(a) * 0.36, 0, 0, 0, 0.09, 0.07, 0.09), cols[i % cols.length], 4, 6);
+        m.sphere(at(Math.cos(a) * 0.36, 0.1, Math.sin(a) * 0.36, 0, 0, 0, 0.035), "#ffd93b", 3, 4);
+      }
+      break;
+    }
+    case "sunhat":
+      m.cylinder(at(0, 0, 0, 0, -0.06, 0, 1.9, 0.04, 1.9), c, 20);
+      m.cylinder(at(0, 0.15, 0, 0, -0.06, 0, 0.75, 0.3, 0.75), c, 14, 0.42, 0.5);
+      m.cylinder(at(0, 0.06, 0, 0, -0.06, 0, 0.78, 0.08, 0.78), "#ff7eb3", 14);
+      m.sphere(at(0.36, 0.1, 0.12, 0, 0, 0, 0.08), "#ffd93b", 4, 6);
+      break;
+    case "pumpkin":
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        m.sphere(at(Math.cos(a) * 0.14, 0.14, Math.sin(a) * 0.14, -a, 0, 0, 0.26, 0.24, 0.17), i % 2 ? c : cDark, 6, 10);
+      }
+      m.cylinder(at(0, 0.4, 0, 0, 0, 0.2, 0.07, 0.16, 0.07), "#4f6b2a", 6);
+      m.sphere(at(0.12, 0.38, 0.05, 0, 0, 0.6, 0.12, 0.03, 0.07), "#5f8a3a", 4, 6);
+      break;
+    case "holiday":
+      m.cylinder(at(0, 0.02, 0, 0, -0.08, 0, 1.0, 0.14, 1.0), "#fffaf0", 14, 0.52, 0.52);
+      m.cone(at(0, 0.36, -0.04, 0, -0.5, 0, 0.92, 0.66, 0.92), c, 12);
+      m.sphere(at(0, 0.52, -0.42, 0, 0, 0, 0.14), "#fffaf0", 6, 10);
+      break;
+    case "earmuffs":
+      m.torus(at(0, 0.05, 0, 0, 0, Math.PI / 2, 0.42, 0.42, 0.42), "#8a8a96", 1, 0.08, 16, 4);
+      for (const s of [1, -1]) m.sphere(at(0.44 * s, -0.22, 0, 0, 0, 0, 0.17, 0.2, 0.2), c, 6, 10);
+      break;
+    case "propeller":
+      m.cylinder(at(0, 0.06, 0, 0, -0.08, 0, 0.98, 0.24, 0.98), c, 14, 0.42, 0.5);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        m.cylinder(at(Math.cos(a) * 0.24, 0.2, Math.sin(a) * 0.24, -a, 0, 0, 0.5, 0.2, 0.3), ["#e2483d", "#ffd93b", "#3fbf7f", "#ffffff"][i], 4, 0.3, 0.5);
+      }
+      m.cylinder(at(0, 0.36, 0, 0, 0, 0, 0.05, 0.14, 0.05), "#3a3a45", 5);
+      m.box(at(0, 0.44, 0, 0.6, 0, 0, 0.7, 0.03, 0.1), "#e2483d");
+      m.box(at(0, 0.445, 0, 0.6 + Math.PI / 2, 0, 0, 0.7, 0.03, 0.1), "#ffd93b");
+      break;
+    case "party":
+      m.cone(at(0, 0.3, 0, 0, -0.05, 0.12, 0.5, 0.62, 0.5), (_x, y) => (Math.floor(y * 14) % 2 ? c : hexToRgb("#ff6fb5")), 12);
+      m.sphere(at(0.04, 0.63, 0, 0, 0, 0, 0.1), "#7ff3f0", 4, 6);
+      break;
     case "crown":
       m.cylinder(at(0, 0.06, 0, 0, -0.08, 0, 0.78, 0.2, 0.78), c, 12);
       for (let i = 0; i < 6; i++) {
@@ -213,6 +260,16 @@ function addScarf(m: MeshBuilder, id: string | null) {
   if (!item) return;
   const c = hexToRgb(item.color);
   const stripe = mixRgb(c, [1, 1, 1], 0.6);
+  if (item.shape === "candy") {
+    m.torus(compose(0, 1.14, 0.0, 0, 0.1, 0, 0.47, 0.9, 0.45), c, 1, 0.24, 16, 6);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      m.box(compose(Math.cos(a) * 0.47, 1.14 + Math.sin(a) * 0.04, Math.sin(a) * 0.45, -a, 0.1, 0.4, 0.06, 0.24, 0.24), "#fffaf0");
+    }
+    for (const y of [0.9, 0.78]) m.box(compose(0.2, y, 0.45, 0.1, 0.15, 0.15, 0.18, 0.07, 0.08), "#fffaf0");
+    m.box(compose(0.2, 0.84, 0.44, 0.1, 0.15, 0.15, 0.17, 0.4, 0.07), c);
+    return;
+  }
   m.torus(compose(0, 1.14, 0.0, 0, 0.1, 0, 0.47, 0.9, 0.45), c, 1, 0.24, 16, 6);
   m.box(compose(0.2, 0.9, 0.44, 0.1, 0.15, 0.15, 0.17, 0.4, 0.07), c);
   m.box(compose(0.2, 0.84, 0.455, 0.1, 0.15, 0.15, 0.18, 0.05, 0.08), stripe);
@@ -226,6 +283,26 @@ function addBackpack(m: MeshBuilder, id: string | null) {
   if (item.shape === "canoe") {
     m.sphere(compose(0, 0.95, -0.54, 0, 0, 0, 0.24, 0.85, 0.16), c, 6, 12);
     m.box(compose(0, 0.95, -0.44, 0, 0, 0, 0.42, 0.06, 0.05), "#7a4b2c");
+  } else if (item.shape === "basket") {
+    m.box(compose(0, 0.82, -0.58, 0, 0, 0, 0.62, 0.42, 0.36), c);
+    for (let i = 0; i < 4; i++) m.box(compose(0, 0.66 + i * 0.1, -0.77, 0, 0, 0, 0.64, 0.03, 0.02), mixRgb(c, dark, 0.3));
+    for (let i = 0; i < 4; i++) m.box(compose(-0.24 + i * 0.16, 1.05, -0.58, 0, 0, 0, 0.16, 0.05, 0.38), i % 2 ? "#e2483d" : "#fffaf0");
+    m.torus(compose(0, 1.08, -0.58, 0, 0, Math.PI / 2, 0.24, 0.24, 0.24), mixRgb(c, dark, 0.3), 1, 0.08, 12, 4);
+  } else if (item.shape === "firewood") {
+    for (let i = 0; i < 5; i++) {
+      m.cylinder(compose(-0.16 + (i % 3) * 0.16, 0.75 + Math.floor(i / 3) * 0.16, -0.6, 0, 0, Math.PI / 2, 0.15, 0.7, 0.15), c, 7);
+      m.cylinder(compose(-0.16 + (i % 3) * 0.16 + 0.36, 0.75 + Math.floor(i / 3) * 0.16, -0.6, 0, 0, Math.PI / 2, 0.12, 0.02, 0.12), "#d9b77a", 7);
+    }
+    m.box(compose(0, 0.82, -0.6, 0, 0, 0, 0.08, 0.42, 0.24), "#3a3a45");
+  } else if (item.shape === "guitar") {
+    m.sphere(compose(0.05, 0.72, -0.56, 0, 0, 0.3, 0.26, 0.24, 0.08), c, 6, 10);
+    m.sphere(compose(0.0, 0.96, -0.56, 0, 0, 0.3, 0.2, 0.18, 0.075), c, 6, 10);
+    m.box(compose(-0.18, 1.35, -0.56, 0, 0, 0.3, 0.08, 0.7, 0.05), "#5b3a24");
+    m.cylinder(compose(0.03, 0.82, -0.48, 0, Math.PI / 2, 0, 0.1, 0.02, 0.1), "#3a2218", 8);
+  } else if (item.shape === "board") {
+    m.box(compose(0, 0.95, -0.56, 0, 0, 0.12, 0.42, 1.5, 0.06), c);
+    for (const y of [0.55, 1.35]) m.sphere(compose(0, y, -0.56, 0, 0, 0, 0.21, 0.06, 0.03), c, 4, 8);
+    for (const y of [0.75, 1.15]) m.box(compose(0, y, -0.52, 0, 0, 0.12, 0.36, 0.12, 0.06), "#3a3a45");
   } else {
     m.box(compose(0, 0.88, -0.52, 0, 0, 0, 0.56, 0.6, 0.3), c);
     m.box(compose(0, 1.12, -0.5, 0.25, 0, 0, 0.58, 0.18, 0.32), mixRgb(c, dark, 0.25));

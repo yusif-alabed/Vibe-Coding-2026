@@ -31,6 +31,9 @@ import {
   questsWire,
   validateLayout,
   visitedPlace,
+  type RaceGame,
+  ACT_PLACES,
+  ACT_QUEST,
   type PlacedItem,
   type ProgressRecord,
   type QuestEvent,
@@ -49,6 +52,8 @@ interface Save extends ProgressRecord {
   coins: number;
   owned: string[];
   look: Look;
+  /** Bot beavers you've made friends with (by name). */
+  botFriends?: string[];
 }
 
 /** Furnished cabins for the bot beavers, so you can visit them in solo mode. */
@@ -156,7 +161,23 @@ export class OfflineNet implements Net {
     this.emit(questsWire(this.save, "solo"));
     this.emit(pineconesWire(this.save));
     this.emit({ t: "furniture", counts: this.save.furniture });
+    this.emitFriends();
+    this.emit({ t: "party", leader: this.party.length ? "you" : null, members: this.partyMembers() });
     store(this.save);
+  }
+
+  private party: string[] = [];
+
+  private emitFriends() {
+    const list = (this.save.botFriends ?? []).map((name) => {
+      const b = this.bots.find((x) => x.name === name);
+      return { pid: `bot:${name}`, name, online: !!b, where: b ? "Solo village" : null, joinable: false, look: b?.look ?? null };
+    });
+    this.emit({ t: "friends", list });
+  }
+
+  private partyMembers() {
+    return this.party.length ? [{ pid: "you", name: this.me.name, online: true }, ...this.party.map((n) => ({ pid: `bot:${n}`, name: n, online: true }))] : [];
   }
 
   private progress(ev: QuestEvent) {
@@ -221,7 +242,12 @@ export class OfflineNet implements Net {
       }
       case "act": {
         const place = visitedPlace(this.me.x, this.me.z);
-        if (msg.a === "stop" || (msg.a === "cocoa" && place === "lodge") || (msg.a === "soak" && place === "hotSpring")) this.emit({ t: "act", id: this.me.id, a: msg.a });
+        if (msg.a === "stop") this.emit({ t: "act", id: this.me.id, a: msg.a });
+        else if (msg.a in ACT_PLACES && ACT_PLACES[msg.a as keyof typeof ACT_PLACES] === place) {
+          this.emit({ t: "act", id: this.me.id, a: msg.a });
+          const kind = ACT_QUEST[msg.a];
+          if (kind) this.progress({ kind });
+        }
         break;
       }
       case "emote":
@@ -251,16 +277,17 @@ export class OfflineNet implements Net {
         break;
       }
       case "queueRace": {
-        const t = HUB_PLACES.trailhead;
-        if (Math.hypot(this.me.x - t.x, this.me.z - t.z) > PORTAL_RADIUS + 2) {
-          this.emit({ t: "error", text: "Walk to the trailhead portal to join the race!" });
+        const game = msg.game === "canoe" ? "canoe" : "toboggan";
+        const t = game === "canoe" ? HUB_PLACES.dock : HUB_PLACES.trailhead;
+        if (Math.hypot(this.me.x - t.x, this.me.z - t.z) > (game === "canoe" ? 7 : PORTAL_RADIUS + 2)) {
+          this.emit({ t: "error", text: game === "canoe" ? "Walk to the Lake Dock to join the Canoe Dash!" : "Walk to the trailhead portal to join the race!" });
           return;
         }
         if (this.queued || this.race) return;
         this.queued = true;
         this.emit({ t: "queue", count: 1, size: RACE.size, startsInMs: 2500 });
         window.setTimeout(() => {
-          if (this.queued) this.startRace();
+          if (this.queued) this.startRace(game);
         }, 2500);
         break;
       }
@@ -337,6 +364,50 @@ export class OfflineNet implements Net {
         }
         this.welcome();
         break;
+      case "friendRequest": {
+        if (msg.code) { this.emit({ t: "error", text: "Friend codes work when you play online." }); break; }
+        const b = this.bots.find((x) => x.id === msg.id);
+        if (!b) break;
+        const list = (this.save.botFriends ??= []);
+        if (list.includes(b.name)) { this.emit({ t: "system", text: `You're already friends with ${b.name}! 🤝` }); break; }
+        this.emit({ t: "system", text: `Friend request sent to ${b.name}.` });
+        window.setTimeout(() => {
+          list.push(b.name);
+          store(this.save);
+          this.emitFriends();
+          this.emit({ t: "system", text: `${b.name} is now your friend! 🤝` });
+          this.emit({ t: "chat", id: b.id, name: b.name, text: "Yay, friends! 🦫" });
+          this.emit({ t: "emote", id: b.id, i: 3 });
+          this.progress({ kind: "friend" });
+        }, 1200);
+        break;
+      }
+      case "friendRemove":
+        this.save.botFriends = (this.save.botFriends ?? []).filter((n) => `bot:${n}` !== msg.pid);
+        this.party = this.party.filter((n) => `bot:${n}` !== msg.pid);
+        store(this.save);
+        this.emitFriends();
+        this.emit({ t: "party", leader: this.party.length ? "you" : null, members: this.partyMembers() });
+        break;
+      case "partyInvite": {
+        const name = String(msg.pid).replace(/^bot:/, "");
+        if (this.party.includes(name) || this.party.length >= 3) break;
+        window.setTimeout(() => {
+          this.party.push(name);
+          this.emit({ t: "party", leader: "you", members: this.partyMembers() });
+          this.emit({ t: "system", text: `${name} joined your party! 🎉` });
+          this.progress({ kind: "friend" });
+        }, 900);
+        break;
+      }
+      case "partyLeave":
+        this.party = [];
+        this.emit({ t: "party", leader: null, members: [] });
+        break;
+      case "joinFriend":
+      case "friendRespond":
+      case "partyRespond":
+        break;
       case "block":
       case "report":
         this.emit({ t: "system", text: msg.t === "report" ? "Thanks — a moderator will take a look." : "Blocked." });
@@ -344,10 +415,15 @@ export class OfflineNet implements Net {
     }
   }
 
-  private startRace() {
+  private raceGame: RaceGame = "toboggan";
+
+  private startRace(game: RaceGame) {
+    this.raceGame = game;
     this.queued = false;
     this.inHub = false;
-    const botNames = BOT_NAMES.filter(() => true).sort(() => Math.random() - 0.5).slice(0, RACE.size - 1);
+    // Your party comes along; random bot beavers fill any empty seats.
+    const others = BOT_NAMES.filter((n) => !this.party.includes(n)).sort(() => Math.random() - 0.5);
+    const botNames = [...this.party, ...others].slice(0, RACE.size - 1);
     const entrants = [
       { id: this.me.id, name: this.me.name, isBot: false },
       ...botNames.map((n, i) => ({ id: `rbot-${i}`, name: n, isBot: true })),
@@ -358,6 +434,7 @@ export class OfflineNet implements Net {
     const botLooks = this.bots;
     this.emit({
       t: "raceStart",
+      game,
       seed,
       countdownMs: RACE.countdownMs,
       racers: entrants.map((e, i) => ({ ...e, look: e.isBot ? botLooks[i % botLooks.length]?.look ?? null : this.me.look })),
@@ -384,7 +461,7 @@ export class OfflineNet implements Net {
     const mine = results.find((r) => r.id === this.me.id);
     this.save.coins += mine?.coins ?? 0;
     if (mine?.finished) {
-      this.progress({ kind: "race" });
+      this.progress({ kind: this.raceGame === "canoe" ? "canoe" : "race" });
       if (mine.place <= 2) this.progress({ kind: "podium" });
     }
     store(this.save);
@@ -392,7 +469,7 @@ export class OfflineNet implements Net {
     this.emit({ t: "raceEnd", results });
     this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
     window.setTimeout(() => {
-      const t = HUB_PLACES.trailhead;
+      const t = this.raceGame === "canoe" ? { x: HUB_PLACES.dock.x + 3, z: HUB_PLACES.dock.z - 15 } : HUB_PLACES.trailhead;
       this.me.x = t.x + rand(-3, 3);
       this.me.z = t.z + 9;
       this.welcome();

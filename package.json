@@ -17,6 +17,8 @@
     "dev:api": "npm run dev --workspace api",
     "build": "npm run build --workspace client && npm run build:preview --workspace client",
     "build:preview": "npm run build:preview --workspace client",
+    "build:hosted": "node client/build.mjs hosted",
+    "start": "npm run build:hosted && npm run start --workspace game-server",
     "test": "tsx --test \"shared/src/**/*.test.ts\" \"game-server/src/**/*.test.ts\" \"api/src/**/*.test.ts\"",
     "typecheck": "tsc -p shared && tsc -p game-server && tsc -p client"
   },

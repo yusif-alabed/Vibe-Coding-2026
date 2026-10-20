@@ -30,8 +30,8 @@ export function validateMove(prev: Pos, proposed: Pos, dtMs: number): Pos {
     x = (x / r) * HUB.radius;
     z = (z / r) * HUB.radius;
   }
-  // Buildings.
-  for (const c of HUB_COLLIDERS) {
+  // Buildings, trees and rocks (only the ones in nearby grid cells).
+  for (const c of collidersNear(x, z)) {
     const cx = x - c.x;
     const cz = z - c.z;
     const cd = Math.hypot(cx, cz);
@@ -49,6 +49,29 @@ export function validateMove(prev: Pos, proposed: Pos, dtMs: number): Pos {
     z = (z / finalRadius) * HUB.radius;
   }
   return { x, z };
+}
+
+/** Colliders bucketed on a coarse grid, so a move only checks the handful of solids around it. */
+const CELL = 8;
+let grid: Map<number, { x: number; z: number; r: number }[]> | null = null;
+let gridCount = 0;
+const key = (i: number, j: number) => (i + 512) * 1024 + (j + 512);
+function collidersNear(x: number, z: number) {
+  if (!grid || gridCount !== HUB_COLLIDERS.length) {
+    grid = new Map();
+    gridCount = HUB_COLLIDERS.length;
+    for (const c of HUB_COLLIDERS) {
+      const i0 = Math.floor((c.x - c.r) / CELL), i1 = Math.floor((c.x + c.r) / CELL);
+      const j0 = Math.floor((c.z - c.r) / CELL), j1 = Math.floor((c.z + c.r) / CELL);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+        const k = key(i, j);
+        let b = grid.get(k);
+        if (!b) grid.set(k, (b = []));
+        b.push(c);
+      }
+    }
+  }
+  return grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? [];
 }
 
 export function randomSpawn(rand: () => number = Math.random): Pos {

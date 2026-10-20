@@ -1,4 +1,4 @@
-import { HUB_COLLIDERS, HUB_PLACES, riverDistance } from "./constants";
+import { HUB_COLLIDERS, HUB_PLACES, riverDistance, TOWN_PLACES } from "./constants";
 import { mulberry32 } from "./rng";
 import "./village";
 
@@ -8,8 +8,8 @@ import "./village";
  * from things it can see for itself (where you walk, races, purchases, pinecones you pick up).
  */
 
-export type QuestKind = "visit" | "race" | "podium" | "pinecone" | "emote" | "quickchat" | "buy" | "decorate" | "photo";
-export type VisitPlace = "lodge" | "hotSpring" | "dock" | "trailhead" | "outfitter" | "arcade";
+export type QuestKind = "visit" | "race" | "podium" | "pinecone" | "emote" | "quickchat" | "buy" | "decorate" | "photo" | "ride" | "skate" | "treat" | "music" | "friend" | "canoe";
+export type VisitPlace = "lodge" | "hotSpring" | "dock" | "trailhead" | "outfitter" | "arcade" | keyof typeof TOWN_PLACES;
 
 export interface QuestDef {
   id: string;
@@ -36,6 +36,16 @@ export const QUEST_POOL: QuestDef[] = [
   { id: "buy_1", kind: "buy", goal: 1, reward: 25, label: "Buy an outfit or furniture", icon: "🛍️" },
   { id: "decorate", kind: "decorate", goal: 1, reward: 30, label: "Decorate your cabin", icon: "🏡" },
   { id: "photo", kind: "photo", goal: 1, reward: 20, label: "Take a photo in Photo Mode", icon: "📷" },
+  { id: "visit_townhall", kind: "visit", target: "townHall", goal: 1, reward: 15, label: "Walk Main Street to the Town Hall", icon: "🏛️" },
+  { id: "visit_lighthouse", kind: "visit", target: "lighthouse", goal: 1, reward: 15, label: "Visit the lighthouse by the lake", icon: "🗼" },
+  { id: "visit_windmill", kind: "visit", target: "windmill", goal: 1, reward: 15, label: "Find the windmill up Cottage Lane", icon: "🌾" },
+  { id: "visit_observatory", kind: "visit", target: "observatory", goal: 1, reward: 15, label: "Visit the observatory", icon: "🔭" },
+  { id: "ride_ferris", kind: "ride", goal: 1, reward: 25, label: "Ride the Ferris wheel", icon: "🎡" },
+  { id: "skate", kind: "skate", goal: 1, reward: 20, label: "Go skating on the pond", icon: "⛸️" },
+  { id: "treat_2", kind: "treat", goal: 2, reward: 20, label: "Enjoy 2 treats in town", icon: "🥐" },
+  { id: "music", kind: "music", goal: 1, reward: 15, label: "Play guitar at the bandstand", icon: "🎸" },
+  { id: "friend", kind: "friend", goal: 1, reward: 20, label: "Add a friend (or invite one to a party)", icon: "🤝" },
+  { id: "canoe_1", kind: "canoe", goal: 1, reward: 30, label: "Finish a Canoe Dash on the lake", icon: "🛶" },
 ];
 export const QUEST_BY_ID: Record<string, QuestDef> = Object.fromEntries(QUEST_POOL.map((q) => [q.id, q]));
 export const QUESTS_PER_DAY = 3;
@@ -133,6 +143,9 @@ export function visitedPlace(x: number, z: number): VisitPlace | null {
   if (near(P.trailhead, 7)) return "trailhead";
   if (near(P.outfitter, P.outfitter.r + 3.5)) return "outfitter";
   if (near(P.arcade, P.arcade.r + 3.5)) return "arcade";
+  const T = TOWN_PLACES;
+  const wide: Partial<Record<keyof typeof T, number>> = { rink: 8.5, camp: 8.5, bandstand: 7, ferris: 7, townHall: 6.5, lighthouse: 6.5, windmill: 7, lookout: 6, observatory: 7 };
+  for (const k of Object.keys(T) as (keyof typeof T)[]) if (near(T[k], wide[k] ?? 4.5)) return k;
   return null;
 }
 

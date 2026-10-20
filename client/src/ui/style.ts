@@ -164,6 +164,33 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
   .photo-row > b { display: none; }
   .dock .btn.icon { width: 44px; height: 44px; font-size: 21px; }
 }
+/* Invites, settings, friends, joystick */
+.invite { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); padding: 12px 16px; text-align: center; z-index: 8; animation: pop .2s ease-out; max-width: calc(100% - 24px); }
+.settings { width: min(520px, 100%); }
+.settings-body { padding: 4px 16px 16px; overflow: auto; display: grid; gap: 8px; }
+.settings-body h3 { font: 700 16px var(--font-display); margin: 8px 0 0; }
+.setting { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; font-weight: 800; font-size: 14px; }
+.setting input[type=range] { width: 100%; accent-color: var(--teal); }
+.codebox { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; padding: 8px 10px; margin-top: 6px; }
+.codebox code { font: 800 16px ui-monospace, monospace; letter-spacing: 1px; }
+.friend { display: flex; align-items: center; gap: 8px; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; padding: 6px 8px; margin-top: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: #b9ada0; border: 2px solid var(--ink); flex: 0 0 auto; }
+.dot.on { background: #4cd964; }
+.badge-host { position: relative; }
+.badge-host[data-badge]:not([data-badge=""])::after { content: attr(data-badge); position: absolute; top: -6px; right: -6px; background: #4cd964; color: var(--ink); border: 2px solid var(--ink); border-radius: 999px; font: 800 11px var(--font-body); min-width: 18px; height: 18px; display: grid; place-items: center; }
+.joy { position: absolute; left: calc(18px + env(safe-area-inset-left, 0px)); bottom: calc(86px + env(safe-area-inset-bottom, 0px)); width: 120px; height: 120px; border-radius: 50%; background: rgba(255,250,240,.35); border: 3px solid rgba(59,37,27,.55); touch-action: none; display: grid; place-items: center; }
+.joy.on { background: rgba(255,250,240,.5); }
+.joy-knob { width: 54px; height: 54px; border-radius: 50%; background: var(--cream); border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); pointer-events: none; }
+.has-joy .chatlog { bottom: 220px; }
+@media (max-width: 560px) { .hud-top .row .btn.icon { width: 40px; height: 40px; font-size: 18px; } .setting { grid-template-columns: 100px 1fr; } }
+@media (max-width: 460px) {
+  .hud-top { gap: 4px; }
+  .hud-top .row { gap: 4px; }
+  .hud-top .pill { padding: 4px 9px; font-size: 13px; }
+  .hud-top .pill.coins { font-size: 15px; }
+  .hud-top .row:first-child .pill:nth-child(2) { display: none; }
+  .hud-top .row .btn.icon { width: 36px; height: 36px; font-size: 16px; }
+}
 @keyframes pop { from { transform: translate(var(--tx, 0), 0) scale(.85); opacity: 0; } to { opacity: 1; } }
 .bubble, .tag, .place { --tx: -50%; }
 @keyframes big { from { transform: translateX(-50%) scale(1.6); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }

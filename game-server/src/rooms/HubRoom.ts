@@ -34,7 +34,7 @@ export class HubRoom {
   }
 
   playerInfo(c: Client): PlayerInfo {
-    return { id: c.id, name: c.name, look: c.record.look, x: c.x, z: c.z, ry: c.ry };
+    return { id: c.id, name: c.name, look: c.record.look, x: c.x, z: c.z, ry: c.ry, pid: c.record.pid };
   }
 
   add(c: Client, spawn?: { x: number; z: number }): void {

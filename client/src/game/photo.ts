@@ -176,6 +176,7 @@ export class PhotoMode {
       toast(this.ctx.ui, "Couldn't save that photo on this device.");
       return;
     }
+    this.ctx.sound.play("shutter");
     const flash = h("div.photo-flash");
     this.ctx.ui.append(flash);
     setTimeout(() => flash.remove(), 600);

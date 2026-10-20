@@ -183,3 +183,72 @@ describe("quests, pinecones and cabins on the server", () => {
     a.ws.close();
   });
 });
+
+describe("friends, parties, activities and the Canoe Dash", () => {
+  it("sends friend and recovery codes, and lets you sign in on another device with the recovery code", async () => {
+    const a = await connect("Traveller");
+    const acct = await a.waitFor("account");
+    assert.match(acct.friendCode, /^[A-Z0-9]{6}$/);
+    assert.match(acct.recoveryCode, /^[A-Z0-9]{10}$/);
+    a.send({ t: "buyFurniture", item: "plant" });
+    await a.waitFor("furniture", (m) => (m.counts.plant ?? 0) === 1);
+    a.ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+    const ws = new WebSocket(url);
+    const inbox: ServerMsg[] = [];
+    ws.on("message", (d) => inbox.push(JSON.parse(String(d))));
+    await new Promise((r) => ws.on("open", r));
+    ws.send(JSON.stringify({ t: "join", name: "Traveller", look: DEFAULT_LOOK, recovery: acct.recoveryCode.toLowerCase() }));
+    for (let i = 0; i < 50 && !inbox.some((m) => m.t === "account"); i++) await new Promise((r) => setTimeout(r, 20));
+    const again = inbox.find((m) => m.t === "account") as Extract<ServerMsg, { t: "account" }>;
+    assert.equal(again.pid, acct.pid, "same beaver on the new device");
+    const furn = inbox.find((m) => m.t === "furniture") as Extract<ServerMsg, { t: "furniture" }>;
+    assert.equal(furn.counts.plant, 1, "progress came along");
+    ws.close();
+  });
+
+  it("makes friends only when the other beaver accepts, then forms a party", async () => {
+    const a = await connect("Maple");
+    const b = await connect("Cedar");
+    const bAcct = await b.waitFor("account");
+    a.send({ t: "friendRequest", id: b.welcome.you });
+    const req = await b.waitFor("friendRequest");
+    assert.equal(req.name, "Maple");
+    b.send({ t: "friendRespond", from: req.from, accept: true });
+    const aFriends = await a.waitFor("friends", (m) => m.list.some((f) => f.pid === bAcct.pid && f.online));
+    assert.equal(aFriends.list.length, 1);
+    a.send({ t: "partyInvite", pid: bAcct.pid });
+    const inv = await b.waitFor("partyInvite");
+    b.send({ t: "partyRespond", from: inv.from, accept: true });
+    const party = await a.waitFor("party", (m) => m.members.length === 2);
+    assert.equal(party.leader, (await a.waitFor("account")).pid);
+    a.ws.close();
+    b.ws.close();
+  });
+
+  it("only starts cozy activities at the right place", async () => {
+    const a = await connect("Sipper");
+    a.send({ t: "act", a: "cocoa" });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.ok(!a.inbox.some((m) => m.t === "act"), "not at the lodge: nothing happens");
+    const hub = game.hubs.get(a.welcome.room.id)!;
+    const c = hub.clients.get(a.welcome.you)!;
+    c.x = -39; c.z = -2.5; // bakery doorstep
+    a.send({ t: "act", a: "croissant" });
+    const act = await a.waitFor("act", (m) => m.a === "croissant");
+    assert.equal(act.id, a.welcome.you);
+    a.ws.close();
+  });
+
+  it("queues the Canoe Dash only from the lake dock and starts a canoe race", async () => {
+    const a = await connect("Paddler");
+    a.send({ t: "queueRace", game: "canoe" });
+    await a.waitFor("error", (m) => /Lake Dock/.test(m.text));
+    const hub = game.hubs.get(a.welcome.room.id)!;
+    const c = hub.clients.get(a.welcome.you)!;
+    c.x = -24; c.z = 20;
+    a.send({ t: "queueRace", game: "canoe" });
+    await a.waitFor("queue");
+    a.ws.close();
+  });
+});

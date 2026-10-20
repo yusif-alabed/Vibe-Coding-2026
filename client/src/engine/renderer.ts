@@ -192,6 +192,7 @@ precision highp float;
 in vec2 vNdc;
 uniform mat4 uInvViewProj; uniform vec3 uLightDir; uniform vec3 uSunColor;
 uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform float uTime; uniform float uClouds;
+uniform float uStars; uniform vec3 uMoonDir;
 out vec4 outColor;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -218,6 +219,22 @@ void main() {
   col = mix(col, uSunColor * 0.98, pow(az, 3.0) * exp(-max(h, 0.0) * 7.0) * 0.45);
   col += uSunColor * (pow(sd, 8.0) * 0.28 + pow(sd, 60.0) * 0.4);
   col = mix(col, vec3(1.0, 0.98, 0.9), smoothstep(0.9994, 0.9998, sd));
+  if (uStars > 0.0 && h > 0.0) {
+    // Twinkling stars on a sphere grid, and a soft moon with a halo.
+    vec2 sp = vec2(atan(d.z, d.x) * 110.0, asin(clamp(d.y, -1.0, 1.0)) * 110.0);
+    vec2 cell = floor(sp);
+    float r = hash(cell);
+    float tw = 0.6 + 0.4 * sin(uTime * (1.5 + r * 3.0) + r * 40.0);
+    float star = step(0.985, r) * smoothstep(0.32, 0.0, length(fract(sp) - 0.5)) * tw;
+    col += vec3(0.9, 0.95, 1.0) * star * uStars * smoothstep(0.0, 0.2, h);
+    // A faint milky band across the sky.
+    float band = exp(-pow((d.y - d.x * 0.6) * 3.0, 2.0)) * fbm(d.xz * 6.0);
+    col += vec3(0.25, 0.28, 0.4) * band * uStars * 0.25;
+    vec3 M = normalize(uMoonDir);
+    float md = max(dot(d, M), 0.0);
+    col += vec3(0.75, 0.82, 1.0) * pow(md, 40.0) * 0.25 * uStars;
+    col = mix(col, vec3(0.97, 0.96, 0.9), smoothstep(0.99955, 0.9998, md) * uStars);
+  }
   if (uClouds > 0.0 && h > 0.0) {
     vec2 uv = d.xz / (h + 0.1) * 0.85 + vec2(uTime * 0.004, uTime * 0.0015);
     float n = fbm(uv * 1.1);
@@ -276,6 +293,9 @@ export interface Environment {
   fogHeight: number;
   ink: Vec3;
   clouds: number;
+  /** Night sky: 0 = none, 1 = full starry sky with the moon at moonDir. */
+  stars: number;
+  moonDir: Vec3;
   /** Draw the procedural sky before the scene. */
   sky: boolean;
 }
@@ -303,6 +323,9 @@ export class Renderer {
   /** World point the sun's shadow map is centred on (usually the player). null = no shadows. */
   shadowFocus: Vec3 | null = null;
   shadowsEnabled = true;
+  /** Graphics setting: "low" renders at 1x resolution without sun shadows. */
+  quality: "high" | "low" = "high";
+  private shadowSupported = true;
   env: Environment = {
     skyTop: [0.24, 0.5, 0.82],
     skyHorizon: [0.78, 0.86, 0.92],
@@ -317,6 +340,8 @@ export class Renderer {
     fogHeight: 0.012,
     ink: [0.18, 0.11, 0.07],
     clouds: 1,
+    stars: 0,
+    moonDir: [-0.5, 0.6, 0.4],
     sky: true,
   };
   private queue: Item[] = [];
@@ -333,7 +358,7 @@ export class Renderer {
     this.shadowProg = this.link(SHADOW_VS, SHADOW_FS, ["aPos", "", "", "aSmooth"]);
     for (const name of ["uModel", "uLightVP", "uSway", "uTime"]) this.us[name] = gl.getUniformLocation(this.shadowProg, name);
     this.skyProg = this.link(SKY_VS, SKY_FS, ["aPos"]);
-    for (const name of ["uInvViewProj", "uLightDir", "uSunColor", "uSkyTop", "uSkyHorizon", "uTime", "uClouds"]) this.uk[name] = gl.getUniformLocation(this.skyProg, name);
+    for (const name of ["uInvViewProj", "uLightDir", "uSunColor", "uSkyTop", "uSkyHorizon", "uTime", "uClouds", "uStars", "uMoonDir"]) this.uk[name] = gl.getUniformLocation(this.skyProg, name);
 
     // Fullscreen triangle for the sky.
     this.skyVao = gl.createVertexArray()!;
@@ -366,7 +391,7 @@ export class Renderer {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, this.shadowTex, 0);
     gl.drawBuffers([gl.NONE]);
     gl.readBuffer(gl.NONE);
-    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) this.shadowsEnabled = false;
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) this.shadowSupported = false;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
@@ -435,7 +460,7 @@ export class Renderer {
   resize(): void {
     // Phones get a slightly lower render resolution to keep the frame rate smooth.
     const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-    const dpr = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
+    const dpr = this.quality === "low" ? Math.min(1, window.devicePixelRatio || 1) : Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
     const w = Math.floor(this.canvas.clientWidth * dpr), h = Math.floor(this.canvas.clientHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
@@ -461,7 +486,7 @@ export class Renderer {
   private renderShadows(): boolean {
     const gl = this.gl;
     const f = this.shadowFocus;
-    if (!f || !this.shadowsEnabled) return false;
+    if (!f || !this.shadowsEnabled || !this.shadowSupported || this.quality === "low") return false;
     const L = this.env.lightDir;
     const len = Math.hypot(L[0], L[1], L[2]) || 1;
     const dist = 220;
@@ -510,6 +535,8 @@ export class Renderer {
     gl.uniform3fv(this.uk.uSkyHorizon, e.skyHorizon);
     gl.uniform1f(this.uk.uTime, this.time);
     gl.uniform1f(this.uk.uClouds, e.clouds);
+    gl.uniform1f(this.uk.uStars, e.stars);
+    gl.uniform3fv(this.uk.uMoonDir, e.moonDir);
     gl.depthMask(false);
     gl.disable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.skyVao);

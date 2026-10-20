@@ -2,6 +2,7 @@
 //   node build.mjs dev      → dev server on http://localhost:5173 with live rebuilds
 //   node build.mjs build    → dist/ (index.html + app.js) for deployment
 //   node build.mjs preview  → dist/beaver-banff.html and ../index.html, one self-contained file (solo mode)
+//   node build.mjs hosted   → dist/ for the game server to serve (connects back to the same address)
 import * as esbuild from "esbuild";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -9,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] ?? "build";
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
-const serverUrl = process.env.VITE_GAME_SERVER_URL ?? process.env.GAME_SERVER_URL ?? (mode === "dev" ? "ws://localhost:2567" : "");
+const serverUrl = mode === "hosted" ? "same-origin" : process.env.VITE_GAME_SERVER_URL ?? process.env.GAME_SERVER_URL ?? (mode === "dev" ? "ws://localhost:2567" : "");
 
 const options = {
   entryPoints: [here("./src/main.ts")],
@@ -57,7 +58,7 @@ if (mode === "dev") {
   await ctx.watch();
   const { port } = await ctx.serve({ servedir: here("./dev"), port: 5173 });
   console.log(`\n🦫 Beaver Banff client: http://localhost:${port}  (game server: ${serverUrl || "none — solo mode"})\n`);
-} else if (mode === "build") {
+} else if (mode === "build" || mode === "hosted") {
   await mkdir(here("./dist"), { recursive: true });
   await copyPublic(here("./dist"));
   await esbuild.build({ ...options, outfile: here("./dist/app.js") });

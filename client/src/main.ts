@@ -1,4 +1,5 @@
 import { DEFAULT_LOOK, FUR_COLORS, NAME_MAX, type Look, type ServerMsg } from "@beaver/shared";
+import { Sound } from "./audio/sound";
 import { compose, lookAt, perspective, type Vec3 } from "./engine/math";
 import { Renderer } from "./engine/renderer";
 import { drawBeaver, getBeaverMeshes, type Expression } from "./game/beaver";
@@ -12,6 +13,7 @@ import { OfflineNet } from "./net/offline";
 import { OnlineNet, type Net } from "./net/net";
 import { h, toast } from "./ui/dom";
 import { CSS } from "./ui/style";
+import { loadPrefs } from "./prefs";
 
 declare const __GAME_SERVER_URL__: string;
 
@@ -33,7 +35,10 @@ function storageSet(k: string, v: string) {
 }
 
 const params = new URLSearchParams(location.search);
-const serverUrl = params.get("server") ?? (typeof __GAME_SERVER_URL__ === "string" ? __GAME_SERVER_URL__ : "");
+const builtUrl = typeof __GAME_SERVER_URL__ === "string" ? __GAME_SERVER_URL__ : "";
+// A hosted build talks to the same server that served the page.
+const sameOrigin = builtUrl === "same-origin" && /^https?:$/.test(location.protocol) ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}` : "";
+const serverUrl = params.get("server") ?? (builtUrl === "same-origin" ? sameOrigin : builtUrl);
 
 let renderer: Renderer;
 try {
@@ -47,6 +52,9 @@ try {
 }
 
 const input = new Input(canvas);
+const sound = new Sound();
+const prefs = loadPrefs();
+renderer.quality = prefs.graphics;
 const buildStart = performance.now();
 const hub: HubWorld = buildHub(renderer);
 const buildMs = Math.round(performance.now() - buildStart);
@@ -64,7 +72,8 @@ function showTitle() {
   ));
   drawSwatches();
   const code = h("input.field.pe", { placeholder: "Cabin code", maxLength: 5, style: "text-transform:uppercase" }) as HTMLInputElement;
-  const go = (room?: string) => start(name.value, room);
+  const recovery = h("input.field.pe", { placeholder: "Recovery code (from your other device)", maxLength: 12, style: "text-transform:uppercase" }) as HTMLInputElement;
+  const go = (room?: string) => start(name.value, room, recovery.value.trim() || undefined);
   name.addEventListener("keydown", (e) => { if (e.key === "Enter") go("public"); });
 
   const buttons = serverUrl
@@ -75,6 +84,7 @@ function showTitle() {
         ]),
         h("div.row", {}, [code, h("button.btn.cream.pe", { onclick: () => code.value.trim() && go(code.value.trim().toUpperCase()) }, "Join")]),
         h("button.btn.cream.small.pe", { onclick: () => go(undefined) }, "Play solo with bot beavers"),
+        h("details.pe", { style: "text-align:left;font-weight:700;font-size:13px;color:var(--muted)" }, [h("summary", { style: "cursor:pointer" }, "Playing on a new device?"), h("div", { style: "margin-top:6px" }, recovery)]),
       ]
     : [h("button.btn.orange.pe", { style: "font-size:21px;padding:13px", onclick: () => go(undefined) }, "🛷 Let's go!")];
 
@@ -94,12 +104,28 @@ function showTitle() {
   setTimeout(() => name.focus(), 50);
 }
 
-function start(rawName: string, room?: string) {
+function inviteCard(text: string, onYes: () => void, onNo: () => void) {
+  const card = h("div.card.invite.pe", {}, [
+    h("div", { style: "font-weight:800;margin-bottom:8px" }, text),
+    h("div.row", { style: "justify-content:center" }, [
+      h("button.btn.small", { onclick: () => { card.remove(); onYes(); } }, "✅ Yes!"),
+      h("button.btn.small.cream", { onclick: () => { card.remove(); onNo(); } }, "No thanks"),
+    ]),
+  ]);
+  ui.append(card);
+  sound.play("chime");
+  setTimeout(() => card.remove(), 30000);
+}
+
+function start(rawName: string, room?: string, recovery?: string) {
   const name = rawName.trim().slice(0, NAME_MAX) || `Beaver${Math.floor(Math.random() * 900 + 100)}`;
   storageSet("bb-name", name);
   storageSet("bb-fur", titleLook.fur);
   const net: Net = room && serverUrl ? new OnlineNet(serverUrl) : new OfflineNet();
-  ctx = { r: renderer, input, net, ui, state: { you: "", name, coins: 0, owned: [], look: titleLook, furniture: {}, quests: null } };
+  ctx = {
+    r: renderer, input, net, ui, sound, prefs,
+    state: { you: "", name, coins: 0, owned: [], look: titleLook, furniture: {}, quests: null, account: null, friends: [], party: { leader: null, members: [] } },
+  };
   titleEl?.remove();
   titleEl = null;
   const loading = h("div.title", {}, h("div.card", { style: "padding:18px 26px;font:600 20px var(--font-display)" }, "Paddling over… 🦫"));
@@ -112,18 +138,35 @@ function start(rawName: string, room?: string) {
       if (m.token && m.token !== "solo") storageSet("bb-token", m.token);
       scene?.dispose();
       scene = new HubScene(ctx, hub, m);
+      sound.setMode("village");
       return;
     }
     if (m.t === "cabin" && !(scene instanceof CabinScene)) {
       scene?.dispose();
       scene = new CabinScene(ctx, m);
+      sound.setMode("cabin");
       return;
+    }
+    if (m.t === "account") {
+      ctx.state.account = { pid: m.pid, friendCode: m.friendCode, recoveryCode: m.recoveryCode };
+      storageSet("bb-recovery", m.recoveryCode);
+    }
+    if (m.t === "friends") ctx.state.friends = m.list;
+    if (m.t === "party") ctx.state.party = { leader: m.leader, members: m.members };
+    if (m.t === "friendRequest") {
+      const n = ctx.net;
+      inviteCard(`🤝 ${m.name} wants to be friends!`, () => n.send({ t: "friendRespond", from: m.from, accept: true }), () => n.send({ t: "friendRespond", from: m.from, accept: false }));
+    }
+    if (m.t === "partyInvite") {
+      const n = ctx.net;
+      inviteCard(`🎉 ${m.name} invited you to their party!`, () => n.send({ t: "partyRespond", from: m.from, accept: true }), () => n.send({ t: "partyRespond", from: m.from, accept: false }));
     }
     if (m.t === "quests") ctx.state.quests = m;
     if (m.t === "furniture") ctx.state.furniture = m.counts;
     if (m.t === "raceStart") {
       scene?.dispose();
       scene = new RaceScene(ctx, m);
+      sound.setMode("race");
       return;
     }
     scene?.handle(m);
@@ -133,10 +176,11 @@ function start(rawName: string, room?: string) {
     scene?.dispose();
     scene = null;
     ctx = null;
+    sound.setMode("title");
     toast(ui, "Lost connection to the game server. You can play solo while it's away.", 5000);
     showTitle();
   });
-  net.send({ t: "join", name, look: titleLook, room: room === undefined ? undefined : room, token: storageGet("bb-token") ?? undefined });
+  net.send({ t: "join", name, look: titleLook, room: room === undefined ? undefined : room, token: storageGet("bb-token") ?? undefined, recovery });
 }
 
 // ---------- Main loop ----------

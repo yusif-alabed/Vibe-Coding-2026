@@ -1,4 +1,4 @@
-import { HUB_COLLIDERS, HUB_PLACES, pathDistance, riverDistance, sceneryHash } from "./constants";
+import { HUB_COLLIDERS, HUB_PLACES, pathDistance, riverDistance, sceneryHash, townClear } from "./constants";
 
 /**
  * Layout of the village's larger hand-placed structures (grand lodge, fences, path lanterns).
@@ -37,7 +37,8 @@ const lakeArc = (from: number, to: number): [number, number][] => {
 };
 export const FENCES: [number, number][][] = [
   // Along the river bank, east of the plaza.
-  [[30.6, -11], [30.2, -4], [29.6, 3]],
+  [[30.7, -16], [30.6, -12.4]],
+  [[30.1, -3.6], [29.6, 3]],
   // Lake shore on the village side, leaving a gap for the dock.
   lakeArc(-100, -62),
   lakeArc(-36, -12),
@@ -100,11 +101,12 @@ export const MEADOW_TREES: { x: number; z: number; s: number }[] = (() => {
   const out: { x: number; z: number; s: number }[] = [];
   const solids = HUB_COLLIDERS.slice();
   const lodgeSpots = [[-6, -1.5], [0, -1.5], [6, -1.5], [-6, 4.5], [0, 4.5], [6, 4.5]].map(([a, b]) => lodgeToWorld(a, b));
-  for (let x = -60; x <= 60; x += 7) {
-    for (let z = -60; z <= 60; z += 7) {
+  for (let x = -98; x <= 98; x += 7) {
+    for (let z = -98; z <= 98; z += 7) {
       const jx = x + (sceneryHash(x + 5, z) - 0.5) * 4, jz = z + (sceneryHash(z, x + 5) - 0.5) * 4;
       const r = Math.hypot(jx, jz);
-      if (r < 22 || r > 60 || sceneryHash(jx * 2.1, jz * 1.7) > 0.32) continue;
+      if (r < 22 || r > 97 || sceneryHash(jx * 2.1, jz * 1.7) > 0.32) continue;
+      if (townClear(jx, jz, 5)) continue;
       // Keep the arrival view (south of the plaza, looking north) open.
       if (jz > 12 && Math.abs(jx) < 16) continue;
       if (pathDistance(jx, jz) < 5 || riverDistance(jx, jz) < 7) continue;

@@ -1,0 +1,15 @@
+# One-click hosting on Render (https://render.com): New → Blueprint → pick this repo.
+# Free plans sleep when idle; the paid "starter" plan keeps the village awake and keeps the disk.
+services:
+  - type: web
+    name: beaver-banff
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATA_FILE
+        value: /data/players.json
+    disk:
+      name: beaver-data
+      mountPath: /data
+      sizeGB: 1

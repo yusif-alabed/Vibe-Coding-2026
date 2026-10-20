@@ -79,6 +79,35 @@ Hats, scarves, backpacks and trails (12 items, 0–350 coins) plus 6 fur colours
 - Filters: Natural, Golden, Film, Vivid, Mono, Dreamy. Optional postcard frame with a caption and date. Save or share the JPEG.
 - Taking a photo counts for the photo daily quest.
 
+## The town
+
+The village grew into a town (walkable radius 100 m, up from 62 m). The layout lives in `shared/src/townLayout.ts`; the server turns every building into collision circles and the client builds the models from the same numbers (`client/src/game/village/town.ts`).
+
+- **Main Street** runs west from the plaza (cobbled) to the **Town Hall**, past shops with awnings and hanging signs, and through the **town square** (bandstand + market stalls).
+- **Cottage Lane** heads north past pastel cottages with picket fences to the **windmill**; a path leads to the **skating pond**.
+- The **lighthouse** stands on the lake shore.
+- A second bridge crosses the river east to the **watermill**, **greenhouse**, **observatory**, cottages and the **fire lookout** (climbable).
+- South of the river: the **fairground** (Ferris wheel, stalls, string lights), the **campground** (tents, campfire) and the **ranger station**.
+
+### Activities
+
+Walk up to a place and press the action button (or F). Activities are broadcast to everyone and the server checks you're at the right place (`ACT_PLACES` in `shared/src/protocol.ts`): cocoa (lodge), soak (hot spring), croissant (bakery), ice cream, maple taffy, marshmallow (campfire), guitar (bandstand), Ferris wheel ride, skating, climbing the lookout. Treats, music, rides and skating count toward new daily quests.
+
+## Minigame 2: Canoe Dash
+
+Same deterministic race engine as Toboggan Rush (server-authoritative, bots fill seats), themed as a forest river: rocks, floating logs and buoys to dodge, glowing rapids rings for speed. Join from the **Lake Dock**. Rewards match Toboggan Rush; finishing counts for the "Finish a Canoe Dash" quest.
+
+## Day and night
+
+One in-game day lasts 40 real minutes and follows the wall clock, so everyone sees the same sky. Nights are short (about a fifth of the cycle). Players can lock the time of day in ⚙️ Settings.
+
+## Friends, parties and accounts
+
+- Every player gets a public **friend code** and a secret **recovery code** (⚙️ Settings). The recovery code signs the same beaver in on another device.
+- Friend requests must be accepted. Friends list shows who's online and where; **Join** hops into their village.
+- **Parties** (up to 4): when the leader queues for a race, party members in the same village come too.
+- Progress (coins, outfits, cabin, quests, friends) is saved by the game server to `DATA_FILE`.
+
 ## Safety
 
 - Chat filter (catches common disguises like `stup1d`), and a hard block on emails, phone numbers and links.
@@ -106,6 +135,6 @@ Recorded here as the brief asked:
 |---|---|
 | 1. Foundation: monorepo, docs, Docker, DB schema | ✅ Done |
 | 2. Multiplayer village: movement, sync, rooms, private cabins | ✅ Done |
-| 3. Social: accounts, friends, invites, presence, join-friend | 🟡 Chat safety, block/report done. Accounts API started. Friends next. |
-| 4. Minigame: Toboggan Rush with server results & rewards | ✅ Done (party queue next) |
-| 5. Progression & safety: shop, inventory, mod tools, reconnect | 🟡 Shop & inventory done, moderation log in memory. Persistence and admin tools next. |
+| 3. Social: accounts, friends, invites, presence, join-friend | ✅ Friends, parties, presence, join-friend, recovery codes |
+| 4. Minigames: Toboggan Rush and Canoe Dash with server results & rewards | ✅ Done, with party queue |
+| 5. Progression & safety: shop, inventory, mod tools, reconnect | 🟡 Shop, inventory, quests, cabins and saved progress done. Admin tools next. |

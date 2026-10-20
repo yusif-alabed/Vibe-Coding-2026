@@ -1,8 +1,10 @@
 /** Tuning values shared by client and server. Server-side checks always use these, never client-sent values. */
+import { BRIDGE_EAST, buildingColliders, STREETS, TOWN_BUILDINGS, townClear } from "./townLayout";
+export * from "./townLayout";
 
 export const HUB = {
   /** Players are kept inside this circle (world units ≈ metres). */
-  radius: 62,
+  radius: 100,
   /** Max walking speed in units/second. */
   maxSpeed: 9,
   /** Allowance for network jitter when validating movement. */
@@ -32,6 +34,12 @@ export const BRIDGE = {
   halfWidth: 2,
   halfLength: 5.5,
 } as const;
+
+/** Every walkable bridge (the original south bridge and the east bridge into the new quarter). */
+export const BRIDGES = [BRIDGE, BRIDGE_EAST] as const;
+
+/** Where the land starts rising into forested foothills (just past the walkable edge). */
+export const FOOTHILLS_R = 104;
 
 /** Solid things you can't walk through (circles). */
 export const HUB_COLLIDERS: { x: number; z: number; r: number }[] = [
@@ -76,14 +84,19 @@ const PATHS: [number, number, number, number][] = [
   [0, 0, HUB_PLACES.lodge.x, HUB_PLACES.lodge.z], [0, 0, HUB_PLACES.outfitter.x, HUB_PLACES.outfitter.z],
   [0, 0, HUB_PLACES.arcade.x, HUB_PLACES.arcade.z], [0, 0, HUB_PLACES.dock.x, HUB_PLACES.dock.z],
   [0, 0, HUB_PLACES.trailhead.x, HUB_PLACES.trailhead.z + 2], [HUB_PLACES.outfitter.x, HUB_PLACES.outfitter.z, HUB_PLACES.hotSpring.x, HUB_PLACES.hotSpring.z], [0, 0, 6, 40],
+  ...STREETS,
 ];
+/** All trails and streets as segments (the client draws them from this list). */
+export const TRAILS: readonly [number, number, number, number][] = PATHS;
+/** River centreline (the client carves and fills the channel from this). */
+export const RIVER_LINE: readonly [number, number][] = RIVER;
 export const pathDistance = (x: number, z: number) => Math.min(...PATHS.map((p) => sceneryDistSeg(x, z, ...p)));
 export const riverDistance = (x: number, z: number) => Math.min(...RIVER.slice(0, -1).map((p, i) => sceneryDistSeg(x, z, ...p, ...RIVER[i + 1])));
 export const sceneryHeight = (x: number, z: number) => {
   const r = Math.hypot(x, z);
   let h = 0;
   if (r > 12) h += 0.35 * Math.sin(x * 0.13) * Math.cos(z * 0.11) * Math.min(1, (r - 12) / 10);
-  if (r > 66) h += Math.pow(r - 66, 1.35) * 0.32 + sceneryHash(Math.floor(x / 6), Math.floor(z / 6)) * 1.2;
+  if (r > FOOTHILLS_R) h += Math.pow(r - FOOTHILLS_R, 1.35) * 0.32 + sceneryHash(Math.floor(x / 6), Math.floor(z / 6)) * 1.2;
   const th = Math.hypot(x - HUB_PLACES.trailhead.x, (z - HUB_PLACES.trailhead.z + 14) * 0.8);
   if (z < HUB_PLACES.trailhead.z - 3) h += Math.max(0, 16 - th) * 0.45;
   const lake = Math.hypot(x - HUB_PLACES.lake.x, z - HUB_PLACES.lake.z);
@@ -109,36 +122,57 @@ for (let i = 0; i < 9; i += 3) for (const side of [-1, 1]) {
 }
 // Bridge guard rails. The deck itself stays walkable; overlapping rail
 // colliders keep players from clipping through the visible side posts/ropes.
-for (const side of [-1, 1]) {
-  for (let along = -5; along <= 5; along += 1) {
-    const lx = side * 1.9, lz = along;
-    const x = BRIDGE.x + lx * Math.cos(BRIDGE.ry) + lz * Math.sin(BRIDGE.ry);
-    const z = BRIDGE.z - lx * Math.sin(BRIDGE.ry) + lz * Math.cos(BRIDGE.ry);
-    addSolid(x, z, 0.58);
+for (const br of BRIDGES) {
+  for (const side of [-1, 1]) {
+    for (let along = -Math.floor(br.halfLength); along <= Math.floor(br.halfLength); along += 1) {
+      const lx = side * 1.9, lz = along;
+      const x = br.x + lx * Math.cos(br.ry) + lz * Math.sin(br.ry);
+      const z = br.z - lx * Math.sin(br.ry) + lz * Math.cos(br.ry);
+      addSolid(x, z, 0.58);
+    }
+  }
+}
+// Town buildings.
+for (const b of TOWN_BUILDINGS) for (const c of buildingColliders(b)) addSolid(c.x, c.z, c.r);
+// The rock wall and waterfall behind the far side of the lake.
+{
+  const sw = Math.atan2(HUB_PLACES.lake.z, HUB_PLACES.lake.x);
+  for (let da = -0.95; da <= 0.951; da += 0.1) {
+    for (const d of [20.5, 23.5, 27, 31]) {
+      const x = HUB_PLACES.lake.x + Math.cos(sw + da) * d, z = HUB_PLACES.lake.z + Math.sin(sw + da) * d;
+      if (Math.hypot(x, z) > 64 && Math.hypot(x, z) < HUB.radius + 3) addSolid(x, z, 2.3);
+    }
   }
 }
 for (const side of [-1, 1]) addSolid(HUB_PLACES.trailhead.x + side * 4, HUB_PLACES.trailhead.z, 1.0);
 
-// Individual forest trees and loose rocks: only candidates inside the playable
-// radius are registered, which gives exact visual coverage without a huge
-// per-move collision list.
-for (let x = -110; x <= 110; x += 4.5) {
-  for (let z = -110; z <= 110; z += 4.5) {
-    const jx = x + (sceneryHash(x, z) - 0.5) * 3.5, jz = z + (sceneryHash(z, x) - 0.5) * 3.5;
-    const radius = Math.hypot(jx, jz);
-    const chance = radius < 16 ? 0 : radius < 40 ? 0.1 : radius < 58 ? 0.22 : radius < 88 ? 0.55 : 0.18;
-    if (radius > HUB.radius + 2 || sceneryHash(jx * 1.3, jz * 0.7) > chance) continue;
-    if (pathDistance(jx, jz) < 4 || riverDistance(jx, jz) < 6) continue;
-    if (Object.values(HUB_PLACES).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 7)) continue;
-    if (Math.hypot(jx - HUB_PLACES.trailhead.x, jz - HUB_PLACES.trailhead.z) < 12 || sceneryHeight(jx, jz) < 0.05) continue;
-    const s = 0.8 + sceneryHash(jx, jz * 3) * 0.7 + (radius > 60 ? 0.4 : 0);
-    addSolid(jx, jz, 1.35 * s + 0.35);
+/**
+ * Forest trees inside the walkable area, on a jittered 4.5 m grid. The client draws exactly these
+ * (and adds a denser, purely visual forest beyond the edge), so every tree you see is solid.
+ */
+export function forestTreeAt(x: number, z: number): { x: number; z: number; s: number } | null {
+  const jx = x + (sceneryHash(x, z) - 0.5) * 3.5, jz = z + (sceneryHash(z, x) - 0.5) * 3.5;
+  const radius = Math.hypot(jx, jz);
+  const chance = radius < 16 ? 0 : radius < 40 ? 0.1 : radius < 58 ? 0.22 : radius < 72 ? 0.3 : 0.38;
+  if (radius > HUB.radius + 2 || sceneryHash(jx * 1.3, jz * 0.7) > chance) return null;
+  if (pathDistance(jx, jz) < 4 || riverDistance(jx, jz) < 6) return null;
+  if (Object.values(HUB_PLACES).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 7)) return null;
+  if (Math.hypot(jx - HUB_PLACES.trailhead.x, jz - HUB_PLACES.trailhead.z) < 12 || sceneryHeight(jx, jz) < 0.05) return null;
+  if (townClear(jx, jz, 3.5)) return null;
+  const s = 0.8 + sceneryHash(jx, jz * 3) * 0.7 + (radius > 60 ? 0.4 : 0);
+  return { x: jx, z: jz, s };
+}
+export const FOREST_GRID = { from: -112, to: 112, step: 4.5 } as const;
+for (let x = FOREST_GRID.from; x <= FOREST_GRID.to; x += FOREST_GRID.step) {
+  for (let z = FOREST_GRID.from; z <= FOREST_GRID.to; z += FOREST_GRID.step) {
+    const t = forestTreeAt(x, z);
+    if (t) addSolid(t.x, t.z, 1.35 * t.s + 0.35);
   }
 }
 for (let i = 0; i < 30; i++) {
   const a = sceneryHash(i, 7) * Math.PI * 2, d = 20 + sceneryHash(i, 8) * 45;
   const x = Math.cos(a) * d, z = Math.sin(a) * d;
-  if (pathDistance(x, z) > 2.5) addSolid(x, z, 0.9 + sceneryHash(i, 9) * 1.2);
+  if (pathDistance(x, z) > 2.5 && !townClear(x, z, 1)) addSolid(x, z, 0.9 + sceneryHash(i, 9) * 1.2);
 }
 
 /** Standing inside this radius of the trailhead portal offers the toboggan race. */
@@ -165,5 +199,5 @@ export const RACE = {
   timeLimitS: 70,
 } as const;
 
-export const FUR_COLORS = ["#8a5a3b", "#a8703f", "#6b4428", "#c48a52", "#4e3324", "#b5835a"] as const;
+export const FUR_COLORS = ["#8a5a3b", "#a8703f", "#6b4428", "#c48a52", "#4e3324", "#b5835a", "#d9b38c", "#3b2a20", "#9a6f58"] as const;
 export const NAME_MAX = 16;

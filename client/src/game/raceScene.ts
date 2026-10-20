@@ -1,9 +1,9 @@
-import { buildTrack, DEFAULT_LOOK, FUR_COLORS, TRACK, type Look, type RaceSnapshot, type ServerMsg, type TrackLayout } from "@beaver/shared";
+import { buildTrack, DEFAULT_LOOK, FUR_COLORS, TRACK, type Look, type RaceGame, type RaceSnapshot, type ServerMsg, type TrackLayout } from "@beaver/shared";
 import { compose, lerp, lookAt, multiply, perspective, type Vec3 } from "../engine/math";
 import { h } from "../ui/dom";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
 import { buildMountains, buildSky } from "./hubWorld";
-import { buildRaceWorld, trackToWorld, type RaceWorld } from "./raceWorld";
+import { buildRaceWorld, courseTilt, setRaceTheme, trackToWorld, waterY, type RaceWorld } from "./raceWorld";
 import type { Ctx, Scene } from "./scene";
 import type { GpuMesh } from "../engine/renderer";
 
@@ -46,7 +46,12 @@ export class RaceScene implements Scene {
   private wasBoost = false;
   private raceTime = 0;
 
+  private game: RaceGame;
+  private paddleAcc = 0;
+
   constructor(private ctx: Ctx, start: Extract<ServerMsg, { t: "raceStart" }>) {
+    this.game = start.game ?? "toboggan";
+    setRaceTheme(this.game);
     this.layout = buildTrack(start.seed);
     this.world = buildRaceWorld(ctx.r, this.layout, start.seed);
     this.sky = buildSky(ctx.r, "#5aa7ea", "#e9f3ff", "#fff6da");
@@ -70,11 +75,14 @@ export class RaceScene implements Scene {
     this.me = this.racers.find((r) => r.id === ctx.state.you) ?? null;
     this.countdownEl = h("div.countdown", {}, "");
     this.placeEl = h("div.place-big", {}, "");
-    this.speedEl = h("div.pill", {}, "🛷 0 km/h");
+    this.speedEl = h("div.pill", {}, this.game === "canoe" ? "🛶 0 km/h" : "🛷 0 km/h");
     this.root.append(
       prog,
       h("div", { style: "position:absolute;left:14px;top:12px;display:grid;gap:8px;justify-items:start" }, [this.placeEl, this.speedEl]),
-      h("div", { style: "position:absolute;right:14px;top:12px" }, h("div.pill", {}, "⬅️ ➡️ / A D to steer")),
+      h("div", { style: "position:absolute;right:14px;top:12px;display:grid;gap:6px;justify-items:end" }, [
+        h("div.pill", {}, this.game === "canoe" ? "🛶 Canoe Dash" : "🛷 Toboggan Rush"),
+        h("div.pill", {}, "⬅️ ➡️ / A D to steer"),
+      ]),
       h("div.touchpads", {}, [h("div", {}, "⬅️"), h("div", {}, "➡️")]),
       this.countdownEl,
     );
@@ -101,8 +109,8 @@ export class RaceScene implements Scene {
     }
     const me = this.me;
     if (!me) return;
-    if (me.stun && !this.wasStun) this.flash("BONK! 💫");
-    if (me.boost && !this.wasBoost) this.flash("BOOST! ⚡");
+    if (me.stun && !this.wasStun) { this.flash(this.game === "canoe" ? "SPLASH! 💦" : "BONK! 💫"); this.ctx.sound.play(this.game === "canoe" ? "splash" : "pop"); }
+    if (me.boost && !this.wasBoost) { this.flash(this.game === "canoe" ? "RAPIDS! ⚡" : "BOOST! ⚡"); this.ctx.sound.play("chime"); }
     this.wasStun = me.stun;
     this.wasBoost = me.boost;
   }
@@ -140,6 +148,8 @@ export class RaceScene implements Scene {
     if (count !== this.lastCount) {
       this.lastCount = count;
       this.countdownEl.textContent = count > 0 ? String(count) : count === 0 ? "GO!" : "";
+      if (count > 0) this.ctx.sound.play("countdown");
+      if (count === 0) this.ctx.sound.play("go");
     }
 
     const inp = this.ctx.input;
@@ -160,7 +170,8 @@ export class RaceScene implements Scene {
       r.z = r.z < 1 && r.tz < 1 ? r.tz : lerp(r.z, ahead, Math.min(1, dt * 12));
       r.x = lerp(r.x, r.tx, Math.min(1, dt * 12));
       if (r.speed > 6 && !r.done) {
-        const [wx, wy, wz] = trackToWorld(r.x, r.z - 1);
+        const [wx, wy0, wz] = trackToWorld(r.x, r.z - 1);
+        const wy = this.game === "canoe" ? waterY(r.z - 1) : wy0;
         if (Math.random() < 0.7) this.particles.push({ x: wx + (Math.random() - 0.5), y: wy + 0.2, z: wz + 1, vx: (Math.random() - 0.5) * 3, vy: 1.5 + Math.random() * 2, vz: 2, life: 0, gold: r.boost });
       }
     }
@@ -178,7 +189,12 @@ export class RaceScene implements Scene {
         const ranked = [...this.racers].sort((a, b) => b.tz - a.tz);
         this.placeEl.textContent = ORD[ranked.indexOf(me)] ?? "";
       }
-      this.speedEl.textContent = `🛷 ${Math.round(me.speed * 3.6)} km/h`;
+      this.speedEl.textContent = `${this.game === "canoe" ? "🛶" : "🛷"} ${Math.round(me.speed * 3.6)} km/h`;
+      this.ctx.sound.setWhoosh(this.finished ? 0 : me.speed / 40);
+      if (this.game === "canoe" && me.speed > 4 && !this.finished) {
+        this.paddleAcc += dt;
+        if (this.paddleAcc > 0.55) { this.paddleAcc = 0; this.ctx.sound.play("paddle", 0.7); }
+      }
       this.speedlines.classList.toggle("on", me.boost);
     }
     for (const r of this.racers) r.dot.style.left = `${Math.min(100, (r.z / TRACK.length) * 100)}%`;
@@ -187,8 +203,9 @@ export class RaceScene implements Scene {
   render() {
     const { r } = this.ctx;
     r.time = this.time;
-    // Crisp snowy afternoon on the run.
+    // Crisp snowy afternoon on the run (or a warm summer afternoon on the river).
     r.env.lightDir = [0.5, 0.55, -0.67];
+    r.env.stars = 0;
     r.env.sunColor = [1.0, 0.9, 0.76];
     r.env.sunIntensity = 1.25;
     r.env.skyTop = [0.25, 0.52, 0.85];
@@ -201,11 +218,19 @@ export class RaceScene implements Scene {
     r.env.fogHeight = 0.006;
     r.env.clouds = 0.8;
     r.env.sky = true;
+    if (this.game === "canoe") {
+      r.env.sunColor = [1.0, 0.86, 0.64];
+      r.env.sunIntensity = 1.35;
+      r.env.ground = [0.42, 0.48, 0.3];
+      r.env.ambient = 0.7;
+    }
     const focus = this.me ?? this.racers[0];
     const p = trackToWorld(focus.x * 0.5, focus.z);
     const ahead = trackToWorld(focus.x * 0.5, focus.z + 10);
     const back = trackToWorld(focus.x * 0.4, focus.z - 9);
-    const cam: Vec3 = [back[0], back[1] + 4.6, back[2]];
+    const canoe = this.game === "canoe";
+    if (canoe) { p[1] = waterY(focus.z); ahead[1] = waterY(focus.z + 10); back[1] = waterY(focus.z - 9); }
+    const cam: Vec3 = [back[0], back[1] + (canoe ? 3.6 : 4.6), back[2]];
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     const fov = (aspect < 0.8 ? 1.1 : 0.95) + (focus.boost ? 0.12 : 0);
@@ -216,37 +241,48 @@ export class RaceScene implements Scene {
     r.draw(this.world.ground, I, { noCast: true });
     r.draw(this.world.props, I, { sway: 0.15 });
     r.draw(this.world.glow, I, { unlit: true });
+    if (this.world.water) r.draw(this.world.water, I, { wave: 1, alpha: 0.86 });
 
     for (const g of this.layout.gates) {
       const [x, y, z] = trackToWorld(g.x, g.z);
       const yaw = this.yawAt(g.z);
       const spin = this.time * 1.5;
       const took = this.collected.has(g.id);
-      r.draw(this.world.gate, multiply(compose(x, y + 1.9, z, yaw, -Math.atan(TRACK.slope)), compose(0, 0, 0, 0, 0, spin)), { unlit: true, alpha: took ? 0.25 : 1 });
+      const gy = this.game === "canoe" ? waterY(g.z) + 0.2 : y;
+      r.draw(this.world.gate, multiply(compose(x, gy + 1.9, z, yaw, -courseTilt()), compose(0, 0, 0, 0, 0, spin)), { unlit: true, alpha: took ? 0.25 : 1 });
     }
 
     for (const rc of this.racers) {
-      const [x, y, z] = trackToWorld(rc.x, rc.z);
+      const [x, y0, z] = trackToWorld(rc.x, rc.z);
+      const y = canoe ? waterY(rc.z) - 0.25 + Math.sin(this.time * 3 + rc.z) * 0.04 : y0;
       const yaw = this.yawAt(rc.z) - rc.steer * 0.35;
-      const tilt = Math.atan(TRACK.slope);
+      const tilt = courseTilt();
       const wobble = rc.stun ? Math.sin(this.time * 30) * 0.25 : 0;
-      const root = compose(x, y + 0.05, z, yaw + wobble, tilt, rc.steer * 0.18);
+      const root = compose(x, y + 0.05, z, yaw + wobble, tilt, rc.steer * (canoe ? 0.1 : 0.18));
       r.draw(this.world.sled, root, { outline: 0.04 });
+      if (canoe) {
+        // Paddle swaps sides with each stroke.
+        const ph = this.time * 2.8 + this.racers.indexOf(rc);
+        const side = Math.sin(ph) > 0 ? 1 : -1;
+        const sweep = Math.cos(ph * 2) * 0.6;
+        r.draw(this.world.paddle, multiply(root, compose(side * 0.55, 1.0, -0.1, 0, 0.5 + sweep, side * 0.5)), { outline: 0.02 });
+      }
       const counting = performance.now() < this.startAt;
       const expr = rc.stun ? "dizzy" : rc.boost ? "excited" : rc.done ? "happy" : counting ? "determined" : "neutral";
-      drawBeaver(r, getBeaverMeshes(r, rc.look), multiply(root, compose(0, 0.2, -0.2)), {
-        walk: 0, moving: 0, swim: 0, jump: 0, wave: rc.done ? 1 : 0, sled: 1, time: this.time,
+      drawBeaver(r, getBeaverMeshes(r, rc.look), multiply(root, compose(0, canoe ? 0.15 : 0.2, -0.2)), {
+        walk: 0, moving: 0, swim: 0, jump: 0, wave: rc.done ? 1 : 0, sled: 1, time: this.time, hold: canoe && !rc.done ? 0.6 : 0,
         expr, seed: this.racers.indexOf(rc) * 1.7, cheer: rc.done && this.racers.indexOf(rc) % 2 ? 1 : 0,
       }, rc.stun ? [1, 1, 1, 0.25] : undefined);
     }
     for (const p of this.particles) {
       const k = p.life / 0.7;
-      r.draw(this.world.puff, compose(p.x, p.y, p.z, 0, 0, 0, 0.22 * (1 - k * 0.5)), { unlit: true, tint: p.gold ? [1, 0.85, 0.3, 1] : [1, 1, 1, 1], alpha: 0.8 * (1 - k) });
+      r.draw(this.world.puff, compose(p.x, p.y, p.z, 0, 0, 0, 0.22 * (1 - k * 0.5)), { unlit: true, tint: p.gold ? [1, 0.85, 0.3, 1] : canoe ? [0.85, 0.95, 1, 1] : [1, 1, 1, 1], alpha: 0.8 * (1 - k) });
     }
     r.end();
 
     for (const rc of this.racers) {
-      const [x, y, z] = trackToWorld(rc.x, rc.z);
+      const [x, y0, z] = trackToWorld(rc.x, rc.z);
+      const y = this.game === "canoe" ? waterY(rc.z) : y0;
       const s = r.project(x, y + 2.8, z);
       if (!s || s.depth > 80) { rc.tag.style.display = "none"; continue; }
       rc.tag.style.display = "";
@@ -263,7 +299,9 @@ export class RaceScene implements Scene {
 
   dispose() {
     const r = this.ctx.r;
-    for (const m of [this.world.ground, this.world.props, this.world.glow, this.world.gate, this.world.sled, this.world.puff, this.sky, this.mtn]) r.dispose(m);
+    for (const m of [this.world.ground, this.world.props, this.world.glow, this.world.gate, this.world.sled, this.world.puff, this.world.paddle, this.sky, this.mtn]) r.dispose(m);
+    if (this.world.water) r.dispose(this.world.water);
+    this.ctx.sound.setWhoosh(0);
     this.root.remove();
   }
 }
