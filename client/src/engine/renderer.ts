@@ -67,8 +67,10 @@ void main() {
     // Soft, postcard-like daylight. The half-Lambert term preserves detail in
     // rounded faces while the bands retain the illustrated Alpine-toon style.
     float halfLambert = ndl * 0.5 + 0.5;
-    float band = halfLambert > 0.76 ? 1.12 : halfLambert > 0.48 ? 0.88 : 0.64;
-    vec3 ambient = mix(uGround, uSkyTop, n.y * 0.5 + 0.5) * 0.18;
+    // Gentle illustrated light: preserve form without collapsing shaded faces
+    // into near-black hard wedges on cabins and props.
+    float band = halfLambert > 0.76 ? 1.08 : halfLambert > 0.48 ? 0.90 : 0.74;
+    vec3 ambient = mix(uGround, uSkyTop, n.y * 0.5 + 0.5) * 0.23;
     float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.2) * 0.14;
     vec3 halfDir = normalize(normalize(uLightDir) + viewDir);
     float sunKiss = pow(max(dot(n, halfDir), 0.0), 26.0) * 0.18;

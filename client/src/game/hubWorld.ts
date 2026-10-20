@@ -245,7 +245,7 @@ export function buildHub(r: Renderer): HubWorld {
   // A soft flattened disc grounds characters without adding a full shadow system.
   // It is reused below every avatar and remains independent from world geometry.
   const shadow = new MeshBuilder();
-  shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.72, 0.025, 0.48), "#2c1d17", 24);
+  shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.68, 0.018, 0.44), "#4d6254", 32);
 
   // --- Props (outlined) and glowing bits (unlit) ---
   // Major world pieces are uploaded independently: their ink hulls can no longer
