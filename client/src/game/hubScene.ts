@@ -562,13 +562,17 @@ export class HubScene implements Scene {
         cz = solid.z + (d < 0.001 ? 0 : dz * k);
       }
     }
-    let cy = py + 1.4 + Math.sin(pitch) * cd;
-    cy = Math.max(cy, heightAt(cx, cz) + 1.2);
+    // Keep the eye above the avatar focus even if a wall or tree shortens the
+    // follow distance. Previously the shortened camera could end up lower than
+    // its target (the beaver's head), which made the game suddenly look skyward.
+    const focusY = py + 1.65;
+    let cy = py + 2.6 + Math.sin(pitch) * cd;
+    cy = Math.max(cy, heightAt(cx, cz) + 1.5, focusY + 1.05);
     const cam: Vec3 = [cx, cy, cz];
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     r.shadowFocus = [me.x, py, me.z];
-    r.begin(lookAt(cam, [me.x, py + 3.3, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
+    r.begin(lookAt(cam, [me.x, focusY, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
 
     drawHub(r, this.world, this.time);
 
