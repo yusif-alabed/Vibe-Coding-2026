@@ -81,20 +81,17 @@ export function heightAt(x: number, z: number): number {
 
 function groundColor(x: number, y: number, z: number): Vec3 {
   const r = Math.hypot(x, z);
-  const n = hash2(Math.floor(x / 3), Math.floor(z / 3));
-  if (y > 13 || (z < PL.trailhead.z - 4 && y > 1.2)) return mixRgb(rgb(P.snow), rgb(P.snowShade), n * 0.6);
-  if (y > 8) return mixRgb(rgb(P.rock), rgb(P.rockDark), n);
-  if (y < WATER_Y - 0.05) return mixRgb(rgb(P.lakebed), rgb(P.glacierDeep), n);
+  if (y > 13 || (z < PL.trailhead.z - 4 && y > 1.2)) return rgb(P.snowShade);
+  if (y > 8) return rgb(P.rock);
+  if (y < WATER_Y - 0.05) return rgb(P.lakebed);
   if (y < 0.05 && (riverDist(x, z) < 5.4 || Math.hypot(x - PL.lake.x, z - PL.lake.z) < 20)) return rgb(P.sand);
   // Paths and the plaza are separate, smooth surface meshes below. Keeping the
   // base terrain grass here avoids jagged colour interpolation at their edges.
-  const g = n < 0.33 ? P.grassA : n < 0.66 ? P.grassB : P.grassC;
-  return y > 3 ? mixRgb(rgb(g), rgb(P.meadowDark), Math.min(1, (y - 3) / 5)) : rgb(g);
+  return y > 3 ? mixRgb(rgb(P.grassA), rgb(P.meadowDark), Math.min(1, (y - 3) / 5)) : rgb(P.grassA);
 }
 
 export interface HubWorld {
   terrain: GpuMesh;
-  terrainTexture: WebGLTexture;
   surfaces: GpuMesh;
   grass: GpuMesh;
   shadow: GpuMesh;
@@ -208,6 +205,28 @@ export function buildHub(r: Renderer): HubWorld {
     const sz = fromCenter ? (bz - az) / len * 7.5 : az;
     ribbon(sx, sz, bx, bz, 2.08, 0.026, "#9b6d3d"); // packed-earth border
     ribbon(sx, sz, bx, bz, 1.68, 0.047, "#d2a45f"); // warm walkable centre
+    // Individually modelled trail stones break up the surface without a tiled
+    // image or repeated decal pattern.
+    const trailLen = Math.hypot(bx - sx, bz - sz) || 1;
+    const stones = Math.floor(trailLen / 3.2);
+    for (let i = 0; i < stones; i++) {
+      const u = (i + 0.55) / stones;
+      const px = sx + (bx - sx) * u, pz = sz + (bz - sz) * u;
+      const side = (hash2(i, bx) - 0.5) * 1.9;
+      const dx = (bx - sx) / trailLen, dz = (bz - sz) / trailLen;
+      const x = px - dz * side, z = pz + dx * side;
+      const size = 0.12 + hash2(i, az) * 0.12;
+      surfaces.sphere(compose(x, heightAt(x, z) + 0.075, z, hash2(i, ax) * 4, 0, 0, size, size * 0.45, size * 0.8), i % 2 ? "#b9854b" : "#e0bb79", 4, 6);
+    }
+  }
+  // Low sculpted snow drifts make the clearing feel built from material rather
+  // than a flat white decal.
+  for (let i = 0; i < 9; i++) {
+    const a = i / 9 * Math.PI * 2 + 0.18;
+    const d = plazaRadius(a) * 0.78;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const s = 0.5 + hash2(i, 12) * 0.35;
+    surfaces.sphere(compose(x, heightAt(x, z) + 0.06, z, a, 0, 0, s, 0.12 + hash2(i, 3) * 0.08, s * 0.65), "#d8e8eb", 6, 8);
   }
 
   // Physical grass, built from individual bent blade strips rather than cones
@@ -407,7 +426,6 @@ export function buildHub(r: Renderer): HubWorld {
 
   return {
     terrain: r.upload(t.build()),
-    terrainTexture: r.loadTexture("/assets/textures/alpine-meadow-stylized-v3.png"),
     surfaces: r.upload(surfaces.build()),
     grass: r.upload(grass.build()),
     shadow: r.upload(shadow.build()),
