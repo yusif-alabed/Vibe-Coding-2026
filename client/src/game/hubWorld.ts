@@ -14,6 +14,17 @@ import { bench, cabin, campfire, canoe, flowers, lamp, pine, rock, sign, snowyPi
 export const WATER_Y = -0.35;
 const PL = HUB_PLACES;
 
+/** Height of the walkable dock deck, if the given point lies on its boards. */
+export function dockHeightAt(x: number, z: number): number | null {
+  const angle = Math.atan2(PL.lake.x - PL.dock.x, PL.lake.z - PL.dock.z);
+  const dx = x - PL.dock.x, dz = z - PL.dock.z;
+  const along = dx * Math.sin(angle) + dz * Math.cos(angle);
+  const across = dx * Math.cos(angle) - dz * Math.sin(angle);
+  // Nine connected board sections, each 1.05 long, run from the shore out.
+  if (along < -0.55 || along > 10.15 || Math.abs(across) > 1.6) return null;
+  return 0.25; // top of the 0.2-high boards, centred at y = 0.15
+}
+
 /** River centreline: down from the north-east peaks, past the arcade, around the south of the village, into the lake. */
 const RIVER: [number, number][] = [
   [70, -80], [52, -48], [38, -20], [34, 2], [32, 22], [18, 40], [-6, 44], [-26, 40], [-38, 36],

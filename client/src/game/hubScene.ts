@@ -15,7 +15,7 @@ import {
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
 import { h, toast } from "../ui/dom";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
-import { heightAt, WATER_Y, type HubWorld } from "./hubWorld";
+import { dockHeightAt, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import type { Ctx, Scene } from "./scene";
 
 const WALK_SPEED = 7.5;
@@ -438,7 +438,7 @@ export class HubScene implements Scene {
     const len = Math.hypot(mx, mz);
     const me = this.me;
     if (len > 0) {
-      const swimming = heightAt(me.x, me.z) < WATER_Y - 0.3;
+      const swimming = dockHeightAt(me.x, me.z) === null && heightAt(me.x, me.z) < WATER_Y - 0.3;
       const sp = WALK_SPEED * (swimming ? 0.7 : 1);
       const next = validateMove(me, { x: me.x + (mx / len) * sp * dt, z: me.z + (mz / len) * sp * dt }, dt * 1000);
       if (this.target && Math.hypot(next.x - me.x, next.z - me.z) < sp * dt * 0.2) this.target = null; // blocked
@@ -470,7 +470,7 @@ export class HubScene implements Scene {
       }
       a.ry = lerpAngle(a.ry, a.tr, Math.min(1, dt * 12));
       a.walk += dt * 11 * a.moving;
-      a.swim = lerp(a.swim, heightAt(a.x, a.z) < WATER_Y - 0.3 ? 1 : 0, Math.min(1, dt * 5));
+      a.swim = lerp(a.swim, dockHeightAt(a.x, a.z) === null && heightAt(a.x, a.z) < WATER_Y - 0.3 ? 1 : 0, Math.min(1, dt * 5));
       a.jumpT = Math.max(0, a.jumpT - dt * 2.2);
       a.waveT = Math.max(0, a.waveT - dt);
       a.cheerT = Math.max(0, a.cheerT - dt);
@@ -516,7 +516,8 @@ export class HubScene implements Scene {
   }
 
   private groundY(a: Avatar) {
-    return Math.max(heightAt(a.x, a.z), a.swim > 0.5 ? WATER_Y : -Infinity);
+    const dock = dockHeightAt(a.x, a.z);
+    return Math.max(heightAt(a.x, a.z), dock ?? -Infinity, a.swim > 0.5 ? WATER_Y : -Infinity);
   }
 
   render() {
