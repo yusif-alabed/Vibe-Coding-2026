@@ -15,7 +15,7 @@
     "dev:server": "npm run dev --workspace game-server",
     "dev:client": "npm run dev --workspace client",
     "dev:api": "npm run dev --workspace api",
-    "build": "npm run build --workspace client",
+    "build": "npm run build --workspace client && npm run build:preview --workspace client",
     "build:preview": "npm run build:preview --workspace client",
     "test": "tsx --test \"shared/src/**/*.test.ts\" \"game-server/src/**/*.test.ts\" \"api/src/**/*.test.ts\"",
     "typecheck": "tsc -p shared && tsc -p game-server && tsc -p client"

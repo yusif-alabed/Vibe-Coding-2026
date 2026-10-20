@@ -1,7 +1,7 @@
 // Client build script (esbuild).
 //   node build.mjs dev      → dev server on http://localhost:5173 with live rebuilds
 //   node build.mjs build    → dist/ (index.html + app.js) for deployment
-//   node build.mjs preview  → dist/beaver-banff.html, one self-contained file (solo mode)
+//   node build.mjs preview  → dist/beaver-banff.html and ../index.html, one self-contained file (solo mode)
 import * as esbuild from "esbuild";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -23,7 +23,10 @@ const options = {
   logLevel: "info",
 };
 
-const html = (await readFile(here("./index.html"), "utf8"));
+// The template's "not built yet" notice is removed from every built page.
+const html = (await readFile(here("./index.html"), "utf8"))
+  .replace(/<div id="boot-msg"[\s\S]*?<\/div>\s*/, "")
+  .replace(/\s*<!-- This page is a template[^>]*-->/, "");
 
 // Static files (textures, sounds) live in client/public and are served from the site root,
 // e.g. client/public/assets/textures/x.png → /assets/textures/x.png
@@ -63,7 +66,10 @@ if (mode === "dev") {
   const out = await esbuild.build({ ...options, write: false, format: "iife" });
   const js = (await inlineAssets(out.outputFiles[0].text)).replace(/<\/script/gi, "<\\/script");
   await mkdir(here("./dist"), { recursive: true });
-  await writeFile(here("./dist/beaver-banff.html"), html.replace("<!--APP-->", `<script>${js}</script>`));
+  const page = html.replace("<!--APP-->", `<script>${js}</script>`);
+  await writeFile(here("./dist/beaver-banff.html"), page);
+  // Also refresh the ready-to-play copy at the top of the repo, so anyone can just open index.html.
+  await writeFile(here("../index.html"), page);
   // Artifact version: page content only (the host adds the document skeleton).
   const head = html.match(/<head>([\s\S]*?)<\/head>/)[1].replace(/<meta charset[^>]*>|<meta name="viewport"[^>]*>/g, "").trim();
   await writeFile(here("./dist/beaver-banff.artifact.html"), `${head}\n<style>html,body{height:100%;background:#ffd9b0}</style>\n<script>${js}</script>\n`);
