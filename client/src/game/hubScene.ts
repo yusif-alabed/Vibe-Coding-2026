@@ -42,6 +42,9 @@ export class HubScene implements Scene {
   private avatars = new Map<string, Avatar>();
   private me: Avatar;
   private yaw = 0.3;
+  // Vertical cursor aim. This moves the follow-camera focus instead of letting
+  // the whole orbit flip over when it is squeezed close to scenery.
+  private lookOffset = 0;
   private dist = 13;
   private camDist = 13;
   private target: { x: number; z: number } | null = null;
@@ -397,6 +400,9 @@ export class HubScene implements Scene {
     this.time += dt;
     const inp = this.ctx.input;
     this.yaw -= inp.consumeDrag() * 0.006;
+    // Drag up to look upward and drag down to look toward the ground. The cap
+    // still permits a deliberate skyward look, but prevents a full inversion.
+    this.lookOffset = Math.max(-1.55, Math.min(4.0, this.lookOffset - inp.consumeDragY() * 0.012));
     if (inp.down("q")) this.yaw += dt * 1.8;
     if (inp.down("e")) this.yaw -= dt * 1.8;
     this.dist = Math.max(7, Math.min(24, this.dist + inp.consumeZoom() * 1.2));
@@ -572,7 +578,7 @@ export class HubScene implements Scene {
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     r.shadowFocus = [me.x, py, me.z];
-    r.begin(lookAt(cam, [me.x, focusY, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
+    r.begin(lookAt(cam, [me.x, focusY + this.lookOffset, me.z]), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
 
     drawHub(r, this.world, this.time);
 

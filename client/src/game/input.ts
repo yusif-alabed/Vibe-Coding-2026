@@ -3,6 +3,7 @@ export class Input {
   keys = new Set<string>();
   /** Accumulated camera drag since last read (pixels). */
   dragX = 0;
+  dragY = 0;
   zoom = 0;
   /** Last tap (not drag) in canvas CSS pixels. */
   tap: { x: number; y: number } | null = null;
@@ -26,10 +27,11 @@ export class Input {
       const p = this.pointers.get(e.pointerId);
       if (!p) return;
       const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
       p.x = e.clientX;
       p.y = e.clientY;
       if (Math.hypot(p.x - p.sx, p.y - p.sy) > 8) p.moved = true;
-      if (p.moved) this.dragX += dx;
+      if (p.moved) { this.dragX += dx; this.dragY += dy; }
       this.updateTouchSteer();
     });
     const end = (e: PointerEvent) => {
@@ -64,6 +66,11 @@ export class Input {
   consumeDrag() {
     const d = this.dragX;
     this.dragX = 0;
+    return d;
+  }
+  consumeDragY() {
+    const d = this.dragY;
+    this.dragY = 0;
     return d;
   }
   consumeZoom() {
