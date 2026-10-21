@@ -804,6 +804,7 @@ export function buildHub(r: Renderer): HubWorld {
       { text: "🥐 Bakery", x: TOWN_PLACES.bakery.x, y: 10.5, z: -7.5 },
       { text: "📮 Post Office", x: TOWN_PLACES.post.x, y: 10.5, z: -7.5 },
       { text: "📚 Library", x: TOWN_PLACES.library.x, y: 11, z: -8.5 },
+      { text: "🔤 Word Lodge", x: -86, y: 11, z: -30 },
       { text: "🍦 Ice Cream", x: TOWN_PLACES.icecream.x, y: 10.5, z: 7 },
       { text: "🏛️ Town Hall", x: -96, y: 19, z: 0.4 },
       { text: "🎺 Town Square", x: -74, y: 7.5, z: 0 },
