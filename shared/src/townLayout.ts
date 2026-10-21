@@ -10,7 +10,8 @@
 export type BuildingKind =
   | "bakery" | "post" | "store" | "flowers" | "icecream" | "toys" | "library" | "maple" | "townhall"
   | "cottage" | "windmill" | "watermill" | "lookout" | "observatory" | "greenhouse" | "ranger"
-  | "lighthouse" | "bandstand" | "stall" | "ferris" | "tent";
+  | "lighthouse" | "bandstand" | "stall" | "ferris" | "tent"
+  | "clubhouse" | "station" | "gondola" | "dyeshop";
 
 export interface TownBuilding {
   kind: BuildingKind;
@@ -39,6 +40,11 @@ export const STREETS: [number, number, number, number][] = [
   [7.5, 66, 20, 66], // to the Ferris wheel
   [-4, 80, 7.8, 80], // to the ranger station
   [6.8, 60, -12, 62], // to the campground
+  [-12, 62, -40, 71], // to the golf clubhouse
+  [68, -8, 86, 26], // to the train station
+  [30, -34, 48, -46], // past the hot springs to the balloon meadow
+  [10, -40, 16, -48], // to the summit gondola
+  [52, -8, 56, 6], // to the community garden
 ];
 
 export const TOWN_BUILDINGS: TownBuilding[] = [
@@ -85,10 +91,21 @@ export const TOWN_BUILDINGS: TownBuilding[] = [
   { kind: "tent", x: -20, z: 56, ry: 0.4, w: 3, d: 3, seed: 54 },
   { kind: "tent", x: -25, z: 63, ry: 1.4, w: 3, d: 3, seed: 55 },
   { kind: "tent", x: -18, z: 69, ry: 2.6, w: 3, d: 3, seed: 56 },
+  // Golf clubhouse by the lake, facing the path from the campground.
+  { kind: "clubhouse", x: -46, z: 76, ry: S + 0.2, w: 11, d: 7, seed: 60 },
+  // Valley railway station on the east edge (the line runs round the valley just outside town).
+  { kind: "station", x: 90, z: 31, ry: Math.atan2(-90, -31), w: 10, d: 5, seed: 61 },
+  // Summit gondola base station on the snowy hill beside the trailhead.
+  { kind: "gondola", x: 18, z: -53, ry: Math.atan2(-18, 53), w: 7, d: 6, seed: 62 },
+  // A little dye shop on Main Street, next to the flower shop.
+  { kind: "dyeshop", x: -66, z: 7.5, ry: S, w: 6, d: 6, seed: 63 },
 ];
 
 /** Open areas kept clear of trees and long grass (paved, frozen or trampled). */
-export const TOWN_AREAS: { kind: "square" | "rink" | "camp" | "fair"; x: number; z: number; r: number; clear?: number }[] = [
+export const TOWN_AREAS: { kind: "square" | "rink" | "camp" | "fair" | "garden" | "balloons" | "golf"; x: number; z: number; r: number; clear?: number }[] = [
+  { kind: "garden", x: 56, z: 11, r: 6.5 },
+  { kind: "balloons", x: 52, z: -52, r: 9 },
+  { kind: "golf", x: -46, z: 86, r: 6 },
   { kind: "square", x: -74, z: 0, r: 10 },
   { kind: "rink", x: -24, z: -52, r: 7, clear: 16 },
   { kind: "camp", x: -19, z: 62, r: 9 },
@@ -117,11 +134,23 @@ export const TOWN_PLACES = {
   camp: { x: -19, z: 62 },
   maple: { x: -86, z: 2.5 },
   greenhouse: { x: 56, z: -5 },
+  clubhouse: { x: -44, z: 70.5 },
+  station: { x: 86, z: 27 },
+  balloons: { x: 52, z: -52 },
+  gondola: { x: 15.5, z: -48.5 },
+  garden: { x: 56, z: 11 },
+  dyeshop: { x: -66, z: 3 },
+  cottageLane: { x: -43.5, z: -12 },
 } as const;
 
 /** Collision circles that cover a building's footprint. */
 export function buildingColliders(b: TownBuilding): { x: number; z: number; r: number }[] {
   const round: BuildingKind[] = ["bandstand", "observatory", "lighthouse", "windmill", "tent"];
+  if (b.kind === "station") {
+    // Just the station building (the platform and the line itself are walkable / outside town).
+    const c = Math.cos(b.ry), s = Math.sin(b.ry);
+    return [-2.5, 2.5].map((lx) => ({ x: b.x + lx * c, z: b.z - lx * s, r: 2.7 }));
+  }
   if (round.includes(b.kind)) return [{ x: b.x, z: b.z, r: b.kind === "tent" ? 1.5 : b.w / 2 }];
   if (b.kind === "ferris") return [{ x: b.x, z: b.z, r: 3.2 }];
   if (b.kind === "lookout") {
@@ -153,3 +182,18 @@ export function townClear(x: number, z: number, pad: number): boolean {
   for (const a of TOWN_AREAS) if (Math.hypot(x - a.x, z - a.z) < (a.clear ?? a.r) + pad) return true;
   return false;
 }
+
+/**
+ * The valley railway: a little steam train circling the valley just outside town on a fixed
+ * timetable (everyone sees the same train), stopping by the station on the east edge.
+ */
+export const TRAIN = { r: 102.5, speed: 10, cars: 4, carLen: 3.6, stationAngle: Math.atan2(31, 90), trains: 2 } as const;
+/** Seconds for one trip round the valley. */
+export const TRAIN_LOOP_S = (2 * Math.PI * TRAIN.r) / TRAIN.speed;
+/** Position of train `which` around the loop (radians, x = cos·r, z = sin·r) at a time in ms. */
+export function trainAngle(now = Date.now(), which = 0): number {
+  return (((now / 1000) * TRAIN.speed) / TRAIN.r + (which * Math.PI * 2) / TRAIN.trains) % (Math.PI * 2);
+}
+
+/** The summit gondola: base station in town, top station high on the mountain. */
+export const GONDOLA = { base: { x: 18, z: -53 }, top: { x: 52, z: -168, y: 82 }, cabins: 6, speed: 0.025 } as const;

@@ -201,10 +201,12 @@ export class MeshBuilder {
   }
 
   merge(other: MeshBuilder) {
-    this.pos.push(...other.pos);
-    this.nrm.push(...other.nrm);
-    this.col.push(...other.col);
-    this.smo.push(...other.smo);
+    // Appended in a loop: spreading a very large mesh would overflow the call stack.
+    const add = (into: number[], from: number[]) => { for (let i = 0; i < from.length; i++) into.push(from[i]); };
+    add(this.pos, other.pos);
+    add(this.nrm, other.nrm);
+    add(this.col, other.col);
+    add(this.smo, other.smo);
     return this;
   }
 

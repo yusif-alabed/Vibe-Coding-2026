@@ -86,4 +86,4 @@ export const QUICK_CHAT = [
   "See you later! 🦫",
 ] as const;
 
-export const EMOTES = ["👋", "😄", "❤️", "🎉", "😮", "🦫", "🌲", "⛄"] as const;
+export const EMOTES = ["👋", "😄", "❤️", "🎉", "😮", "🦫", "🌲", "⛄", "💃"] as const;

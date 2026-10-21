@@ -42,6 +42,7 @@ export function openSettings(ctx: Ctx, root: HTMLElement, onChange: () => void):
     p[k] = v;
     savePrefs(p);
     ctx.r.quality = p.graphics;
+    document.body.classList.toggle("big-text", p.textSize === "large");
     onChange();
   };
   const s = ctx.sound.settings;

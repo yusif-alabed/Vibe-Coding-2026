@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { DEFAULT_LOOK, ECONOMY, newProgress, STARTER_ITEMS, type Look, type ProgressRecord } from "@beaver/shared";
+import { DEFAULT_LOOK, ECONOMY, newProgress, STARTER_ITEMS, type Look, type PlayerRecordLike } from "@beaver/shared";
 
 /**
  * Player records held by the game server.
@@ -12,7 +12,9 @@ import { DEFAULT_LOOK, ECONOMY, newProgress, STARTER_ITEMS, type Look, type Prog
  * secret recovery code to move their beaver to another device, plus a public friend code.
  * (The API service + PostgreSQL in /api can replace this file store behind the same interface.)
  */
-export interface PlayerRecord extends ProgressRecord {
+export interface ClubInfo { code: string; name: string; tag: string; color: string }
+
+export interface PlayerRecord extends PlayerRecordLike {
   token: string;
   /** Stable public id used for friends and parties (never the token). */
   pid: string;
@@ -26,6 +28,10 @@ export interface PlayerRecord extends ProgressRecord {
   owned: string[];
   friends: string[];
   blocked: Set<string>; // player ids (session-scoped)
+  club?: ClubInfo | null;
+  /** Who liked your cabin this week. */
+  cabinLikes?: { week: string; pids: string[] };
+  guestbook?: { name: string; stamp: number; at: number }[];
 }
 
 export interface ModerationEvent {
@@ -75,6 +81,10 @@ export class PlayerStore {
     this.index(rec);
     this.markDirty();
     return rec;
+  }
+
+  all(): IterableIterator<PlayerRecord> {
+    return this.byToken.values();
   }
 
   byPlayerId(pid: string): PlayerRecord | undefined {

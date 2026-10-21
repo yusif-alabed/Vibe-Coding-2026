@@ -1,4 +1,4 @@
-import { HUB, HUB_COLLIDERS, HUB_PLACES, LODGE, TOWN_BUILDINGS, TRAILS } from "@beaver/shared";
+import { HUB, HUB_COLLIDERS, HUB_PLACES, LODGE, TOWN_BUILDINGS, TRAILS, TRAIN } from "@beaver/shared";
 import { heightAt, plazaEdge, riverDist, WATER_Y, type HubWorld } from "../game/hubWorld";
 import { h } from "./dom";
 
@@ -82,6 +82,14 @@ function background(): HTMLCanvasElement {
     const round = ["bandstand", "observatory", "lighthouse", "windmill", "tent"].includes(b.kind);
     rect(b.x, b.z, b.ry, b.kind === "ferris" ? 6 : b.w, b.kind === "ferris" ? 3 : b.d, round ? "#e9dfcc" : roof[b.seed % roof.length], round);
   }
+  // The valley railway (a ring just outside town).
+  g.strokeStyle = "#5b3a24";
+  g.lineWidth = 1.4;
+  g.setLineDash([1.5, 1.2]);
+  g.beginPath();
+  g.arc(0, 0, TRAIN.r, 0, Math.PI * 2);
+  g.stroke();
+  g.setLineDash([]);
   // Fountain.
   g.fillStyle = "#4fa7b3";
   g.beginPath();
@@ -91,7 +99,7 @@ function background(): HTMLCanvasElement {
   return c;
 }
 
-export interface MinimapDot { x: number; z: number; kind: "player" | "friend" | "cone" }
+export interface MinimapDot { x: number; z: number; kind: "player" | "friend" | "cone" | "npc" }
 
 export class Minimap {
   readonly el: HTMLElement;
@@ -99,6 +107,9 @@ export class Minimap {
   private big = false;
   private last = 0;
   private wrap: HTMLElement;
+
+  /** Colour-blind friendly: draw distinct shapes as well as colours. */
+  shapes = false;
 
   constructor(parent: HTMLElement, private world: HubWorld) {
     this.canvas = h("canvas") as HTMLCanvasElement;
@@ -189,17 +200,17 @@ export class Minimap {
     for (const dot of dots) {
       const [sx, sy] = toScreen(dot.x, dot.z);
       g.beginPath();
-      if (dot.kind === "cone") {
-        g.fillStyle = "#ffc93c";
-        g.strokeStyle = "#8a5a1a";
-        g.lineWidth = dpr;
-        g.arc(sx, sy, 2.6 * dpr, 0, Math.PI * 2);
-      } else {
-        g.fillStyle = dot.kind === "friend" ? "#4cd964" : "#fffaf0";
-        g.strokeStyle = "#3b251b";
-        g.lineWidth = 1.5 * dpr;
-        g.arc(sx, sy, 3.6 * dpr, 0, Math.PI * 2);
-      }
+      const r0 = (dot.kind === "cone" ? 2.6 : 3.6) * dpr;
+      g.fillStyle = dot.kind === "cone" ? "#ffc93c" : dot.kind === "friend" ? "#4cd964" : dot.kind === "npc" ? "#ff8a3d" : "#fffaf0";
+      g.strokeStyle = dot.kind === "cone" ? "#8a5a1a" : "#3b251b";
+      g.lineWidth = (dot.kind === "cone" ? 1 : 1.5) * dpr;
+      if (this.shapes && dot.kind !== "player") {
+        // Friends are squares, pinecones diamonds and townsfolk triangles, so colour isn't needed.
+        const k = r0 * 1.15;
+        if (dot.kind === "friend") g.rect(sx - k, sy - k, k * 2, k * 2);
+        else if (dot.kind === "cone") { g.moveTo(sx, sy - k * 1.3); g.lineTo(sx + k, sy); g.lineTo(sx, sy + k * 1.3); g.lineTo(sx - k, sy); g.closePath(); }
+        else { g.moveTo(sx, sy - k * 1.3); g.lineTo(sx + k * 1.2, sy + k); g.lineTo(sx - k * 1.2, sy + k); g.closePath(); }
+      } else g.arc(sx, sy, r0, 0, Math.PI * 2);
       g.fill();
       g.stroke();
     }

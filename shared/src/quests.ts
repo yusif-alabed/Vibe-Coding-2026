@@ -8,7 +8,7 @@ import "./village";
  * from things it can see for itself (where you walk, races, purchases, pinecones you pick up).
  */
 
-export type QuestKind = "visit" | "race" | "podium" | "pinecone" | "emote" | "quickchat" | "buy" | "decorate" | "photo" | "ride" | "skate" | "treat" | "music" | "friend" | "canoe";
+export type QuestKind = "visit" | "race" | "podium" | "pinecone" | "emote" | "quickchat" | "buy" | "decorate" | "photo" | "ride" | "skate" | "treat" | "music" | "friend" | "canoe" | "fish" | "harvest" | "arcade" | "golf" | "talk" | "gift" | "group";
 export type VisitPlace = "lodge" | "hotSpring" | "dock" | "trailhead" | "outfitter" | "arcade" | keyof typeof TOWN_PLACES;
 
 export interface QuestDef {
@@ -45,6 +45,13 @@ export const QUEST_POOL: QuestDef[] = [
   { id: "treat_2", kind: "treat", goal: 2, reward: 20, label: "Enjoy 2 treats in town", icon: "🥐" },
   { id: "music", kind: "music", goal: 1, reward: 15, label: "Play guitar at the bandstand", icon: "🎸" },
   { id: "friend", kind: "friend", goal: 1, reward: 20, label: "Add a friend (or invite one to a party)", icon: "🤝" },
+  { id: "fish_2", kind: "fish", goal: 2, reward: 25, label: "Catch 2 fish at the lake or river", icon: "🎣" },
+  { id: "harvest_1", kind: "harvest", goal: 1, reward: 25, label: "Harvest something from the garden", icon: "🥕" },
+  { id: "arcade_1", kind: "arcade", goal: 1, reward: 25, label: "Play a village minigame", icon: "🎮" },
+  { id: "golf_1", kind: "golf", goal: 1, reward: 30, label: "Play a hole of golf", icon: "⛳" },
+  { id: "talk_2", kind: "talk", goal: 2, reward: 15, label: "Chat with 2 townsfolk", icon: "🗨️" },
+  { id: "gift_1", kind: "gift", goal: 1, reward: 20, label: "Give someone a gift", icon: "🎁" },
+  { id: "group_1", kind: "group", goal: 1, reward: 25, label: "Dance, sing or skate with others", icon: "💃" },
   { id: "canoe_1", kind: "canoe", goal: 1, reward: 30, label: "Finish a Canoe Dash on the lake", icon: "🛶" },
 ];
 export const QUEST_BY_ID: Record<string, QuestDef> = Object.fromEntries(QUEST_POOL.map((q) => [q.id, q]));
@@ -145,8 +152,13 @@ export function visitedPlace(x: number, z: number): VisitPlace | null {
   if (near(P.arcade, P.arcade.r + 3.5)) return "arcade";
   const T = TOWN_PLACES;
   const wide: Partial<Record<keyof typeof T, number>> = { rink: 8.5, camp: 8.5, bandstand: 7, ferris: 7, townHall: 6.5, lighthouse: 6.5, windmill: 7, lookout: 6, observatory: 7 };
-  for (const k of Object.keys(T) as (keyof typeof T)[]) if (near(T[k], wide[k] ?? 4.5)) return k;
-  return null;
+  // The closest landmark you're within range of wins (shops sit close together on Main Street).
+  let best: keyof typeof T | null = null, bd = Infinity;
+  for (const k of Object.keys(T) as (keyof typeof T)[]) {
+    const d = Math.hypot(x - T[k].x, z - T[k].z);
+    if (d < (wide[k] ?? 4.5) && d < bd) { bd = d; best = k; }
+  }
+  return best;
 }
 
 // ------------------------------------------------------------------ Golden pinecones

@@ -1,6 +1,7 @@
 /** Tuning values shared by client and server. Server-side checks always use these, never client-sent values. */
 import { BRIDGE_EAST, buildingColliders, STREETS, TOWN_BUILDINGS, townClear } from "./townLayout";
 export * from "./townLayout";
+import { TRAIN } from "./townLayout";
 
 export const HUB = {
   /** Players are kept inside this circle (world units ≈ metres). */
@@ -159,6 +160,7 @@ export function forestTreeAt(x: number, z: number): { x: number; z: number; s: n
   if (Object.values(HUB_PLACES).some((place) => Math.hypot(jx - place.x, jz - place.z) < place.r + 7)) return null;
   if (Math.hypot(jx - HUB_PLACES.trailhead.x, jz - HUB_PLACES.trailhead.z) < 12 || sceneryHeight(jx, jz) < 0.05) return null;
   if (townClear(jx, jz, 3.5)) return null;
+  if (Math.abs(radius - TRAIN.r) < 4.5) return null; // the railway runs here
   const s = 0.8 + sceneryHash(jx, jz * 3) * 0.7 + (radius > 60 ? 0.4 : 0);
   return { x: jx, z: jz, s };
 }

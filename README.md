@@ -26,6 +26,16 @@ A cozy 3D multiplayer social game set in a Banff-inspired mountain village. Expl
 - 📷 **Photo mode** — free camera, poses, filters and a postcard frame; save the picture to your device.
 - 📱 **Phones** — on-screen joystick, a ⚡ Fast graphics setting for older phones.
 - 🎮 **Solo mode** — the whole game also runs in the browser with friendly bot beavers (you can befriend them and party up too).
+- ⛳ **Bow Valley Golf** — nine holes modelled on the famous course along the Bow River (Bow River Bend, Rundle's Shadow, Elk Meadow, the Devil's Cauldron par 3 over a glacial pond, Spray River, Sulphur Mountain, Cascade, Riverside, The Castle). Pick how many holes (1–9), aim, choose driver / iron / wedge / putter, hold and release the power meter. Real ball flight with wind, bounces, roll, slopes, bunkers, water and out-of-bounds penalties. Play with your party (or a bot), and quit any time keeping the coins for finished holes. Start at the ⛳ clubhouse.
+- 🎮 **Four more minigames + weekly leaderboards** — 🌰 Pinecone Hunt (campground), 🪵 Log Rolling (lighthouse), ⛄ Snowball Fight in teams (skating pond) and 🦫 co-op Dam Builder (watermill). Weekly bests for every game reset each Monday.
+- 🍂 **Seasons and weather** — the real month sets the season (spring blossom, summer, autumn leaves, winter snow) with limited-time outfits and furniture; rain (umbrellas come out), snow, fog and rainbows roll through every few minutes.
+- 🎣 **Village life** — fishing at the lake and river (12 catches, some only at night, in certain seasons or in the rain), spotting butterflies and fireflies, a community garden (plant, water, harvest), a bag to sell or gift items, and a 📖 collections journal (fish, bugs, places, Banff facts) with badges and rewards.
+- 🗨️ **Townsfolk with stories** — Bea the baker, Mayor Maple, Ranger Rowan and Keeper Gus each have a three-part errand chain with special rewards (a baker's hat, the mayor's sash, a fox kit and a duckling pet).
+- 🏡 **Cottage Lane** — every beaver's cabin is on the lane noticeboard: visit, ❤️ like, stamp guestbooks, and see the week's coziest cabins.
+- 💃 **Group fun** — dance, sing along, play guitar and pair-skate with others; group photos count too. **Clubs** with a tag on your name, **gifts** to friends and **invite links** (`?room=CODE`, `?friend=CODE`).
+- 🚂 **Getting around** — a steam train circling the valley (through a tunnel under the waterfall cliff), hot-air balloon rides, and the 🚡 gondola to a snowy summit with a glacier lake, an ice cave and a viewpoint.
+- 🦊 **More customisation** — tails, eyes, pets that follow you, and a 🎨 dye station for hats, scarves and packs.
+- ♿ **Comfort** — large text & buttons, colour-blind friendly map shapes, phone vibration (haptics), bigger tap targets.
 
 ## Play now (no install)
 
@@ -104,4 +114,4 @@ Vibe-Coding-2026/
 
 ## Controls
 
-**Walk** WASD / arrows or tap the ground · **Camera** drag, Q/E, scroll · **Chat** Enter · **Hop** Space · **Use place** F · **Photo mode** P (Space to snap) · **Cabin** 🏡 button, R to turn furniture · **Steer toboggan** A/D or ←/→ (phones: hold left/right side)
+**Walk** WASD / arrows or tap the ground · **Camera** drag, Q/E, scroll · **Chat** Enter · **Hop** Space · **Use place** F · **Journal** J · **Bag** B · **Map** M · **Photo mode** P (Space to snap) · **Cabin** 🏡 button, R to turn furniture · **Steer toboggan** A/D or ←/→ (phones: hold left/right side) · **Golf** A/D aim, 1–4 clubs, hold Space for power · **Minigames** A/D (+W/S in the Pinecone Hunt), Space to throw / hop

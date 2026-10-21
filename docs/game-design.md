@@ -99,7 +99,38 @@ Same deterministic race engine as Toboggan Rush (server-authoritative, bots fill
 
 ## Day and night
 
-One in-game day lasts 40 real minutes and follows the wall clock, so everyone sees the same sky. Nights are short (about a fifth of the cycle). Players can lock the time of day in ⚙️ Settings.
+One in-game day lasts 25 real minutes and follows the wall clock, so everyone sees the same sky. Nights are short (about a fifth of the cycle). Players can lock the time of day in ⚙️ Settings.
+
+## Seasons and weather
+
+The real calendar month sets the season (Mar–May spring, Jun–Aug summer, Sep–Nov autumn, Dec–Feb winter). Seasonal hats, scarves, trails and furniture are only sold during their season. Weather changes every 5 minutes from the shared clock (rain, snow in winter, fog, clouds, and a rainbow after a shower). Both can be locked in ⚙️ Settings.
+
+## Village life
+
+- **Fishing** at the lake or river: cast, wait for the bobber to dip, tap. The server picks the catch from the spot, season, time of day and weather (12 catches incl. junk; Golden Trout only in the rain).
+- **Bugs**: butterflies by day, fireflies at night — tap one to spot it.
+- **Garden**: 4 plots each, seeds cost 🪙5, watering makes them grow 40% faster; harvests go in your bag.
+- **Bag**: sell items for coins or gift them to friends.
+- **Journal**: fish, bugs, places (31 incl. the summit) and 12 Banff facts. Completing a page gives coins, a cosmetic and a badge.
+- **Townsfolk**: Bea (bakery), Mayor Maple (town hall), Ranger Rowan (ranger station), Keeper Gus (lighthouse) each give a 3-step errand chain with a special reward.
+
+## Minigames 3–6 and golf
+
+All run on the server as deterministic simulations (solo mode runs the same code), bots fill empty seats, coins are paid by the server and weekly bests feed leaderboards that reset on Mondays.
+
+- **Pinecone Hunt** (campground): 60 s, run around a clearing grabbing pinecones (big ones = 3).
+- **Log Rolling** (lighthouse): keep your balance on a spinning log, lean against the wobble and hop; last beaver dry wins.
+- **Snowball Fight** (skating pond): two teams of two, move along your fort and throw; most team hits wins.
+- **Dam Builder** (watermill): co-op, catch floating logs to build the dam before the river spills over.
+- **Bow Valley Golf** (clubhouse): 9 holes inspired by the Banff Springs course; choose 1–9 holes; everyone plays their own ball at the same time; quit any time. Physics: projectile flight with drag and wind, bounces and roll by surface (fairway, rough, green, sand, water, out-of-bounds), green slopes, trees that knock the ball down, cup capture under a speed limit, stroke penalties for water/OB, max 10 strokes a hole.
+
+## Getting around
+
+A steam train loops the valley on a timetable (two trains, about a minute a lap) from the station on the east edge; hot-air balloons fly a loop over town from the balloon meadow; the gondola rides up to the summit (glacier lake, ice cave, viewpoint).
+
+## Social extras
+
+Clubs (create/join by code, tag on your name), gifts, ❤️ likes and guestbook stamps on cabins, the weekly coziest-cabin list on the Cottage Lane noticeboard, dancing/singing/guitar/pair skating and group photos that count for group quests, invite links (`?room=CODE` for a private room, `?friend=CODE` to send a friend request on arrival).
 
 ## Friends, parties and accounts
 
@@ -138,3 +169,4 @@ Recorded here as the brief asked:
 | 3. Social: accounts, friends, invites, presence, join-friend | ✅ Friends, parties, presence, join-friend, recovery codes |
 | 4. Minigames: Toboggan Rush and Canoe Dash with server results & rewards | ✅ Done, with party queue |
 | 5. Progression & safety: shop, inventory, mod tools, reconnect | 🟡 Shop, inventory, quests, cabins and saved progress done. Admin tools next. |
+| 6. World & life: seasons, weather, journal, fishing, garden, townsfolk, golf, 4 minigames, clubs, train, balloons, summit | ✅ Done (hosting and admin panel deliberately left for later) |

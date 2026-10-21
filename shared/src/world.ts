@@ -62,3 +62,35 @@ export const WEATHER_INFO: Record<Weather, { icon: string; name: string }> = {
   fog: { icon: "🌫️", name: "Fog" },
   rainbow: { icon: "🌈", name: "Rainbow" },
 };
+
+// ------------------------------------------------------------------ Day and night (shared clock)
+
+/** One full in-game day lasts 25 minutes of real time. */
+export const DAY_SECONDS = 25 * 60;
+
+/** Where we are in the 25-minute cycle, 0..1 (shared by everyone). */
+export function cyclePos(now = Date.now()): number {
+  return (now / 1000 / DAY_SECONDS) % 1;
+}
+
+/**
+ * Sun phase: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset.
+ * The cycle lingers around sunrise and sunset, and night lasts about a quarter of it.
+ */
+export function sunPhase(now = Date.now()): number {
+  const c = cyclePos(now);
+  const keys: [number, number][] = [
+    [0, 0.22], [0.1, 0.28], [0.2, 0.33], [0.45, 0.67], [0.55, 0.72], [0.65, 0.79], [0.72, 0.85], [1, 1.22],
+  ];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [c0, p0] = keys[i], [c1, p1] = keys[i + 1];
+    if (c <= c1) return (p0 + ((c - c0) / (c1 - c0)) * (p1 - p0)) % 1;
+  }
+  return 0.22;
+}
+
+/** True between dusk and dawn. */
+export function isNight(now = Date.now()): boolean {
+  const p = sunPhase(now);
+  return p < 0.235 || p > 0.785;
+}

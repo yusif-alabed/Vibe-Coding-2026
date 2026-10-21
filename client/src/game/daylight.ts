@@ -1,6 +1,7 @@
 import { mixRgb, type Vec3 } from "../engine/math";
 import type { Renderer } from "../engine/renderer";
 import type { Prefs } from "../prefs";
+import { sunPhase } from "@beaver/shared";
 
 /**
  * Day and night. One full in-game day lasts DAY_SECONDS (25 minutes) of real time and is driven by
@@ -9,38 +10,14 @@ import type { Prefs } from "../prefs";
  * Over one cycle: ~2.5 min pink sunrise → ~10 min of bright day with golden hours either side →
  * ~2.5 min orange sunset and purple blue hour → ~7 min of moonlit night → blue hour before dawn.
  */
-export const DAY_SECONDS = 25 * 60;
+export { DAY_SECONDS, cyclePos } from "@beaver/shared";
 
-/** Where we are in the 25-minute cycle, 0..1 (shared by everyone). */
-export function cyclePos(now = Date.now()): number {
-  return (now / 1000 / DAY_SECONDS) % 1;
-}
-
-/**
- * Sun phase: 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset.
- * The real cycle spends a little longer around sunrise and sunset, because that's when it's prettiest.
- */
+/** Sun phase for the renderer: the shared clock, unless the player locked the time of day in Settings. */
 export function dayPhase(pref: Prefs["time"], now = Date.now()): number {
   if (pref === "golden") return 0.29;
   if (pref === "day") return 0.45;
   if (pref === "night") return 0.0;
-  const c = cyclePos(now);
-  // cycle position → sun phase
-  const keys: [number, number][] = [
-    [0, 0.22], // blue hour before dawn
-    [0.1, 0.28], // sunrise
-    [0.2, 0.33], // golden morning
-    [0.45, 0.67], // day
-    [0.55, 0.72], // golden evening
-    [0.65, 0.79], // sunset → blue hour
-    [0.72, 0.85], // nightfall
-    [1, 1.22], // night
-  ];
-  for (let i = 0; i < keys.length - 1; i++) {
-    const [c0, p0] = keys[i], [c1, p1] = keys[i + 1];
-    if (c <= c1) return (p0 + ((c - c0) / (c1 - c0)) * (p1 - p0)) % 1;
-  }
-  return 0.22;
+  return sunPhase(now);
 }
 
 /** Friendly name and emoji for the time of day (for the HUD). */

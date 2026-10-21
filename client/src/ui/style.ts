@@ -209,4 +209,43 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
   .chatlog { bottom: 68px; }
   .action { bottom: 76px; }
 }
-`;
+
+/* Village life */
+.npc-say { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); width: min(520px, calc(100% - 24px)); padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; animation: pop .18s ease-out; font-weight: 600; line-height: 1.35; cursor: pointer; z-index: 40; }
+.npc-say b { font-family: var(--font-display); font-size: 17px; }
+.npc-face { font-size: 34px; width: 52px; height: 52px; border-radius: 50%; border: 3px solid var(--ink); background: var(--cream-2); display: grid; place-items: center; flex: none; }
+.fishing { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); padding: 16px 22px; text-align: center; cursor: pointer; min-width: 240px; }
+.fish-bob { font-size: 46px; animation: bob 1.6s ease-in-out infinite; }
+.fishing.bite { background: #fff1b8; }
+.fishing.bite .fish-bob { animation: dip .18s ease-in-out infinite; }
+.fish-msg { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin-top: 6px; }
+@keyframes bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
+@keyframes dip { 0%,100% { transform: translateY(0) rotate(0) } 50% { transform: translateY(10px) rotate(-12deg) } }
+.item.locked { opacity: .72; }
+.clubtag { font: 700 12px var(--font-display); color: #fff; border: 2px solid var(--ink); border-radius: 8px; padding: 1px 6px; -webkit-text-stroke: 0; }
+.tag .clubtag { margin-right: 4px; font-size: 11px; padding: 0 4px; }
+.friend.me { background: #fff1b8; border-radius: 10px; }
+.npc-mark { position: absolute; transform: translate(-50%, -100%); font: 700 22px var(--font-display); color: var(--gold); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; pointer-events: none; animation: bob 1.2s ease-in-out infinite; }
+.bug-tap { position: absolute; transform: translate(-50%, -50%); font-size: 26px; width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,.35); border: 2px dashed rgba(59,37,27,.5); cursor: pointer; }
+.dock .btn.icon { position: relative; }
+.dock .btn[data-badge]:not([data-badge=""])::after { content: attr(data-badge); position: absolute; top: -6px; right: -6px; background: var(--red); color: #fff; font-size: 12px; border: 2px solid var(--ink); border-radius: 999px; padding: 0 5px; }
+.scoreboard { position: absolute; right: 14px; top: 64px; padding: 8px 12px; display: grid; gap: 3px; font-weight: 700; font-size: 14px; min-width: 160px; }
+.scoreboard .me { color: var(--teal-dk); }
+.golf-hud { position: absolute; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; width: min(560px, calc(100% - 24px)); }
+.golf-clubs { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.golf-clubs .btn.on { outline: 3px solid var(--gold); outline-offset: 2px; }
+.power { width: min(360px, 80vw); height: 26px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(90deg, #7fd27a, #f5c242 60%, #e2483d); overflow: hidden; position: relative; box-shadow: 0 3px 0 var(--ink); }
+.power i { position: absolute; top: 0; bottom: 0; width: 6px; background: var(--ink); border-radius: 3px; }
+.golf-card { position: absolute; left: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); padding: 10px 14px; max-width: min(320px, calc(100% - 24px)); }
+.golf-card h3 { margin: 0 0 2px; font-family: var(--font-display); }
+.golf-score { width: 100%; border-collapse: collapse; font-size: 13px; }
+.golf-score td, .golf-score th { border: 1px solid #d8c8b0; padding: 2px 4px; text-align: center; }
+body.big-text #ui { font-size: 118%; }
+body.big-text .btn { font-size: 20px; padding: 13px 20px; }
+body.big-text .btn.small { font-size: 17px; padding: 9px 13px; }
+body.big-text .btn.icon { width: 60px; height: 60px; font-size: 28px; }
+body.big-text .pill { font-size: 18px; }
+body.big-text .chatline, body.big-text .hint { font-size: 16px; }
+body.big-text .tag { font-size: 17px; }
+body.big-text .place { font-size: 18px; }
+`

@@ -113,15 +113,48 @@ function partBuilders(look: Look): Record<PartName, MeshBuilder> {
   // A short, overlapping base physically joins the paddle to the body rather than
   // making it read like a loose prop behind the beaver.
   b.tail.sphere(compose(0, -0.08, -0.04, 0, 0.08, 0, 0.32, 0.2, 0.34), furDark, 10, 18);
-  b.tail.sphere(compose(0, -0.12, -0.3, 0, 0.12, 0, 0.32, 0.08, 0.4), hatch, 12, 22);
-  b.tail.box(compose(0, -0.05, -0.3, 0, 0.12, 0, 0.4, 0.022, 0.05), TAIL_B);
-  b.tail.box(compose(0, -0.07, -0.42, 0, 0.12, 0, 0.34, 0.022, 0.05), TAIL_B);
+  addTail(b.tail, look.tail ?? null, hatch, fur, furDark, furLight);
 
-  addHat(b.head, look.hat);
-  addScarf(b.body, look.scarf);
-  addBackpack(b.body, look.backpack);
+  addHat(b.head, look.hat, dyeOf(look, "hat"));
+  addScarf(b.body, look.scarf, dyeOf(look, "scarf"));
+  addBackpack(b.body, look.backpack, dyeOf(look, "backpack"));
+  if (CATALOG_BY_ID[look.eyes ?? ""]?.shape === "glasses") {
+    // Round wire glasses sit on the face (drawn with the muzzle, so no ink ring).
+    for (const s2 of [1, -1]) b.muzzle.torus(compose(EYE_X * s2, EYE_Y, surf(EYE_X, EYE_Y) + 0.03, 0, Math.PI / 2, 0, 0.13, 0.13, 0.13), "#3b251b", 1, 0.12, 16, 4);
+    b.muzzle.box(compose(0, EYE_Y + 0.02, surf(0, EYE_Y) + 0.03, 0, 0, 0, 0.12, 0.02, 0.02), "#3b251b");
+  }
   return b;
 }
+
+/** A dye colour applied to a worn item, if any. */
+function dyeOf(look: Look, slot: "hat" | "scarf" | "backpack"): string | undefined {
+  const id = look.dyes?.[slot];
+  return id ? CATALOG_BY_ID[id]?.color : undefined;
+}
+
+function addTail(m: MeshBuilder, id: string | null, hatch: (x: number, y: number, z: number) => Vec3, fur: Vec3, furDark: Vec3, furLight: Vec3) {
+  const shape = id ? CATALOG_BY_ID[id]?.shape : null;
+  if (shape === "fluffy") {
+    // A big, soft, squirrel-ish plume.
+    for (let i = 0; i < 6; i++) m.sphere(compose(0, -0.05 + i * 0.07, -0.25 - i * 0.07, 0, 0.3 - i * 0.12, 0, 0.3 - i * 0.02, 0.2, 0.22), i % 2 ? fur : furLight, 8, 12);
+    return;
+  }
+  if (shape === "striped") {
+    m.sphere(compose(0, -0.12, -0.3, 0, 0.12, 0, 0.32, 0.08, 0.4), (_x: number, _y: number, z: number) => (Math.floor((z + 0.6) * 9) % 2 ? furDark : furLight), 12, 22);
+    return;
+  }
+  m.sphere(compose(0, -0.12, -0.3, 0, 0.12, 0, 0.32, 0.08, 0.4), hatch, 12, 22);
+  m.box(compose(0, -0.05, -0.3, 0, 0.12, 0, 0.4, 0.022, 0.05), TAIL_B);
+  m.box(compose(0, -0.07, -0.42, 0, 0.12, 0, 0.34, 0.022, 0.05), TAIL_B);
+  if (shape === "heart") {
+    for (const s of [1, -1]) m.sphere(compose(0.06 * s, -0.04, -0.66, 0, 0, 0.5 * s, 0.09, 0.09, 0.05), "#ff6fa5", 6, 8);
+    m.cone(compose(0, -0.04, -0.6, 0, -Math.PI / 2, 0, 0.17, 0.14, 0.06), "#ff6fa5", 6);
+  }
+  if (shape === "star") {
+    for (let i = 0; i < 7; i++) m.sphere(compose(Math.sin(i * 2.4) * 0.18, -0.02, -0.18 - (i % 4) * 0.1, i, 0, 0, 0.035), "#ffd14f", 3, 4);
+  }
+}
+
 
 /** Front surface of a cheek lobe, for placing freckles. */
 function surfMuzzle(x: number, y: number): number {
@@ -133,6 +166,8 @@ function surfMuzzle(x: number, y: number): number {
 /** Face pieces. Eyes, pupils and brows are built around their own centres so they can blink, look and tilt. */
 function faceBuilders(look: Look): Record<FacePart, MeshBuilder> {
   const furDark = mixRgb(hexToRgb(look.fur), dark, 0.55);
+  const eyeShape = look.eyes ? CATALOG_BY_ID[look.eyes]?.shape : null;
+  const eyeScale = eyeShape === "round" ? 1.28 : 1;
   const f: Record<FacePart, MeshBuilder> = {
     eyes: new MeshBuilder(), pupils: new MeshBuilder(), eyesHappy: new MeshBuilder(), eyesDizzy: new MeshBuilder(),
     browL: new MeshBuilder(), browR: new MeshBuilder(), mouthSmile: new MeshBuilder(), mouthOpen: new MeshBuilder(), star: new MeshBuilder(),
@@ -140,9 +175,20 @@ function faceBuilders(look: Look): Record<FacePart, MeshBuilder> {
   for (const s of [1, -1]) {
     const x = EYE_X * s, z = surf(EYE_X, EYE_Y);
     // Dark oval eyes (no whites), centred on EYE_Y so blinking squashes toward the middle.
-    f.eyes.sphere(compose(x, 0, z - 0.02, 0, 0, 0, 0.08, 0.095, 0.05), "#1d110b", 10, 14);
+    f.eyes.sphere(compose(x, 0, z - 0.02, 0, 0, 0, 0.08 * eyeScale, 0.095 * eyeScale, 0.05), "#1d110b", 10, 14);
+    if (eyeShape === "sparkle") {
+      f.eyes.sphere(compose(x, -0.015, z + 0.012, 0, 0, 0, 0.055, 0.06, 0.02), "#4fb6ff", 8, 10);
+      f.pupils.sphere(compose(x - 0.02 * s, -0.035, z + 0.03, 0, 0, 0, 0.012, 0.012, 0.008), "#ffffff", 4, 5);
+    }
+    if (eyeShape === "sleepy") {
+      // Heavy lids over the top half.
+      f.eyes.sphere(compose(x, 0.035, z - 0.005, 0, 0, 0, 0.092, 0.06, 0.055), furDark, 8, 12);
+    }
+    if (eyeShape === "lashes") {
+      for (let k = 0; k < 3; k++) f.eyes.box(compose(x + (0.05 + k * 0.022) * s, 0.07 - k * 0.02, z + 0.01, 0, 0, (0.5 + k * 0.35) * -s, 0.045, 0.012, 0.012), "#1d110b");
+    }
     // One small highlight to keep the eyes alive.
-    f.pupils.sphere(compose(x + 0.025 * s, 0.03, z + 0.028, 0, 0, 0, 0.022, 0.025, 0.01), "#ffffff", 5, 6);
+    f.pupils.sphere(compose(x + 0.025 * s * eyeScale, 0.03 * eyeScale, z + 0.028, 0, 0, 0, 0.022 * eyeScale, 0.025 * eyeScale, 0.01), "#ffffff", 5, 6);
     // Happy eyes: upside-down "U" arcs.
     for (let k = 0; k <= 6; k++) {
       const a = Math.PI * (0.12 + (0.76 * k) / 6);
@@ -169,10 +215,10 @@ function faceBuilders(look: Look): Record<FacePart, MeshBuilder> {
   return f;
 }
 
-function addHat(m: MeshBuilder, id: string | null) {
+function addHat(m: MeshBuilder, id: string | null, dye?: string) {
   const item = id ? CATALOG_BY_ID[id] : null;
   if (!item) return;
-  const c = hexToRgb(item.color);
+  const c = hexToRgb(dye ?? item.color);
   const cDark = mixRgb(c, dark, 0.25);
   // Hats sit on the crown of the (big) head and are sized up to match it.
   const k = 1.18;
@@ -244,6 +290,25 @@ function addHat(m: MeshBuilder, id: string | null) {
       m.cone(at(0, 0.3, 0, 0, -0.05, 0.12, 0.5, 0.62, 0.5), (_x, y) => (Math.floor(y * 14) % 2 ? c : hexToRgb("#ff6fb5")), 12);
       m.sphere(at(0.04, 0.63, 0, 0, 0, 0, 0.1), "#7ff3f0", 4, 6);
       break;
+    case "baker":
+      m.cylinder(at(0, 0.02, 0, 0, -0.08, 0, 0.92, 0.16, 0.92), c, 14);
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        m.sphere(at(Math.cos(a) * 0.2, 0.34, Math.sin(a) * 0.2 - 0.02, 0, 0, 0, 0.26, 0.24, 0.26), c, 6, 10);
+      }
+      m.sphere(at(0, 0.48, -0.02, 0, 0, 0, 0.26), c, 6, 10);
+      break;
+    case "bucket":
+      m.cylinder(at(0, 0.0, 0, 0, -0.08, 0, 1.3, 0.1, 1.3), c, 16, 0.5, 0.55);
+      m.cylinder(at(0, 0.18, 0, 0, -0.08, 0, 0.82, 0.32, 0.82), c, 14, 0.44, 0.5);
+      m.box(at(0.32, 0.12, 0.2, 0.5, 0, 0, 0.18, 0.08, 0.02), "#ffd93b");
+      break;
+    case "scholar":
+      m.cylinder(at(0, 0.06, 0, 0, -0.08, 0, 0.8, 0.22, 0.8), c, 12);
+      m.box(at(0, 0.2, 0, Math.PI / 4, -0.08, 0, 0.95, 0.05, 0.95), c);
+      m.box(at(0.3, 0.05, 0.3, 0, 0, 0, 0.03, 0.3, 0.03), "#f2c230");
+      m.sphere(at(0, 0.24, 0, 0, 0, 0, 0.05), "#f2c230", 3, 5);
+      break;
     case "crown":
       m.cylinder(at(0, 0.06, 0, 0, -0.08, 0, 0.78, 0.2, 0.78), c, 12);
       for (let i = 0; i < 6; i++) {
@@ -255,10 +320,15 @@ function addHat(m: MeshBuilder, id: string | null) {
   }
 }
 
-function addScarf(m: MeshBuilder, id: string | null) {
+function addScarf(m: MeshBuilder, id: string | null, dye?: string) {
   const item = id ? CATALOG_BY_ID[id] : null;
   if (!item) return;
-  const c = hexToRgb(item.color);
+  const c = hexToRgb(dye ?? item.color);
+  if (item.shape === "sash") {
+    m.torus(compose(0, 0.9, 0.02, 0, 0.1, 0.75, 0.6, 0.62, 0.5), c, 1, 0.12, 18, 4);
+    m.sphere(compose(-0.24, 0.72, 0.5, 0, 0, 0, 0.09, 0.09, 0.03), "#f2c230", 5, 8);
+    return;
+  }
   const stripe = mixRgb(c, [1, 1, 1], 0.6);
   if (item.shape === "candy") {
     m.torus(compose(0, 1.14, 0.0, 0, 0.1, 0, 0.47, 0.9, 0.45), c, 1, 0.24, 16, 6);
@@ -276,10 +346,19 @@ function addScarf(m: MeshBuilder, id: string | null) {
   m.box(compose(0.2, 0.75, 0.47, 0.1, 0.15, 0.15, 0.19, 0.05, 0.08), stripe);
 }
 
-function addBackpack(m: MeshBuilder, id: string | null) {
+function addBackpack(m: MeshBuilder, id: string | null, dye?: string) {
   const item = id ? CATALOG_BY_ID[id] : null;
   if (!item) return;
-  const c = hexToRgb(item.color);
+  const c = hexToRgb(dye ?? item.color);
+  if (item.shape === "maproll") {
+    m.cylinder(compose(0, 0.95, -0.55, 0, 0, 0.5, 0.2, 0.95, 0.2), c, 10);
+    for (const y of [0.7, 1.2]) m.cylinder(compose(0.02 + (y - 0.95) * 0.48, y, -0.55, 0, 0, 0.5, 0.22, 0.05, 0.22), "#c8473a", 10);
+    return;
+  }
+  if (item.shape === "beachball") {
+    m.sphere(compose(0, 0.95, -0.66, 0, 0, 0, 0.36), (x: number, _y: number, z: number) => [hexToRgb("#e2483d"), hexToRgb("#fffaf0"), hexToRgb("#4fb6ff"), hexToRgb("#ffd93b")][Math.floor(((Math.atan2(z + 0.66, x) + Math.PI) / (Math.PI * 2)) * 6) % 4], 8, 12);
+    return;
+  }
   if (item.shape === "canoe") {
     m.sphere(compose(0, 0.95, -0.54, 0, 0, 0, 0.24, 0.85, 0.16), c, 6, 12);
     m.box(compose(0, 0.95, -0.44, 0, 0, 0, 0.42, 0.06, 0.05), "#7a4b2c");
@@ -313,7 +392,7 @@ function addBackpack(m: MeshBuilder, id: string | null) {
 const meshCache = new Map<string, BeaverMeshes>();
 
 export function lookKey(look: Look): string {
-  return [look.fur, look.hat, look.scarf, look.backpack].join("|");
+  return [look.fur, look.hat, look.scarf, look.backpack, look.tail, look.eyes, look.dyes?.hat, look.dyes?.scarf, look.dyes?.backpack].join("|");
 }
 
 export function getBeaverMeshes(r: Renderer, look: Look): BeaverMeshes {

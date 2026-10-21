@@ -19,6 +19,22 @@ import {
   type PlayerInfo,
   type ServerMsg,
   type Slot,
+  ARCADE_INFO,
+  BUGS,
+  CHAINS,
+  fishingSpot,
+  GAME_SPOTS,
+  inGarden,
+  isNight,
+  ITEMS,
+  NPCS,
+  NPC_TALK_RANGE,
+  SEEDS,
+  seasonAt,
+  TRAIN,
+  TRAIN_LOOP_S,
+  trainAngle,
+  type MiniGame,
 } from "@beaver/shared";
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
@@ -36,6 +52,9 @@ import { applyMood, currentMood, drawWeather, umbrellaMesh, umbrellaWeather, typ
 import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
+import { gondolaPoint, nextBoarding, railPoint, trainUnit } from "./village/transport";
+import { isFlyingPet, PetFollower, petMesh } from "./pets";
+import { buzz, Fishing, npcSay, openBag, openClubs, openGarden, openGolf, openJournal, openLeaderboard, openNeighbours, PLACE_TITLES, type Panel } from "../ui/life";
 import type { Ctx, Scene } from "./scene";
 
 const WALK_SPEED = 7.5;
@@ -57,6 +76,9 @@ interface Avatar {
   lastAway: HubAct | null;
   /** 0 = standing on land, 1 = fully into an away activity (spring, wheel, ice, tower). */
   soak: number;
+  pet: PetFollower | null;
+  /** Train ride: when the train reaches the platform, and which train. */
+  board: { at: number; which: number; car: number } | null;
 }
 
 interface Particle { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; color: Vec3; size: number; }
@@ -87,8 +109,8 @@ function pineconeMesh(r: Renderer): GpuMesh {
 }
 
 /** Hand-held things for cozy activities, plus the spa towel (built once per renderer). */
-type HeldItem = "mug" | "croissant" | "icecream" | "taffy" | "marshmallow" | "guitar";
-const cozyMeshes = new WeakMap<Renderer, Record<HeldItem | "towel", GpuMesh>>();
+type HeldItem = "mug" | "croissant" | "icecream" | "taffy" | "marshmallow" | "guitar" | "rod";
+const cozyMeshes = new WeakMap<Renderer, Record<HeldItem | "towel" | "bobber" | "bug" | "sprout" | "plant", GpuMesh>>();
 function cozy(r: Renderer) {
   let c = cozyMeshes.get(r);
   if (c) return c;
@@ -123,16 +145,32 @@ function cozy(r: Renderer) {
   guitar.cylinder(compose(0, 0.02, 0.06, 0, Math.PI / 2, 0, 0.09, 0.02, 0.09), hexToRgb("#3a2218"), 10);
   guitar.box(compose(0, 0.55, 0.02, 0, 0, 0, 0.07, 0.62, 0.04), hexToRgb("#5b3a24"));
   guitar.box(compose(0, 0.9, 0.02, 0, 0, 0, 0.1, 0.14, 0.05), hexToRgb("#3a2218"));
+  const rod = new MeshBuilder();
+  rod.cylinder(compose(0, 0, 1.0, 0, Math.PI / 2 - 0.5, 0, 0.04, 2.4, 0.04), hexToRgb("#8a5a34"), 5);
+  rod.cylinder(compose(0, -0.45, 0.2, 0, 0, 0, 0.1, 0.06, 0.1), hexToRgb("#3a3a42"), 6);
+  const bobber = new MeshBuilder();
+  bobber.sphere(compose(0, 0.05, 0, 0, 0, 0, 0.12), hexToRgb("#e2483d"), 4, 6);
+  bobber.sphere(compose(0, 0.13, 0, 0, 0, 0, 0.09), hexToRgb("#fffaf0"), 4, 6);
+  const bug = new MeshBuilder();
+  for (const s of [-1, 1]) bug.box(compose(s * 0.11, 0, 0, 0, 0, 0, 0.2, 0.01, 0.16), hexToRgb("#ffffff"));
+  bug.box(compose(0, 0, 0, 0, 0, 0, 0.03, 0.03, 0.14), hexToRgb("#2a2624"));
+  const sprout = new MeshBuilder();
+  for (let i = 0; i < 3; i++) sprout.box(compose(Math.cos(i * 2.1) * 0.08, 0.12, Math.sin(i * 2.1) * 0.08, i * 2.1, 0.5, 0, 0.12, 0.02, 0.06), hexToRgb("#6fbf4a"));
+  const plant = new MeshBuilder();
+  plant.cylinder(compose(0, 0.3, 0, 0, 0, 0, 0.06, 0.6, 0.06), hexToRgb("#4f8a3a"), 5);
+  for (let i = 0; i < 5; i++) plant.sphere(compose(Math.cos(i * 1.3) * 0.2, 0.25 + i * 0.08, Math.sin(i * 1.3) * 0.2, 0, 0, 0, 0.16, 0.06, 0.1), hexToRgb("#5f9a3a"), 3, 5);
   c = {
     mug: r.upload(mug.build()), towel: r.upload(towel.build()), croissant: r.upload(croissant.build()), icecream: r.upload(icecream.build()),
-    taffy: r.upload(taffy.build()), marshmallow: r.upload(marshmallow.build()), guitar: r.upload(guitar.build()),
+    taffy: r.upload(taffy.build()), marshmallow: r.upload(marshmallow.build()), guitar: r.upload(guitar.build()), rod: r.upload(rod.build()),
+    bobber: r.upload(bobber.build()), bug: r.upload(bug.build()), sprout: r.upload(sprout.build()), plant: r.upload(plant.build()),
   };
   cozyMeshes.set(r, c);
   return c;
 }
-const HELD: Partial<Record<HubAct, HeldItem>> = { cocoa: "mug", croissant: "croissant", icecream: "icecream", taffy: "taffy", marshmallow: "marshmallow", guitar: "guitar" };
-/** Activities that move you somewhere else (into the spring, onto the wheel, the ice or the tower). */
-const AWAY_ACTS: HubAct[] = ["soak", "ride", "skate", "climb"];
+const HELD: Partial<Record<HubAct, HeldItem>> = { cocoa: "mug", croissant: "croissant", icecream: "icecream", taffy: "taffy", marshmallow: "marshmallow", guitar: "guitar", fish: "rod" };
+/** Activities that move you somewhere else (into the spring, onto the wheel, the ice, the tower, the train or a balloon). */
+const AWAY_ACTS: HubAct[] = ["soak", "ride", "skate", "climb", "train", "balloon"];
+const BALLOON_S = 75;
 
 /** What the action button offers at each place, and what happens. */
 const PLACE_ACTS: Record<string, { act?: HubAct; label: string; done?: string; toast?: string }> = {
@@ -146,7 +184,11 @@ const PLACE_ACTS: Record<string, { act?: HubAct; label: string; done?: string; t
   ferris: { act: "ride", label: "🎡 Ride the Ferris wheel", done: "🎡 Hop off", toast: "🎡 Wheee! Look at the view!" },
   rink: { act: "skate", label: "⛸️ Go skating", done: "⛸️ Stop skating", toast: "⛸️ Glide, glide, twirl!" },
   lookout: { act: "climb", label: "🔭 Climb the fire lookout", done: "🪜 Climb back down", toast: "🔭 You can see the whole town from up here!" },
+  station: { act: "train", label: "🚂 Ride the valley train", done: "🚉 Hop off the train", toast: "🚂 All aboard! The train loops right round the valley." },
+  balloons: { act: "balloon", label: "🎈 Take a hot-air balloon ride", done: "🎈 Land the balloon", toast: "🎈 Up, up and away!" },
 };
+const EMOTE_ICON: Partial<Record<HubAct, string>> = { cocoa: "☕", soak: "♨️", croissant: "🥐", icecream: "🍦", taffy: "🍁", marshmallow: "🔥", guitar: "🎸", ride: "🎡", skate: "⛸️", climb: "🔭", train: "🚂", balloon: "🎈", dance: "💃", sing: "🎤", fish: "🎣" };
+const NPC_ICON: Record<string, string> = { bea: "🥐", maple: "🎩", rowan: "🌲", gus: "🗼" };
 
 const BANFF_FACTS = [
   "Banff is Canada's oldest national park, founded in 1885.",
@@ -167,7 +209,7 @@ const RANGER_TIPS = [
   "Ranger tip: come back at night to see the stars and the lit-up town.",
 ];
 const INFO: Record<string, { label: string; lines: string[] }> = {
-  library: { label: "📚 Read a Banff fact", lines: BANFF_FACTS },
+  library: { label: "📚 Read a Banff fact", lines: [] },
   ranger: { label: "🌲 Ask the ranger", lines: RANGER_TIPS },
   townHall: { label: "🔔 Ring the town bell", lines: ["🔔 DONG! DONG! The whole town hears it.", "🔔 The mayor waves from the balcony."] },
   windmill: { label: "🌾 Watch the sails turn", lines: ["🌾 The miller grinds flour for the bakery.", "🌾 Whoosh… whoosh… so peaceful."] },
@@ -186,6 +228,9 @@ const ITEM_ICON: Record<string, string> = {
   toque: "🧶", ranger: "🤠", antlers: "🦌", crown: "👑", scarf: "🧣", pack: "🎒", canoe: "🛶", snow: "❄️", leaf: "🍁",
   flowers: "🌸", sunhat: "👒", pumpkin: "🎃", holiday: "🎄", earmuffs: "🎧", propeller: "🚁", party: "🥳", candy: "🍬",
   basket: "🧺", firewood: "🪵", guitar: "🎸", board: "🏂", bubbles: "🫧", hearts: "💖", sparkle: "✨",
+  fluffy: "🐿️", striped: "🦝", heart: "💗", star: "🌟", round: "👀", sleepy: "😴", lashes: "😊", glasses: "👓",
+  chipmunk: "🐿️", bunny: "🐰", owl: "🦉", moose: "🫎", fox: "🦊", duck: "🐥", baker: "👨‍🍳", sash: "🎗️", bucket: "🎣",
+  scholar: "🎓", maproll: "🗺️", butterfly: "🦋", beachball: "🏐",
 };
 
 export class HubScene implements Scene {
@@ -236,6 +281,16 @@ export class HubScene implements Scene {
   private lastCoins = 0;
   private stepPhase = 0;
   private npcs: { look: Look; x: number; z: number; ry: number; kind: "busker" | "skater"; seed: number }[] = [];
+  private lifePanel: Panel | null = null;
+  private lifePanelKind = "";
+  private fishing: Fishing | null = null;
+  private npcMarks = new Map<string, HTMLElement>();
+  private townsfolk = NPCS.map((n) => ({ ...n, look: { fur: n.fur, hat: n.hat, scarf: n.scarf, backpack: null, trail: null } as Look, face: n.ry, talkT: 0 }));
+  private bugs: { id: number; kind: string; x: number; y: number; z: number; t: number; vx: number; vz: number; el: HTMLElement }[] = [];
+  private bugAcc = 3;
+  private bugId = 0;
+  private gondolaRide = -1;
+  private journalBtn!: HTMLElement;
 
   constructor(private ctx: Ctx, private world: HubWorld, welcome: Extract<ServerMsg, { t: "welcome" }>) {
     this.root = h("div", { style: "position:absolute;inset:0" });
@@ -307,6 +362,9 @@ export class HubScene implements Scene {
     this.root.append(h("div.dock", {}, [
       h("button.btn.cream.icon.pe", { title: "My cabin", onclick: () => this.goHome() }, "🏡"),
       h("button.btn.cream.icon.pe", { title: "Photo mode", onclick: () => this.openPhoto() }, "📷"),
+      (this.journalBtn = h("button.btn.cream.icon.pe", { title: "Journal & badges (J)", onclick: () => this.openLife("journal") }, "📖")),
+      h("button.btn.cream.icon.pe", { title: "Your bag (B)", onclick: () => this.openLife("bag") }, "🧺"),
+      h("button.btn.cream.icon.pe", { title: "More: clubs, leaderboards, invite", onclick: () => this.toggleMenu("more") }, "⋯"),
     ]));
     this.photo = new PhotoMode(ctx, this.root, {
       place: () => {
@@ -328,6 +386,7 @@ export class HubScene implements Scene {
     this.updateFriendsBadge();
     window.addEventListener("keydown", this.onKey);
     if (room.isPrivate && room.code !== "SOLO") this.log(null, `Private cabin code: ${room.code} — share it with friends so they can join!`);
+    this.roomCode = room.isPrivate && room.code !== "SOLO" ? room.code ?? null : null;
   }
 
   private setupJoystick() {
@@ -364,6 +423,8 @@ export class HubScene implements Scene {
     if (e.key.toLowerCase() === "f") this.runAction();
     if (e.key === "Escape" && !this.minimap.isBig) this.closeOverlays();
     if (e.key.toLowerCase() === "p") this.openPhoto();
+    if (e.key.toLowerCase() === "j") this.openLife("journal");
+    if (e.key.toLowerCase() === "b") this.openLife("bag");
   };
 
   private openPhoto() {
@@ -399,7 +460,7 @@ export class HubScene implements Scene {
   }
 
   private questDone(q: QuestsWire) {
-    if (q.justCompleted?.length) this.ctx.sound.play("quest");
+    if (q.justCompleted?.length) { this.ctx.sound.play("quest"); buzz(this.ctx, [40, 40, 80]); }
     for (const label of q.justCompleted ?? []) {
       const pop = h("div.card.quest-pop", {}, [h("b", {}, "✅ Quest complete!"), label]);
       this.root.append(pop);
@@ -418,13 +479,13 @@ export class HubScene implements Scene {
   }
 
   private addAvatar(p: PlayerInfo) {
-    const tag = h("div.tag" + (p.id === this.ctx.state.you ? ".me" : ""), {}, p.name);
+    const tag = h("div.tag" + (p.id === this.ctx.state.you ? ".me" : ""), {}, [p.club ? h("span.clubtag", { style: { background: p.club.color } }, p.club.tag) : null, p.name]);
     this.labels.append(tag);
     const a: Avatar = {
       info: p, x: p.x, z: p.z, ry: p.ry, tx: p.x, tz: p.z, tr: p.ry,
       walk: 0, moving: 0, swim: 0, jumpT: 0, waveT: 0, cheerT: 0, expr: "neutral", exprT: 0, talkT: 0,
       seed: [...p.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 1000, 7) / 100, tag, bubble: null, bubbleUntil: 0, trailAcc: 0,
-      act: null, actT: 0, actX: p.x, actZ: p.z, soak: 0, lastAway: null,
+      act: null, actT: 0, actX: p.x, actZ: p.z, soak: 0, lastAway: null, pet: null, board: null,
     };
     this.avatars.set(p.id, a);
     if (this.countEl) this.countEl.textContent = String(this.avatars.size);
@@ -435,6 +496,7 @@ export class HubScene implements Scene {
     if (!a) return;
     a.tag.remove();
     a.bubble?.remove();
+    this.npcMarks.get(id)?.remove();
     this.avatars.delete(id);
     this.countEl.textContent = String(this.avatars.size);
   }
@@ -499,7 +561,7 @@ export class HubScene implements Scene {
       case "act": {
         const a = this.avatars.get(m.id);
         if (!a) break;
-        if (m.a === "stop") { a.act = null; break; }
+        if (m.a === "stop") { a.act = null; if (a === this.me) this.fishing?.cancel(); break; }
         a.act = m.a;
         a.actT = 0;
         if (AWAY_ACTS.includes(m.a)) a.lastAway = m.a;
@@ -508,7 +570,9 @@ export class HubScene implements Scene {
         a.actZ = a === this.me ? a.z : a.tz;
         a.expr = "happy";
         a.exprT = 1.5;
-        const el = h("div.emote", {}, m.a === "cocoa" ? "☕" : "♨️");
+        if (m.a === "train") { const car = 1 + (Math.floor(a.seed * 10) % TRAIN.cars); a.board = { ...nextBoarding(Date.now(), car), car }; }
+        if (a === this.me && m.a === "fish" && !this.fishing) this.fishing = new Fishing(this.ctx, this.root, () => { this.fishing = null; if (this.me.act === "fish") this.ctx.net.send({ t: "act", a: "stop" }); });
+        const el = h("div.emote", {}, EMOTE_ICON[m.a] ?? "✨");
         this.labels.append(el);
         (el as HTMLElement & { _follow?: Avatar })._follow = a;
         setTimeout(() => el.remove(), 1600);
@@ -520,7 +584,7 @@ export class HubScene implements Scene {
         if (this.friendsPanel?.el.isConnected) this.friendsPanel.refresh();
         break;
       case "wallet":
-        if (m.coins > this.lastCoins) this.ctx.sound.play("coin");
+        if (m.coins > this.lastCoins) { this.ctx.sound.play("coin"); buzz(this.ctx, 15); }
         this.lastCoins = m.coins;
         this.ctx.state.coins = m.coins;
         this.ctx.state.owned = m.owned;
@@ -553,6 +617,57 @@ export class HubScene implements Scene {
       case "system":
         this.log(null, m.text);
         break;
+      case "life":
+        this.ctx.state.life = m;
+        if (this.panelEl === this.lifePanel?.el && this.panelEl?.isConnected) this.lifePanel.refresh();
+        break;
+      case "lifeSay": {
+        if (m.npc) {
+          const npc = NPCS.find((n) => n.name === m.npc);
+          npcSay(this.root, m.npc, npc ? NPC_ICON[npc.id] : "🦫", m.text);
+          if (npc) { const tf = this.townsfolk.find((t) => t.id === npc.id); if (tf) tf.talkT = 2.5; }
+        } else if (m.catch) {
+          const it = ITEMS[m.catch.fish];
+          const pop = h("div.card.quest-pop", {}, [h("b", {}, `${it?.icon ?? "🐟"} ${m.catch.record ? "New personal best!" : "Caught!"}`), m.text]);
+          this.root.append(pop);
+          setTimeout(() => pop.remove(), 3600);
+          this.me.cheerT = 1.6;
+          this.me.expr = "excited";
+          this.me.exprT = 2;
+          this.ctx.sound.play("quest");
+          buzz(this.ctx, [30, 30, 60]);
+        } else toast(this.root, m.text, Math.min(9000, 2600 + m.text.length * 30));
+        if (m.gifts?.length) {
+          this.ctx.sound.play("quest");
+          for (const g of m.gifts) toast(this.root, `🎁 You received: ${CATALOG_BY_ID[g]?.name ?? ITEMS[g]?.name ?? g}!`, 4000);
+        }
+        for (const pg of m.pages ?? []) {
+          const pop = h("div.card.quest-pop", {}, [h("b", {}, "🏅 Journal page complete!"), `New badge for your ${pg} page`]);
+          this.root.append(pop);
+          setTimeout(() => pop.remove(), 3600);
+        }
+        break;
+      }
+      case "club":
+        this.ctx.state.club = m.club;
+        if (this.lifePanelKind === "clubs" && this.panelEl?.isConnected) this.lifePanel?.refresh();
+        break;
+      case "playerClub": {
+        const a = this.avatars.get(m.id);
+        if (a) {
+          a.info.club = m.club;
+          a.tag.replaceChildren(...[m.club ? h("span.clubtag", { style: { background: m.club.color } }, m.club.tag) : null, a.info.name].filter((x): x is HTMLElement | string => !!x));
+        }
+        break;
+      }
+      case "neighbours":
+        this.ctx.state.neighbours = { list: m.list, coziest: m.coziest };
+        if (this.lifePanelKind === "neighbours" && this.panelEl?.isConnected) this.lifePanel?.refresh();
+        break;
+      case "leaderboard":
+        this.ctx.state.leaderboard = { game: m.game, week: m.week, rows: m.rows };
+        if (this.lifePanelKind === "leaderboard" && this.panelEl?.isConnected) this.lifePanel?.refresh();
+        break;
       case "error":
         toast(this.root, m.text);
         break;
@@ -568,19 +683,54 @@ export class HubScene implements Scene {
 
   // ---------- Menus & panels ----------
 
-  private toggleMenu(kind: "quick" | "emote") {
+  private toggleMenu(kind: "quick" | "emote" | "more") {
     const was = this.menuEl?.dataset.kind;
     this.menuEl?.remove();
     this.menuEl = null;
     if (was === kind) return;
     const close = () => { this.menuEl?.remove(); this.menuEl = null; };
+    const act = (a: HubAct) => { this.target = null; this.ctx.net.send({ t: "act", a: this.me.act === a ? "stop" : a }); close(); };
     const menu = kind === "quick"
       ? h("div.card.menu.quick.pe", {}, QUICK_CHAT.map((q, i) => h("button", { onclick: () => { this.ctx.net.send({ t: "quick", i }); close(); } }, q)))
-      : h("div.card.menu.emotes.pe", {}, EMOTES.map((e, i) => h("button", { onclick: () => { this.ctx.net.send({ t: "emote", i }); close(); } }, e)));
+      : kind === "emote"
+        ? h("div.card.menu.emotes.pe", {}, [
+            ...EMOTES.map((e, i) => h("button", { onclick: () => { if (e === "💃") act("dance"); else this.ctx.net.send({ t: "emote", i }); close(); } }, e)),
+            h("button", { title: "Sing along", onclick: () => act("sing") }, "🎤"),
+          ])
+        : h("div.card.menu.quick.pe", {}, [
+            h("button", { onclick: () => { close(); this.openLife("clubs"); } }, "🏅 Clubs"),
+            h("button", { onclick: () => { close(); this.openLife("leaderboard"); } }, "🏆 Weekly leaderboards"),
+            h("button", { onclick: () => { close(); this.openLife("neighbours"); } }, "🏡 Cottage Lane cabins"),
+            h("button", { onclick: () => { close(); this.copyInvite(); } }, "🔗 Copy an invite link"),
+            h("button", { onclick: () => { close(); this.openLife("garden"); } }, "🥕 My garden plots"),
+          ]);
     menu.dataset.kind = kind;
     this.menuEl = menu;
     this.root.append(menu);
   }
+
+  /** Opens one of the village-life panels (journal, bag, garden, clubs, neighbours, leaderboards). */
+  private openLife(kind: string, game?: MiniGame | "golf") {
+    this.closeOverlays();
+    const root = this.root;
+    const ctx = this.ctx;
+    const p = kind === "journal" ? openJournal(ctx, root) : kind === "bag" ? openBag(ctx, root) : kind === "garden" ? openGarden(ctx, root)
+      : kind === "clubs" ? openClubs(ctx, root) : kind === "neighbours" ? openNeighbours(ctx, root) : kind === "golf" ? { el: openGolf(ctx, root), refresh: () => {} }
+      : openLeaderboard(ctx, root, game ?? "hunt");
+    this.lifePanel = p;
+    this.lifePanelKind = kind;
+    this.panelEl = p.el;
+  }
+
+  private copyInvite() {
+    const st = this.ctx.state;
+    const base = `${location.origin}${location.pathname}`;
+    const room = this.roomCode;
+    const link = room ? `${base}?room=${room}` : st.account ? `${base}?friend=${st.account.friendCode}` : base;
+    try { void navigator.clipboard?.writeText(link); } catch { /* ignore */ }
+    toast(this.root, room ? `🔗 Invite link to this cabin copied: ${link}` : st.account ? `🔗 Friend invite link copied! ${link}` : "🔗 Invite links work when you play online.", 5200);
+  }
+  private roomCode: string | null = null;
 
   private closeOverlays() {
     this.menuEl?.remove();
@@ -615,10 +765,11 @@ export class HubScene implements Scene {
   }
 
   private refreshShop() {
-    if (!this.panelEl) return;
+    if (!this.panelEl || this.lifePanel?.el === this.panelEl) return;
     const st = this.ctx.state;
-    const tabs: [Slot | "fur" | "cabin", string][] = [["hat", "Hats"], ["scarf", "Scarves"], ["backpack", "Packs"], ["trail", "Trails"], ["fur", "Fur"], ["cabin", "🏡 Cabin"]];
+    const tabs: [Slot | "fur" | "cabin", string][] = [["hat", "Hats"], ["scarf", "Scarves"], ["backpack", "Packs"], ["trail", "Trails"], ["tail", "Tails"], ["eyes", "Eyes"], ["pet", "🐾 Pets"], ["dye", "🎨 Dyes"], ["fur", "Fur"], ["cabin", "🏡 Cabin"]];
     const setLook = (look: Look) => this.ctx.net.send({ t: "look", look });
+    const season = this.mood?.season ?? seasonAt();
     let grid: HTMLElement;
     if (this.shopTab === "cabin") {
       grid = furnitureGrid(this.ctx);
@@ -630,31 +781,58 @@ export class HubScene implements Scene {
           h("button.btn.small" + (c === st.look.fur ? ".cream" : ""), { disabled: c === st.look.fur, onclick: () => setLook({ ...st.look, fur: c }) }, c === st.look.fur ? "Wearing" : "Choose"),
         ]),
       ));
-    } else {
-      const slot = this.shopTab;
-      grid = h("div.grid", {}, CATALOG.filter((i) => i.slot === slot).map((item) => {
-        const owned = st.owned.includes(item.id);
-        const worn = st.look[slot] === item.id;
-        const action = owned
-          ? h("button.btn.small" + (worn ? ".cream" : ""), { onclick: () => setLook({ ...st.look, [slot]: worn ? null : item.id }) }, worn ? "Take off" : "Wear")
-          : h("button.btn.small.gold", { disabled: st.coins < item.price, onclick: () => this.ctx.net.send({ t: "buy", item: item.id }) }, `Buy · 🪙 ${item.price}`);
+    } else if (this.shopTab === "dye") {
+      // Dye station: buy a colour once, then dye your hat, scarf or pack with it (or wash it out).
+      const dyes = CATALOG.filter((i) => i.slot === "dye");
+      const parts: ["hat" | "scarf" | "backpack", string][] = [["hat", "🎩 Hat"], ["scarf", "🧣 Scarf"], ["backpack", "🎒 Pack"]];
+      grid = h("div.grid", {}, dyes.map((d) => {
+        const owned = st.owned.includes(d.id);
         return h("div.item", {}, [
-          h("div.ico", { style: { background: item.color } }, ITEM_ICON[item.shape] ?? "✨"),
-          h("div.nm", {}, item.name),
-          h("div.price", {}, owned ? (worn ? "✅ Wearing" : "Owned") : item.price === 0 ? "Free" : `🪙 ${item.price}`),
-          action,
+          h("div.ico", { style: { background: d.color } }, "🎨"),
+          h("div.nm", {}, d.name),
+          owned
+            ? h("div.row", { style: "justify-content:center;flex-wrap:wrap;gap:4px" }, parts.map(([slot, label]) => {
+                const on = st.look.dyes?.[slot] === d.id;
+                return h("button.btn.small" + (on ? ".cream" : ""), { disabled: !st.look[slot], onclick: () => setLook({ ...st.look, dyes: { ...(st.look.dyes ?? {}), [slot]: on ? undefined : d.id } }) }, on ? `✓ ${label}` : label);
+              }))
+            : h("button.btn.small.gold", { disabled: st.coins < d.price, onclick: () => this.ctx.net.send({ t: "buy", item: d.id }) }, `Buy · 🪙 ${d.price}`),
         ]);
       }));
+    } else {
+      const slot = this.shopTab as Exclude<Slot, "dye">;
+      const items = CATALOG.filter((i) => i.slot === slot && (st.owned.includes(i.id) || (!i.reward && (!i.season || i.season === season))));
+      const locked = CATALOG.filter((i) => i.slot === slot && !st.owned.includes(i.id) && (i.reward || (i.season && i.season !== season)));
+      grid = h("div.grid", {}, [
+        ...items.map((item) => {
+          const owned = st.owned.includes(item.id);
+          const worn = st.look[slot] === item.id;
+          const action = owned
+            ? h("button.btn.small" + (worn ? ".cream" : ""), { onclick: () => setLook({ ...st.look, [slot]: worn ? null : item.id }) }, worn ? "Take off" : "Wear")
+            : h("button.btn.small.gold", { disabled: st.coins < item.price, onclick: () => this.ctx.net.send({ t: "buy", item: item.id }) }, `Buy · 🪙 ${item.price}`);
+          return h("div.item", {}, [
+            h("div.ico", { style: { background: item.color } }, ITEM_ICON[item.shape] ?? "✨"),
+            h("div.nm", {}, item.name),
+            h("div.price", {}, owned ? (worn ? "✅ Wearing" : "Owned") : item.season ? `🍂 This ${item.season} only · 🪙 ${item.price}` : item.price === 0 ? "Free" : `🪙 ${item.price}`),
+            action,
+          ]);
+        }),
+        ...locked.map((item) => h("div.item.locked", {}, [
+          h("div.ico", { style: { background: "#e8e0d4" } }, "🔒"),
+          h("div.nm", {}, item.name),
+          h("div.price", {}, item.reward ? "Earned from townsfolk or the journal" : `Back in ${item.season}`),
+        ])),
+      ]);
     }
     const panel = h("div.card.panel", {}, [
       h("header", {}, [
         h("h2", {}, "🎒 Beaver Outfitter"),
         h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${st.coins}`), h("button.btn.cream.small", { onclick: () => this.closeOverlays() }, "✕")]),
       ]),
-      h("div.tabs", {}, tabs.map(([k, label]) => h("button.tab" + (k === this.shopTab ? ".on" : ""), { onclick: () => { this.shopTab = k; this.refreshShop(); } }, label))),
+      h("div.tabs", { style: "flex-wrap:wrap" }, tabs.map(([k, label]) => h("button.tab" + (k === this.shopTab ? ".on" : ""), { onclick: () => { this.shopTab = k; this.refreshShop(); } }, label))),
       h("div", { style: "padding:0 16px 6px;font-size:13px;color:var(--muted);font-weight:700" }, this.shopTab === "cabin"
-        ? "Furniture for your cabin — tap 🏡 to go home and decorate."
-        : "Cosmetics are just for looks — they never change how you play. Earn coins in Toboggan Rush, daily quests and golden pinecones!"),
+        ? "Furniture for your cabin — tap 🏡 to go home and decorate. Seasonal pieces come and go each season!"
+        : this.shopTab === "dye" ? "Buy a dye once, then colour your hat, scarf or pack any time."
+          : "Cosmetics are just for looks. Seasonal items are only sold during their season — earn coins in minigames, quests, fishing and gardening!"),
       grid,
     ]);
     this.panelEl.replaceChildren(panel);
@@ -671,6 +849,9 @@ export class HubScene implements Scene {
       h("div", { style: "margin-top:8px" }, "🛷 Head north to the trailhead portal for Toboggan Rush. Win coins, then spend them at the 🎒 Outfitter."),
       h("div", { style: "margin-top:8px" }, "📜 Daily quests (top right) earn coins — and look out for ✨ golden pinecones around the village!"),
       h("div", { style: "margin-top:8px" }, ["🏡 Visit your cabin to decorate it with furniture · 📷 Photo mode (", h("kbd", {}, "P"), ") for postcards."]),
+      h("div", { style: "margin-top:8px" }, "🎮 Minigames: 🌰 Pinecone Hunt at the campground, 🪵 Log Rolling by the lighthouse, ⛄ Snowball Fight at the pond, 🦫 Dam Builder at the watermill, ⛳ golf at the clubhouse."),
+      h("div", { style: "margin-top:8px" }, "🎣 Fish at the lake or river · 🥕 grow veggies in the garden · 🦋 tap butterflies · 📖 fill your journal (J) · 🧺 sell or gift from your bag (B)."),
+      h("div", { style: "margin-top:8px" }, "🗨️ Townsfolk with a ! have errands for you · 🚂 ride the valley train · 🎈 balloon rides · 🚡 gondola to the summit."),
       h("div", { style: "margin-top:8px" }, "🛡️ Tap another beaver to wave, visit their cabin, block or report them."),
     ]));
     this.root.append(this.panelEl);
@@ -700,14 +881,44 @@ export class HubScene implements Scene {
 
   private nearby(): string {
     const d = (p: { x: number; z: number }) => Math.hypot(this.me.x - p.x, this.me.z - p.z);
+    if (this.me.act === "fish") return "fishing";
+    for (const n of this.townsfolk) if (d(n) < NPC_TALK_RANGE) return `npc:${n.id}`;
     if (d(PL.trailhead) < PORTAL_RADIUS + 2) return "race";
     if (d(PL.outfitter) < PL.outfitter.r + 4.5) return "shop";
     if (d(PL.dock) < 6.5) return "canoe";
     if (d(PL.lodge) < PL.lodge.r + 5) return "lodge";
     if (d(PL.arcade) < PL.arcade.r + 4.5) return "arcade";
     if (d(PL.hotSpring) < 6) return "hotSpring";
+    if (d(TOWN_PLACES.clubhouse) < 8) return "golf";
+    if (d(TOWN_PLACES.gondola) < 7) return "gondola";
+    if (d(TOWN_PLACES.dyeshop) < 5) return "dyeshop";
+    if (d(TOWN_PLACES.cottageLane) < 4.5) return "lane";
+    if (inGarden(this.me.x, this.me.z)) return "garden";
+    for (const g of ["hunt", "logroll", "snowball", "dam"] as MiniGame[]) {
+      const sp = (TOWN_PLACES as Record<string, { x: number; z: number }>)[GAME_SPOTS[g]];
+      if (sp && d(sp) < (g === "snowball" ? 11 : 8) && !(g === "snowball" && this.me.act === "skate")) {
+        // The rink offers skating too: the game shows on the action bar's second button.
+        return `game:${g}`;
+      }
+    }
+    if (d(TOWN_PLACES.station) < 9) return "station";
+    if (d(TOWN_PLACES.balloons) < 11) return "balloons";
     const place = visitedPlace(this.me.x, this.me.z);
-    return place && (PLACE_ACTS[place] || INFO[place]?.label) ? place : "";
+    if (place && (PLACE_ACTS[place] || INFO[place]?.label)) return place;
+    if (fishingSpot(this.me.x, this.me.z) && this.groundY(this.me) >= WATER_Y - 0.2) return "fish";
+    return "";
+  }
+
+  /** A second, smaller action for places that offer two things (the rink: skate or snowball fight…). */
+  private secondary(k: string): { label: string; run: () => void } | null {
+    if (k === "game:snowball") return { label: this.me.act === "skate" ? "⛸️ Stop skating" : "⛸️ Go skating", run: () => this.ctx.net.send({ t: "act", a: this.me.act === "skate" ? "stop" : "skate" }) };
+    if (k === "game:logroll") return { label: "🗼 Look out over the lake", run: () => toast(this.root, INFO.lighthouse.lines[Math.floor(Math.random() * INFO.lighthouse.lines.length)]) };
+    if (k === "game:hunt") return { label: "🔥 Toast a marshmallow", run: () => this.ctx.net.send({ t: "act", a: "marshmallow" }) };
+    if (k.startsWith("game:")) return { label: "🏆 Leaderboard", run: () => this.openLife("leaderboard", k.slice(5) as MiniGame) };
+    if (k === "golf") return { label: "🏆 Golf leaderboard", run: () => this.openLife("leaderboard", "golf") };
+    if (k === "garden") return { label: "🧺 Bag", run: () => this.openLife("bag") };
+    if (k === "library") return { label: "📖 Journal", run: () => this.openLife("journal") };
+    return null;
   }
 
   private runAction() {
@@ -716,8 +927,45 @@ export class HubScene implements Scene {
     if (k === "race" && this.queueInfo) this.queueInfo = null;
     if (k === "canoe") this.ctx.net.send(this.queueInfo ? { t: "leaveQueue" } : { t: "queueRace", game: "canoe" });
     if (k === "canoe" && this.queueInfo) this.queueInfo = null;
+    if (k.startsWith("game:")) {
+      const g = k.slice(5) as MiniGame;
+      this.ctx.net.send(this.queueInfo ? { t: "leaveQueue" } : { t: "queueGame", game: g });
+      if (this.queueInfo) this.queueInfo = null;
+    }
     if (k === "shop") this.openShop("hat");
-    if (k === "arcade") toast(this.root, "🕹️ High score: Beaver590 — 9,001. Canoe Dash starts at the Lake Dock!");
+    if (k === "dyeshop") this.openShop("dye");
+    if (k === "arcade") this.openLife("leaderboard", "hunt");
+    if (k === "golf") {
+      if (this.queueInfo) { this.ctx.net.send({ t: "golfQuit" }); this.queueInfo = null; } else this.openLife("golf");
+    }
+    if (k === "garden") this.openLife("garden");
+    if (k === "lane") this.openLife("neighbours");
+    if (k === "library") this.ctx.net.send({ t: "read" });
+    if (k === "fish") {
+      this.target = null;
+      // Turn to face the water before casting.
+      let best = this.me.tr, low = Infinity;
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * Math.PI * 2;
+        const hgt = heightAt(this.me.x + Math.sin(a) * 4, this.me.z + Math.cos(a) * 4);
+        if (hgt < low) { low = hgt; best = a; }
+      }
+      this.me.tr = best;
+      this.ctx.net.send({ t: "move", x: this.me.x, z: this.me.z, ry: best });
+      this.ctx.net.send({ t: "act", a: "fish" });
+    }
+    if (k === "fishing") this.fishing?.tap();
+    if (k === "gondola" && this.gondolaRide < 0) {
+      this.target = null;
+      this.gondolaRide = 0;
+      this.ctx.sound.play("chime");
+    }
+    if (k.startsWith("npc:")) {
+      const id = k.slice(4);
+      this.ctx.net.send({ t: "talk", npc: id });
+      const tf = this.townsfolk.find((t) => t.id === id);
+      if (tf) tf.talkT = 2.5;
+    }
     const pa = PLACE_ACTS[k];
     if (pa?.act) {
       if (this.me.act === pa.act) this.ctx.net.send({ t: "act", a: "stop" });
@@ -739,23 +987,46 @@ export class HubScene implements Scene {
   private updateAction() {
     const k = this.nearby();
     let label = "";
-    if (k === "race" || k === "canoe") {
-      if (this.queueInfo) {
-        const s = Math.max(0, Math.ceil((this.queueInfo.until - performance.now()) / 1000));
-        label = `⏳ Racers ${this.queueInfo.count}/${this.queueInfo.size} · starting in ${s}s · Leave`;
-      } else label = k === "race" ? "🛷 Ride Toboggan Rush!" : "🛶 Race the Canoe Dash!";
-    } else if (this.queueInfo) {
+    const queueable = k === "race" || k === "canoe" || k.startsWith("game:") || k === "golf";
+    if (queueable && this.queueInfo) {
+      const s = Math.max(0, Math.ceil((this.queueInfo.until - performance.now()) / 1000));
+      label = `⏳ Players ${this.queueInfo.count}/${this.queueInfo.size} · starting in ${s}s · Leave`;
+    } else if (k === "race" || k === "canoe") label = k === "race" ? "🛷 Ride Toboggan Rush!" : "🛶 Race the Canoe Dash!";
+    else if (this.queueInfo) {
       this.ctx.net.send({ t: "leaveQueue" });
+      this.ctx.net.send({ t: "golfQuit" });
       this.queueInfo = null;
     }
+    if (!label && k.startsWith("game:")) { const g = ARCADE_INFO[k.slice(5) as MiniGame]; label = `${g.icon} Play ${g.name}!`; }
+    if (!label && k === "golf") label = "⛳ Play a round of golf";
     if (k === "shop") label = "🎒 Open the Outfitter";
-    if (k === "arcade") label = "🕹️ Peek inside the arcade";
+    if (k === "dyeshop") label = "🎨 Open the dye station";
+    if (k === "arcade") label = "🕹️ Arcade high scores";
+    if (k === "garden") label = "🥕 Tend your garden";
+    if (k === "lane") label = "🏡 Cottage Lane noticeboard";
+    if (k === "library") label = "📚 Read a Banff fact";
+    if (k === "fish") label = "🎣 Go fishing";
+    if (k === "fishing") label = "🎣 Reel in!";
+    if (k === "gondola") label = this.gondolaRide >= 0 ? "🚡 Riding up…" : "🚡 Ride the gondola to the summit";
+    if (k.startsWith("npc:")) {
+      const n = this.townsfolk.find((t) => t.id === k.slice(4));
+      if (n) label = `🗨️ Talk to ${n.name}`;
+    }
     const pa = PLACE_ACTS[k];
     if (pa) label = this.me.act === pa.act ? pa.done ?? "✋ Done" : pa.label;
-    if (INFO[k]?.label) label = INFO[k].label;
-    if (label === this.actionKey) return;
-    this.actionKey = label;
-    this.actionEl.replaceChildren(label ? h("button.btn" + (k === "race" || k === "canoe" ? ".orange" : ""), { onclick: () => this.runAction(), style: "font-size:19px;padding:12px 20px" }, label) : "");
+    if (k === "station" && this.me.act === "train" && this.me.board && Date.now() < this.me.board.at) label = `🚉 Next train in ${Math.ceil((this.me.board.at - Date.now()) / 1000)}s · Leave`;
+    if (INFO[k]?.label && k !== "library") label = INFO[k].label;
+    const sec = this.secondary(k);
+    const key = label + (sec?.label ?? "");
+    if (key === this.actionKey) return;
+    this.actionKey = key;
+    const hot = k === "race" || k === "canoe" || k.startsWith("game:") || k === "golf";
+    this.actionEl.replaceChildren(...(label ? [
+      h("div.row", { style: "justify-content:center;flex-wrap:wrap" }, [
+        h("button.btn" + (hot ? ".orange" : ""), { onclick: () => this.runAction(), style: "font-size:19px;padding:12px 20px" }, label),
+        sec ? h("button.btn.cream.small", { onclick: () => { sec.run(); this.actionKey = ""; } }, sec.label) : null,
+      ]),
+    ] : []));
   }
 
   // ---------- Frame ----------
@@ -868,6 +1139,8 @@ export class HubScene implements Scene {
       }
     }
 
+    this.updateLife(dt);
+
     this.sendAcc += dt;
     if (this.sendAcc > 1 / 12) {
       this.sendAcc = 0;
@@ -879,6 +1152,80 @@ export class HubScene implements Scene {
 
     this.animate(dt);
     this.updateAction();
+  }
+
+  /** Townsfolk, bugs to spot, pets, the gondola ride and timed rides ending. */
+  private updateLife(dt: number) {
+    const me = this.me;
+    const now = Date.now();
+    // The gondola: a short ride up in a cabin, then the summit.
+    if (this.gondolaRide >= 0) {
+      this.gondolaRide += dt / 4;
+      if (this.gondolaRide >= 1) {
+        this.gondolaRide = -1;
+        this.ctx.net.send({ t: "gondola", up: true });
+      }
+    }
+    // Rides end on their own: one loop of the valley by train, a balloon flight.
+    if (me.act === "train" && me.board && now > me.board.at + TRAIN_LOOP_S * 1000) {
+      this.ctx.net.send({ t: "act", a: "stop" });
+      me.act = null;
+      toast(this.root, "🚉 Back at the station. What a ride!");
+    }
+    if (me.act === "balloon" && me.actT > BALLOON_S) {
+      this.ctx.net.send({ t: "act", a: "stop" });
+      me.act = null;
+      toast(this.root, "🎈 A gentle landing. Lovely flight!");
+    }
+    // Townsfolk turn to face you when you're close.
+    for (const n of this.townsfolk) {
+      n.talkT = Math.max(0, n.talkT - dt);
+      const d = Math.hypot(me.x - n.x, me.z - n.z);
+      n.face = lerpAngle(n.face, d < 7 ? Math.atan2(me.x - n.x, me.z - n.z) : n.ry, Math.min(1, dt * 4));
+    }
+    // Butterflies by day and fireflies at night flutter by now and then: tap one to spot it.
+    this.bugAcc -= dt;
+    if (this.bugAcc <= 0 && this.bugs.length < 2) {
+      this.bugAcc = 14 + Math.random() * 16;
+      const season = this.mood?.season ?? seasonAt(), night = isNight();
+      const ok = BUGS.filter((b) => (!b.seasons || b.seasons.includes(season)) && (!b.night || night) && (!b.day || !night));
+      if (ok.length && this.mood?.weather.kind !== "rain") {
+        const b = ok[Math.floor(Math.random() * ok.length)];
+        const a = Math.random() * Math.PI * 2;
+        const x = me.x + Math.cos(a) * 7, z = me.z + Math.sin(a) * 7;
+        const id = ++this.bugId;
+        const el = h("div.bug-tap.pe", { title: "Tap to spot it!", onclick: () => this.spot(id) }, b.icon);
+        this.labels.append(el);
+        this.bugs.push({ id, kind: b.id, x, y: heightAt(x, z) + 1.4, z, t: 0, vx: (Math.random() - 0.5) * 1.2, vz: (Math.random() - 0.5) * 1.2, el });
+      }
+    }
+    for (const b of this.bugs) {
+      b.t += dt;
+      b.x += (b.vx + Math.sin(b.t * 1.7 + b.id) * 0.9) * dt;
+      b.z += (b.vz + Math.cos(b.t * 1.3 + b.id) * 0.9) * dt;
+      b.y = heightAt(b.x, b.z) + 1.2 + Math.sin(b.t * 2.3) * 0.4;
+    }
+    for (const b of this.bugs.filter((x) => x.t > 22)) b.el.remove();
+    this.bugs = this.bugs.filter((x) => x.t <= 22);
+    // Pets trot after their owners.
+    for (const a of this.avatars.values()) {
+      const pet = a.info.look.pet;
+      if (!pet) { a.pet = null; continue; }
+      const d = this.drawPos(a);
+      if (!a.pet) a.pet = new PetFollower(d.x - 1, d.z - 1);
+      a.pet.update(dt, d.x, d.z, d.ry);
+    }
+  }
+
+  private spot(id: number) {
+    const b = this.bugs.find((x) => x.id === id);
+    if (!b) return;
+    if (Math.hypot(b.x - this.me.x, b.z - this.me.z) > 14) { toast(this.root, "Get a little closer to see it properly!"); return; }
+    this.ctx.net.send({ t: "spot", bug: b.kind });
+    this.ctx.sound.play("chime");
+    buzz(this.ctx, 20);
+    b.el.remove();
+    this.bugs = this.bugs.filter((x) => x !== b);
   }
 
   private animate(dt: number) {
@@ -898,11 +1245,11 @@ export class HubScene implements Scene {
         a.actT += dt;
         // Someone else wandered off (or the cocoa ran out): end the activity.
         if (a !== me && Math.hypot(a.tx - a.actX, a.tz - a.actZ) > 0.8) a.act = null;
-        if (a.act && HELD[a.act] && a.act !== "guitar" && a.actT > 14) a.act = null;
+        if (a.act && HELD[a.act] && a.act !== "guitar" && a.act !== "fish" && a.actT > 14) a.act = null;
       }
       const away = !!a.act && AWAY_ACTS.includes(a.act);
       a.soak = Math.max(0, Math.min(1, a.soak + (away ? dt / 0.7 : -dt / 0.5)));
-      if (a.act === "guitar" && Math.floor(a.actT / 1.1) !== Math.floor((a.actT - dt) / 1.1)) {
+      if ((a.act === "guitar" || a.act === "sing" || a.act === "dance") && Math.floor(a.actT / 1.1) !== Math.floor((a.actT - dt) / 1.1)) {
         const el = h("div.emote", {}, Math.random() < 0.5 ? "🎵" : "🎶");
         this.labels.append(el);
         (el as HTMLElement & { _follow?: Avatar })._follow = a;
@@ -978,10 +1325,30 @@ export class HubScene implements Scene {
       const fw = this.world.ferris;
       const p = ferrisSeat(fw, Math.floor(a.seed * 10) % fw.seats, this.time);
       tx = p[0]; ty = p[1] - 1.12; tz = p[2]; tr = fw.ry; seated = 1;
+    } else if (act === "train") {
+      const b = a.board;
+      const now = Date.now();
+      if (!b || now < b.at) {
+        // Waiting on the platform for the next train.
+        const p = railPoint(TRAIN.stationAngle + (a.seed % 1) * 0.03 - 0.015, -2.6);
+        tx = p[0]; tz = p[2]; ty = heightAt(TOWN_PLACES.station.x, TOWN_PLACES.station.z) + 0.6;
+        tr = TRAIN.stationAngle + Math.PI / 2;
+      } else {
+        const u = trainUnit(b.car, now, b.which);
+        tx = u.x; tz = u.z; ty = u.y + 0.85; tr = u.yaw + Math.PI / 2 * (a.seed % 1 > 0.5 ? 1 : -1); seated = 1;
+      }
+    } else if (act === "balloon") {
+      const p = this.balloonPos(a);
+      tx = p[0]; ty = p[1] + 0.25; tz = p[2]; tr = a.actT * 0.2 + a.seed;
     } else if (act === "skate") {
       const rink = TOWN_PLACES.rink;
-      const rr = 3.2 + (Math.floor(a.seed * 10) % 3) * 0.9;
-      const ang = a.actT * 0.7 + a.seed * 3;
+      // Pair skating: two beavers on the ice glide round together, side by side.
+      const skaters = [...this.avatars.values()].filter((o) => o.act === "skate").sort((p, q) => (p.info.id < q.info.id ? -1 : 1));
+      const si = skaters.indexOf(a);
+      const partner = si >= 0 ? skaters[si ^ 1] : undefined;
+      const lead = partner && si % 2 === 1 ? partner : a;
+      const rr = (3.2 + (Math.floor(lead.seed * 10) % 3) * 0.9) + (partner && si % 2 === 1 ? 1.0 : 0);
+      const ang = (partner ? this.time * 0.7 : a.actT * 0.7) + lead.seed * 3;
       tx = rink.x + Math.cos(ang) * rr; tz = rink.z + Math.sin(ang) * rr;
       ty = heightAt(rink.x, rink.z) + 0.12;
       tr = Math.atan2(-Math.sin(ang), Math.cos(ang));
@@ -993,8 +1360,23 @@ export class HubScene implements Scene {
       tr = ang;
     }
     const k = a.soak, e = k * k * (3 - 2 * k);
-    const hop = Math.sin(Math.min(1, k * 1.15) * Math.PI) * (act === "soak" ? 1.3 : 0.6);
+    const hop = act === "train" || act === "balloon" ? 0 : Math.sin(Math.min(1, k * 1.15) * Math.PI) * (act === "soak" ? 1.3 : 0.6);
     return { x: lerp(a.x, tx, e), z: lerp(a.z, tz, e), y: lerp(y, ty, e) + hop, ry: lerpAngle(a.ry, tr, e), seated: seated * e };
+  }
+
+  /** A balloon flight: lift off from the meadow, drift in a big loop over the town, then land. */
+  private balloonPos(a: Avatar): Vec3 {
+    const m = TOWN_PLACES.balloons;
+    const t = a.actT;
+    const g = heightAt(m.x, m.z);
+    const up = Math.min(1, t / 10), down = Math.max(0, Math.min(1, (BALLOON_S - t) / 10));
+    const alt = 34 * Math.min(up, down) * Math.min(up, down) * (3 - 2 * Math.min(up, down));
+    const loop = Math.max(0, Math.min(1, (t - 6) / (BALLOON_S - 16)));
+    const ang = Math.atan2(m.z, m.x) + loop * Math.PI * 2;
+    const R0 = Math.hypot(m.x, m.z);
+    const rad = R0 + Math.sin(loop * Math.PI) * -25;
+    const off = (a.seed % 1) * 3;
+    return [Math.cos(ang) * rad + off, g + alt, Math.sin(ang) * rad];
   }
 
   /** The cocoa mug in world space: at the chest, rising to the mouth for a sip every few seconds. */
@@ -1027,6 +1409,10 @@ export class HubScene implements Scene {
     applyMood(r, this.mood);
     // Follow where the beaver is drawn (on the Ferris wheel, up the lookout, out on the ice…).
     const fp = this.drawPos(me);
+    if (this.gondolaRide >= 0) {
+      const g = gondolaPoint(this.gondolaRide * 0.4);
+      fp.x = g[0]; fp.y = g[1] - 3; fp.z = g[2];
+    }
     const py = fp.y;
     const focus = { x: fp.x, z: fp.z };
     // A simple follow camera: it sits behind and above your beaver at a fixed angle and
@@ -1043,7 +1429,7 @@ export class HubScene implements Scene {
     if (!Number.isFinite(this.camY) || Math.abs(this.camY - py) > 6) this.camY = py;
     this.camY += (py - this.camY) * Math.min(1, fdt * 6);
     const focusY = this.camY + 1.5;
-    const cy = Math.max(focusY + Math.sin(pitch) * this.dist, heightAt(cx, cz) + 1.2);
+    const cy = Math.max(focusY + Math.sin(pitch) * this.dist, heightAt(cx, cz) + 1.2, this.gondolaRide >= 0 ? focusY + 3 : -Infinity);
     let cam: Vec3 = [cx, cy, cz];
     let look: Vec3 = [focus.x, focusY + this.lookOffset, focus.z];
     if (this.photo.active) {
@@ -1063,6 +1449,7 @@ export class HubScene implements Scene {
     this.ambient.draw(r, this.time, this.night);
     drawWeather(r, this.mood, this.time, cam, this.night);
     this.drawNpcs();
+    this.drawLife();
 
     const coneMesh = pineconeMesh(r);
     for (const c of this.cones) {
@@ -1102,15 +1489,29 @@ export class HubScene implements Scene {
       }
       // Umbrellas come out in the rain and snow.
       const brolly = !held && !a.act && a.swim < 0.5 && umbrellaWeather(this.mood) > 0.3;
+      if (a === me && this.gondolaRide >= 0) continue; // drawn inside the gondola cabin
+      const dancing = a.act === "dance", singing = a.act === "sing";
+      if (a.act === "balloon") {
+        const bp = this.balloonPos(a);
+        r.draw(this.world.balloons[Math.floor(a.seed * 10) % this.world.balloons.length], compose(bp[0], bp[1], bp[2], a.actT * 0.2 + a.seed), { cut: true });
+      }
       if (brolly) r.draw(umbrellaMesh(r, a.seed), compose(d.x + Math.sin(d.ry) * 0.35, y + 3.05, d.z + Math.cos(d.ry) * 0.35, d.ry, -0.12, Math.sin(this.time * 1.3 + a.seed) * 0.05), { outline: 0.02 });
-      drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(d.x, y, d.z, d.ry), {
-        hold: held ? 1 : brolly ? 0.45 : 0, sip, sled: d.seated,
-        walk: a.act === "skate" ? this.time * 3 : a.walk, moving: a.act === "skate" ? 0.45 : a.moving, swim: a.act === "soak" ? 0 : a.swim, time: this.time, seed: a.seed, talk: a.talkT > 0 ? 1 : 0,
+      const danceT = this.time * 4 + a.seed;
+      drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(d.x, y + (dancing ? Math.abs(Math.sin(danceT)) * 0.25 : 0), d.z, d.ry + (dancing ? Math.sin(danceT * 0.5) * 0.9 : 0)), {
+        hold: held ? (held === "rod" ? 0.6 : 1) : brolly ? 0.45 : 0, sip, sled: d.seated,
+        walk: a.act === "skate" ? this.time * 3 : a.walk, moving: a.act === "skate" ? 0.45 : a.moving, swim: a.act === "soak" ? 0 : a.swim, time: this.time, seed: a.seed,
         jump: posed ? pose.jump : Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0),
         wave: posed ? pose.wave : Math.min(1, a.waveT),
-        cheer: posed ? pose.cheer : Math.min(1, a.cheerT * 2),
-        expr: posed ? pose.expr : a.exprT > 0 ? a.expr : a.soak > 0.6 || sip > 0.3 || a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
+        cheer: posed ? pose.cheer : dancing ? (Math.sin(danceT) > 0 ? 1 : 0.3) : Math.min(1, a.cheerT * 2),
+        talk: singing ? 1 : a.talkT > 0 ? 1 : 0,
+        expr: posed ? pose.expr : a.exprT > 0 ? a.expr : dancing || singing || a.soak > 0.6 || sip > 0.3 || a.swim > 0.5 || a.waveT > 0 ? "happy" : "neutral",
       });
+      if (held === "rod") {
+        // Line out to a bobber on the water.
+        const bx = d.x + Math.sin(d.ry) * 3.2, bz = d.z + Math.cos(d.ry) * 3.2;
+        const bite = a === me && this.fishing && (this.root.querySelector(".fishing.bite") !== null);
+        r.draw(cozyM.bobber, compose(bx, WATER_Y + (bite ? -0.15 : Math.sin(this.time * 2) * 0.03), bz), { outline: 0.01 });
+      }
     }
     for (const p of this.particles) {
       const k = p.life / p.max;
@@ -1125,7 +1526,9 @@ export class HubScene implements Scene {
   }
 
   private updateMinimap() {
-    const dots: { x: number; z: number; kind: "player" | "friend" | "cone" }[] = [];
+    const dots: { x: number; z: number; kind: "player" | "friend" | "cone" | "npc" }[] = [];
+    for (const n of this.townsfolk) dots.push({ x: n.x, z: n.z, kind: "npc" });
+    this.minimap.shapes = this.ctx.prefs.shapes;
     for (const c of this.cones) if (!this.conesGot.has(c.id)) dots.push({ x: c.x, z: c.z, kind: "cone" });
     const friends = new Set(this.ctx.state.friends.map((f) => f.pid));
     for (const a of this.avatars.values()) {
@@ -1174,6 +1577,73 @@ export class HubScene implements Scene {
         const d = this.drawPos(a);
         place(el, d.x, d.y + 3.2, d.z);
       } else if (el._at) place(el, el._at[0], el._at[1], el._at[2], 60);
+    }
+  }
+
+  /** Townsfolk, bugs, garden plants, pets and the gondola ride. */
+  private drawLife() {
+    const r = this.ctx.r;
+    const cz = cozy(r);
+    const life = this.ctx.state.life;
+    for (const n of this.townsfolk) {
+      const y = heightAt(n.x, n.z);
+      drawBeaver(r, getBeaverMeshes(r, n.look), compose(n.x, y, n.z, n.face), {
+        walk: 0, moving: 0, swim: 0, jump: 0, wave: n.talkT > 2 ? 1 : 0, sled: 0, time: this.time, seed: n.x * 0.1,
+        talk: n.talkT > 0 ? 1 : 0, expr: n.talkT > 0 ? "happy" : "neutral", hold: n.id === "bea" ? 0.3 : 0,
+      });
+      r.draw(this.world.shadow, compose(n.x, y + 0.014, n.z, n.face), { unlit: true, alpha: 0.07 });
+      // A "!" over townsfolk with something new for you.
+      const st = life?.npcs[n.id];
+      const ch = CHAINS[n.id];
+      const step = st && st.step >= 0 && !st.done ? ch.steps[st.step] : null;
+      const has = !st || st.step < 0 || (step?.kind === "bring" && (life?.bag[step.item] ?? 0) >= step.count)
+        || Object.entries(life?.npcs ?? {}).some(([oid, o]) => { const s2 = !o.done && o.step >= 0 ? CHAINS[oid].steps[o.step] : null; return s2?.kind === "talk" && s2.npc === n.id; });
+      let mark = this.npcMarks.get(n.id);
+      if (!mark) { mark = h("div.npc-mark", {}, "!"); this.labels.append(mark); this.npcMarks.set(n.id, mark); }
+      mark.textContent = has ? "!" : st?.done ? "" : "…";
+      const sp = r.project(n.x, y + 3.1, n.z);
+      const near = Math.hypot(this.me.x - n.x, this.me.z - n.z) < 40;
+      if (!sp || !near || !mark.textContent) mark.style.display = "none";
+      else { mark.style.display = ""; mark.style.left = `${sp.x}px`; mark.style.top = `${sp.y}px`; }
+    }
+    // Bugs fluttering about.
+    for (const b of this.bugs) {
+      const def = BUGS.find((x) => x.id === b.kind);
+      const flap = Math.sin(this.time * 22 + b.id) * 0.9;
+      const col: [number, number, number, number] = b.kind === "firefly" ? [1, 0.95, 0.4, 1] : b.kind === "ladybug" ? [0.9, 0.2, 0.15, 1] : b.kind === "monarch" ? [1, 0.55, 0.1, 1] : b.kind === "blue" ? [0.55, 0.75, 1, 1] : b.kind === "cloak" ? [0.35, 0.2, 0.15, 1] : b.kind === "dragonfly" ? [0.3, 0.8, 0.9, 1] : [1, 0.9, 0.5, 1];
+      r.draw(cz.bug, compose(b.x, b.y, b.z, b.t * 2, 0, flap * 0.5, 1.3), { unlit: true, tint: col, emissive: b.kind === "firefly" ? 1.2 : 0.1 });
+      const s = r.project(b.x, b.y, b.z);
+      if (s && s.depth < 40) { b.el.style.display = ""; b.el.style.left = `${s.x}px`; b.el.style.top = `${s.y}px`; } else b.el.style.display = "none";
+      void def;
+    }
+    // Your garden plots (everyone grows their own; you see yours).
+    const g = life?.garden ?? [];
+    const now = Date.now();
+    g.forEach((p, i) => {
+      if (!p) return;
+      const x = TOWN_PLACES.garden.x + ((i % 2) - 0.5) * 4.2, z = TOWN_PLACES.garden.z + (Math.floor(i / 2) - 0.5) * 4.2;
+      const y = heightAt(x, z) + 0.45;
+      const total = SEEDS[p.seed].minutes * 60_000 * (p.watered ? 0.6 : 1);
+      const grow = Math.max(0, Math.min(1, 1 - (p.readyAt - now) / total));
+      for (let k = 0; k < 4; k++) {
+        const px = x + ((k % 2) - 0.5) * 1.0, pz = z + (Math.floor(k / 2) - 0.5) * 0.9;
+        if (grow < 0.35) r.draw(cz.sprout, compose(px, y, pz, k, 0, 0, 0.8 + grow * 2), { sway: 0.1 });
+        else r.draw(cz.plant, compose(px, y, pz, k, 0, 0, 0.4 + grow * 0.9), { sway: 0.15 });
+        if (grow >= 1) r.draw(this.world.steam, compose(px, y + 0.9, pz, 0, 0, 0, 0.16), { unlit: true, emissive: 0.6, tint: p.seed === "pumpkin" ? [1, 0.55, 0.15, 1] : p.seed === "blueberry" ? [0.35, 0.4, 0.9, 1] : p.seed === "carrot" ? [1, 0.5, 0.1, 1] : p.seed === "sunflower" ? [1, 0.85, 0.2, 1] : [0.6, 0.45, 0.95, 1] });
+      }
+    });
+    // Pets.
+    for (const a of this.avatars.values()) {
+      if (!a.pet || !a.info.look.pet || a.soak > 0.5) continue;
+      const mesh = petMesh(r, a.info.look.pet);
+      if (mesh) a.pet.draw(r, mesh, Math.max(heightAt(a.pet.x, a.pet.z), bridgeHeightAt(a.pet.x, a.pet.z) ?? -Infinity, dockHeightAt(a.pet.x, a.pet.z) ?? -Infinity), isFlyingPet(a.info.look.pet));
+    }
+    // Riding up in the gondola.
+    if (this.gondolaRide >= 0) {
+      const gp = gondolaPoint(this.gondolaRide * 0.4);
+      const yaw = Math.atan2(54 - 18, -168 + 53);
+      r.draw(this.world.liftCabin, compose(gp[0], gp[1], gp[2], yaw), {});
+      drawBeaver(r, getBeaverMeshes(r, this.me.info.look), compose(gp[0], gp[1] - 3.05, gp[2], yaw + Math.PI), { walk: 0, moving: 0, swim: 0, jump: 0, wave: 1, sled: 0, time: this.time, seed: 1, expr: "excited" });
     }
   }
 

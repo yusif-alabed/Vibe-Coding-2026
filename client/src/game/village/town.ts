@@ -1,7 +1,7 @@
 import { TOWN_AREAS, TOWN_BUILDINGS, type TownBuilding } from "@beaver/shared";
 import { compose, hash2, hexToRgb, mixRgb, type Vec3 } from "../../engine/math";
 import { MeshBuilder } from "../../engine/mesh";
-import { box, chimney, flowerBox, Frame, gableRoofX, gableRoofZ, log, panel, windowPane } from "./architecture";
+import { bench, box, chimney, flowerBox, Frame, gableRoofX, gableRoofZ, log, panel, windowPane } from "./architecture";
 import { stoneBlock } from "./nature";
 
 /**
@@ -734,6 +734,99 @@ function gondolaMesh(): MeshBuilder {
   return g;
 }
 
+/** Golf clubhouse: a long log lodge with a green roof, a veranda and a flag on the putting green. */
+function clubhouse(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const w = b.w, d = b.d, base = 0.6, eave = 3.4;
+  plinth(m, f, w, d, base, b.seed);
+  const logs = Math.floor((eave - base) / 0.33);
+  for (let i = 0; i < logs; i++) {
+    const yy = base + 0.17 + i * 0.33;
+    const col = vary(i % 2 ? LOG : LOG_LIGHT, i + b.seed, 0.06);
+    log(m, f, 0, yy, d / 2 - 0.17, w + 0.6, 0.18, "x", col);
+    log(m, f, 0, yy, -d / 2 + 0.17, w + 0.6, 0.18, "x", col);
+    log(m, f, -w / 2 + 0.17, yy + 0.16, 0, d + 0.6, 0.18, "z", col);
+    log(m, f, w / 2 - 0.17, yy + 0.16, 0, d + 0.6, 0.18, "z", col);
+  }
+  box(m, f, 0, (base + eave) / 2, 0, w - 0.4, eave - base, d - 0.4, TIMBER);
+  door(m, glow, f, 0, base, d / 2 + 0.02, C("#2f6b3a"));
+  for (const x of [-w * 0.34, -w * 0.17, w * 0.17, w * 0.34]) windowPane(m, glow, f, x, base + 1.5, d / 2 + 0.02, 1.0, 1.0);
+  // Veranda with posts and a green-and-white striped awning.
+  box(m, f, 0, base - 0.05, d / 2 + 1.3, w, 0.14, 2.5, LOG_LIGHT);
+  for (let i = 0; i <= 4; i++) box(m, f, -w / 2 + 0.3 + (i * (w - 0.6)) / 4, (base + eave) / 2 + 0.2, d / 2 + 2.4, 0.22, eave - base + 0.4, 0.22, TIMBER);
+  awning(m, f, w - 0.4, eave + 0.4, d / 2 + 0.6, C("#2f8a4a"), WHITE);
+  const ridge = gableRoofX(m, f, 0, eave + 0.2, d / 2 + 0.4, w + 1.0, 0.6, 1.4);
+  box(m, f, 0, ridge + 0.34, 0, w + 1.1, 0.22, 0.42, C("#2f6b3a"));
+  chimney(m, f, -w / 2 + 1.2, -d / 4, base, ridge + 0.8, 0.9, b.seed);
+  t.chimneys.push(f.p(-w / 2 + 1.2, ridge + 1.4, -d / 4));
+  // Sign: a golf flag and crossed clubs.
+  box(m, f, 0, eave + 1.05, d / 2 + 0.5, 3.8, 0.8, 0.12, C("#2f6b3a"));
+  box(m, f, 0, eave + 1.05, d / 2 + 0.57, 3.5, 0.55, 0.04, C("#f2e6c8"));
+  for (const s of [-1, 1]) box(m, f, s * 0.3, eave + 1.05, d / 2 + 0.62, 0.05, 0.7, 0.03, IRON, 0, 0, s * 0.6);
+  // Golf bags and a bench by the door.
+  for (let i = 0; i < 3; i++) {
+    const p = f.p(w / 2 - 0.6 - i * 0.6, 0, d / 2 + 2.0);
+    m.cylinder(compose(p[0], f.y + base + 0.45, p[2], 0, 0.15, 0, 0.36, 0.9, 0.36), [C("#c8473a"), C("#2f5a7a"), C("#f5c242")][i], 8);
+    for (let k = 0; k < 3; k++) m.cylinder(compose(p[0] + (k - 1) * 0.08, f.y + base + 1.05, p[2], 0, 0.15, 0, 0.04, 0.45, 0.04), C("#d8d8d8"), 4);
+  }
+}
+
+/** Valley railway station: a timber depot with a long platform canopy and a clock. */
+function station(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const w = b.w, d = b.d, base = 0.5, eave = 3.6;
+  plinth(m, f, w, d, base, b.seed);
+  box(m, f, 0, (base + eave) / 2, 0, w, eave - base, d, C("#e7c99a"));
+  timberFrame(m, f, w, base, eave, d / 2 + 0.02, b.seed);
+  timberFrame(m, f, w, base, eave, -d / 2 - 0.02, b.seed + 3);
+  door(m, glow, f, 0, base, d / 2 + 0.06, C("#8a2a20"));
+  door(m, glow, f, 0, base, -d / 2 - 0.06, C("#8a2a20"));
+  for (const s of [-1, 1]) {
+    shopWindow(m, glow, f, s * w * 0.3, base + 1.6, d / 2 + 0.06, 1.6, 1.1);
+    windowPane(m, glow, f, s * w * 0.3, base + 1.6, -d / 2 - 0.06, 1.4, 1.0);
+  }
+  const ridge = gableRoofX(m, f, 0, eave, d / 2, w + 0.8, 0.5, 0.8);
+  box(m, f, 0, ridge + 0.3, 0, w + 0.9, 0.2, 0.4, C("#8a2a20"));
+  // Clock gable over the front door.
+  box(m, f, 0, eave + 0.9, d / 2 + 0.3, 1.6, 1.6, 0.4, C("#e7c99a"));
+  m.cylinder(f.m(0, eave + 0.9, d / 2 + 0.52, 0.55, 0.06, 0.55, 0, Math.PI / 2, 0), WHITE, 16);
+  box(m, f, 0, eave + 1.02, d / 2 + 0.56, 0.05, 0.3, 0.03, IRON);
+  box(m, f, 0.1, eave + 0.9, d / 2 + 0.56, 0.22, 0.05, 0.03, IRON);
+  // Platform toward the railway (behind the depot) with a canopy on iron posts.
+  box(m, f, 0, 0.3, -d / 2 - 2.6, w + 8, 0.6, 4.2, STONE_LIGHT);
+  box(m, f, 0, 0.62, -d / 2 - 4.55, w + 8, 0.06, 0.3, C("#f5c242"));
+  for (let i = 0; i <= 5; i++) box(m, f, -w / 2 - 3.5 + (i * (w + 7)) / 5, 2.0, -d / 2 - 3.2, 0.14, 2.8, 0.14, C("#2f5a3a"));
+  box(m, f, 0, 3.45, -d / 2 - 2.6, w + 8, 0.14, 3.6, C("#2f5a3a"), 0, -0.08, 0);
+  // Name board and lanterns.
+  box(m, f, 0, 2.7, -d / 2 - 3.2, 3.6, 0.6, 0.1, C("#2f5a3a"));
+  box(m, f, 0, 2.7, -d / 2 - 3.27, 3.3, 0.4, 0.04, WHITE);
+  for (const x of [-w / 2 - 2, w / 2 + 2]) glow.sphere(f.m(x, 3.0, -d / 2 - 3.2, 0.2, 0.26, 0.2), C("#ffe2a0"), 4, 6);
+  // Luggage trolley.
+  const p = f.p(w / 2 + 2.5, 0, d / 2 + 1.4);
+  box(m, new Frame(p[0], f.y, p[2], f.ry), 0, 0.5, 0, 1.4, 0.1, 0.8, TIMBER_LIGHT);
+  for (let i = 0; i < 2; i++) box(m, new Frame(p[0], f.y, p[2], f.ry + 0.2 * i), 0, 0.8 + i * 0.4, 0, 0.8 - i * 0.2, 0.4, 0.6, [C("#8a5a34"), C("#3f6b8a")][i]);
+}
+
+/** Gondola base station: a stone-and-timber hut with the big cable wheel. */
+function gondolaBase(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const w = b.w, d = b.d, base = 0.5, eave = 3.2;
+  plinth(m, f, w, d, base, b.seed);
+  box(m, f, 0, (base + eave) / 2, 0, w, eave - base, d, STONE_LIGHT);
+  for (let i = 0; i < 5; i++) box(m, f, -w / 2 + 0.3 + i * ((w - 0.6) / 4), (base + eave) / 2, d / 2 + 0.05, 0.2, eave - base, 0.1, TIMBER);
+  door(m, glow, f, 0, base, d / 2 + 0.08, C("#c8473a"));
+  for (const s of [-1, 1]) windowPane(m, glow, f, s * w * 0.3, base + 1.5, d / 2 + 0.08, 0.9, 0.9);
+  // Open-sided wheel house on top.
+  const top = eave;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(m, f, sx * (w / 2 - 0.3), top + 1.2, sz * (d / 2 - 0.3), 0.3, 2.4, 0.3, TIMBER);
+  box(m, f, 0, top + 2.5, 0, w + 0.6, 0.25, d + 0.6, C("#c8473a"));
+  m.cone(f.m(0, top + 3.2, 0, w * 0.8, 1.2, d * 0.8, Math.PI / 4), C("#c8473a"), 4);
+  m.cylinder(f.m(0, top + 1.0, 0, 2.6, 0.2, 2.6), IRON, 20);
+  m.cylinder(f.m(0, top + 1.0, 0, 0.4, 0.5, 0.4), GOLD, 8);
+  box(m, f, 0, eave + 0.3, d / 2 + 0.2, 3.0, 0.55, 0.1, C("#c8473a"));
+  box(m, f, 0, eave + 0.3, d / 2 + 0.27, 2.7, 0.35, 0.04, WHITE);
+}
+
 /** Shops get their look from their kind. */
 const SHOPS: Partial<Record<TownBuilding["kind"], ShopOpts>> = {
   bakery: { wall: C("#f2d9b0"), awning: [C("#c8473a"), WHITE], sign: C("#c8473a"), icon: icons.bread, storeys: 2, doorCol: C("#8a3b2e") },
@@ -742,6 +835,11 @@ const SHOPS: Partial<Record<TownBuilding["kind"], ShopOpts>> = {
   flowers: { wall: C("#f4c6cf"), awning: [C("#ff7eb3"), WHITE], sign: C("#d2577f"), icon: icons.flower, storeys: 1, doorCol: C("#a77bff") },
   icecream: { wall: C("#c7ecdf"), awning: [C("#ffb3c7"), WHITE], sign: C("#e98aa8"), icon: icons.cone, storeys: 1, doorCol: C("#e98aa8") },
   toys: { wall: C("#f2d27a"), awning: [C("#2f7fb0"), C("#f5c242")], sign: C("#2f7fb0"), icon: icons.toy, storeys: 2, doorCol: C("#2f7fb0") },
+  dyeshop: { wall: C("#d9c4f2"), awning: [C("#a77bff"), C("#ffd166")], sign: C("#7a52c7"), icon: (m: MeshBuilder, fr: Frame) => {
+    m.cylinder(fr.m(0, 0.55, 0, 0.4, 0.4, 0.4), C("#e2483d"), 8);
+    m.cylinder(fr.m(0, 0.77, 0, 0.36, 0.04, 0.36), C("#2fa7a2"), 8);
+    box(m, fr, 0.12, 0.95, 0, 0.06, 0.4, 0.06, TIMBER, 0, 0, -0.4);
+  }, storeys: 1, doorCol: C("#7a52c7") },
   maple: { wall: C("#e3b48a"), awning: [C("#8a2a20"), C("#f2e6c8")], sign: C("#8a2a20"), icon: icons.leaf, storeys: 1, doorCol: C("#8a2a20") },
 };
 
@@ -786,7 +884,18 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
       case "ranger": ranger(t, f, b); break;
       case "tent": tent(t, f, b); break;
       case "ferris": ferrisWheel(t, f, b); break;
+      case "clubhouse": clubhouse(t, f, b); break;
+      case "station": station(t, f, b); break;
+      case "gondola": gondolaBase(t, f, b); break;
     }
+  }
+  // Cottage Lane noticeboard (who lives on the lane, and the week's coziest cabins).
+  {
+    const nb = new Frame(-43.5, heightAt(-43.5, -12), -12, -Math.PI / 2);
+    for (const s2 of [-1, 1]) box(t.body, nb, s2 * 1.1, 1.1, 0, 0.18, 2.2, 0.18, TIMBER);
+    box(t.body, nb, 0, 1.6, 0, 2.4, 1.3, 0.12, TIMBER_LIGHT);
+    box(t.body, nb, 0, 2.35, 0, 2.8, 0.3, 0.5, C("#8a2a20"), 0, 0.1, 0);
+    for (let i = 0; i < 4; i++) box(t.body, nb, -0.7 + (i % 2) * 1.0, 1.85 - Math.floor(i / 2) * 0.55, 0.08, 0.7, 0.4, 0.02, [C("#fff6d8"), C("#cfeef0"), C("#ffd9e6"), C("#e6f4c8")][i]);
   }
   // Open areas: skating pond, campfire circle, fairground lights.
   for (const a of TOWN_AREAS) {
@@ -817,6 +926,49 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
         log(t.body, lf, 0, 0.3, 0, 2.2, 0.28, "x", LOG);
       }
     }
+    if (a.kind === "garden") {
+      // Four raised beds in a picket-fenced community garden, with a tool shed and a water butt.
+      for (let i = 0; i < 4; i++) {
+        const x = a.x + ((i % 2) - 0.5) * 4.2, z = a.z + (Math.floor(i / 2) - 0.5) * 4.2;
+        const bf = new Frame(x, heightAt(x, z), z, 0);
+        for (const s2 of [-1, 1]) {
+          box(t.body, bf, 0, 0.25, s2 * 1.1, 2.6, 0.5, 0.22, LOG_LIGHT);
+          box(t.body, bf, s2 * 1.2, 0.25, 0, 0.22, 0.5, 2.2, LOG_LIGHT);
+        }
+        box(t.body, bf, 0, 0.42, 0, 2.2, 0.1, 2.0, C("#4a3020"));
+      }
+      for (let i = 0; i < 28; i++) {
+        const ang = (i / 28) * Math.PI * 2;
+        if (Math.abs(ang - Math.PI) < 0.25) continue; // gate toward the street
+        const x = a.x + Math.cos(ang) * (a.r + 0.4), z = a.z + Math.sin(ang) * (a.r + 0.4);
+        const pf = new Frame(x, heightAt(x, z), z, -ang);
+        box(t.body, pf, 0, 0.5, 0, 0.12, 1.0, 0.12, WHITE);
+        box(t.body, pf, 0, 0.65, 0, 0.06, 0.08, 1.5, WHITE);
+        box(t.body, pf, 0, 0.35, 0, 0.06, 0.08, 1.5, WHITE);
+      }
+      const sf = new Frame(a.x + 4.6, heightAt(a.x + 4.6, a.z + 4.6), a.z + 4.6, Math.PI * 1.25);
+      box(t.body, sf, 0, 0.9, 0, 1.6, 1.8, 1.2, C("#7fb069"));
+      m2roof(t.body, sf);
+      t.body.cylinder(compose(a.x - 4.8, heightAt(a.x - 4.8, a.z + 4.4) + 0.5, a.z + 4.4, 0, 0, 0, 0.9, 1.0, 0.9), C("#3f6b8a"), 10);
+    }
+    if (a.kind === "balloons") {
+      // Launch meadow: wicker landing mats and a striped windsock.
+      for (let i = 0; i < 3; i++) {
+        const ang = (i / 3) * Math.PI * 2 + 0.3;
+        const x = a.x + Math.cos(ang) * 5, z = a.z + Math.sin(ang) * 5;
+        t.body.cylinder(compose(x, heightAt(x, z) + 0.03, z, 0, 0, 0, 2.6, 0.06, 2.6), C("#c9a46a"), 16);
+      }
+      const wx = a.x - a.r, wz = a.z;
+      t.body.cylinder(compose(wx, heightAt(wx, wz) + 2.2, wz, 0, 0, 0, 0.1, 4.4, 0.1), WHITE, 6);
+      for (let k = 0; k < 4; k++) t.body.cylinder(compose(wx + 0.3 + k * 0.32, heightAt(wx, wz) + 4.2, wz, 0, 0, Math.PI / 2, 0.36 - k * 0.05, 0.32, 0.36 - k * 0.05), k % 2 ? WHITE : C("#e2483d"), 8);
+      bench(t.body, a.x + 2, heightAt(a.x + 2, a.z + a.r - 1), a.z + a.r - 1, 0, 7);
+    }
+    if (a.kind === "golf") {
+      // A practice putting green beside the clubhouse, flag in the cup.
+      t.body.cylinder(compose(a.x, y + 0.05, a.z, 0, 0, 0, a.r * 2, 0.06, a.r * 1.6), C("#7fd27a"), 28);
+      t.body.cylinder(compose(a.x + 1.5, y + 1.2, a.z, 0, 0, 0, 0.05, 2.4, 0.05), WHITE, 5);
+      box(t.body, new Frame(a.x + 1.5, y, a.z, 0), 0.35, 2.2, 0, 0.7, 0.45, 0.03, C("#e2483d"));
+    }
     if (a.kind === "fair") {
       const poles: Vec3[] = [];
       for (let i = 0; i < 6; i++) {
@@ -836,4 +988,8 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
     }
   }
   return t;
+}
+
+function m2roof(m: MeshBuilder, f: Frame) {
+  m.cone(f.m(0, 2.2, 0, 1.4, 0.7, 1.1, Math.PI / 4), C("#8a2a20"), 4);
 }

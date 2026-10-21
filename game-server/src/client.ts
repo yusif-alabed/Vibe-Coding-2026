@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { ChatRateLimiter, type ServerMsg } from "@beaver/shared";
+import { ChatRateLimiter, type HubAct, type PlayerInput, type ServerMsg } from "@beaver/shared";
 import type { PlayerRecord } from "./store";
 
 /** One connected browser. */
@@ -9,6 +9,14 @@ export class Client {
   ry = 0;
   lastMoveAt = Date.now();
   steer = 0;
+  input: PlayerInput = { steer: 0, fwd: 0, press: false };
+  /** Golf round this player is in, if any. */
+  golfId: string | null = null;
+  /** Up the gondola at the summit. */
+  summit = false;
+  /** What they're doing right now (dance, sing, skate…) and since when. */
+  act: HubAct | null = null;
+  groupAt = 0;
   readonly chatLimiter = new ChatRateLimiter();
   /** Where this client currently is. */
   hubId: string | null = null;

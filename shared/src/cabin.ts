@@ -14,6 +14,8 @@ export interface FurnitureDef {
   /** 0 = floor covering (rugs), 1 = furniture. */
   layer: 0 | 1;
   icon: string;
+  season?: "spring" | "summer" | "autumn" | "winter";
+  reward?: boolean;
 }
 
 export const FURNITURE: FurnitureDef[] = [
@@ -32,6 +34,12 @@ export const FURNITURE: FurnitureDef[] = [
   { id: "sled", name: "Toy Toboggan", price: 60, w: 2, d: 1, layer: 1, icon: "🛷" },
   { id: "canoe", name: "Canoe Display", price: 110, w: 3, d: 1, layer: 1, icon: "🛶" },
   { id: "telescope", name: "Stargazing Telescope", price: 95, w: 1, d: 1, layer: 1, icon: "🔭" },
+  // Seasonal pieces (sold only in their season) and earned pieces.
+  { id: "flower_arch", name: "Blossom Arch", price: 85, w: 2, d: 1, layer: 1, icon: "🌸", season: "spring" },
+  { id: "beach_chair", name: "Lakeside Lounger", price: 70, w: 1, d: 2, layer: 1, icon: "🏖️", season: "summer" },
+  { id: "pumpkin_lantern", name: "Pumpkin Lantern", price: 50, w: 1, d: 1, layer: 1, icon: "🎃", season: "autumn" },
+  { id: "snowman", name: "Little Snowbeaver", price: 75, w: 1, d: 1, layer: 1, icon: "⛄", season: "winter" },
+  { id: "fish_trophy", name: "Angler's Trophy", price: 0, w: 1, d: 1, layer: 1, icon: "🏆", reward: true },
 ];
 export const FURNITURE_BY_ID: Record<string, FurnitureDef> = Object.fromEntries(FURNITURE.map((f) => [f.id, f]));
 
@@ -96,9 +104,10 @@ export function validateLayout(input: unknown, counts: Record<string, number>): 
 export type FurniturePurchase = { ok: true; coins: number; counts: Record<string, number> } | { ok: false; reason: "unknown_item" | "not_enough_coins" | "too_many" };
 
 /** Furniture can be bought more than once (up to 6 of each). */
-export function buyFurniture(coins: number, counts: Record<string, number>, id: string): FurniturePurchase {
+export function buyFurniture(coins: number, counts: Record<string, number>, id: string, season?: string): FurniturePurchase {
   const def = FURNITURE_BY_ID[id];
-  if (!def) return { ok: false, reason: "unknown_item" };
+  if (!def || def.reward) return { ok: false, reason: "unknown_item" };
+  if (def.season && season && def.season !== season) return { ok: false, reason: "unknown_item" };
   if ((counts[id] ?? 0) >= 6) return { ok: false, reason: "too_many" };
   if (coins < def.price) return { ok: false, reason: "not_enough_coins" };
   return { ok: true, coins: coins - def.price, counts: { ...counts, [id]: (counts[id] ?? 0) + 1 } };

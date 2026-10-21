@@ -2,6 +2,9 @@ import type { Look } from "./cosmetics";
 import type { RaceSnapshot } from "./race";
 import type { PlacedItem } from "./cabin";
 import type { QuestsWire } from "./progress";
+import type { LifeWire } from "./life";
+import type { MiniGame } from "./minigames";
+import type { Club } from "./golf";
 
 /** Wire protocol between the browser client and the game server (JSON over WebSocket). */
 
@@ -14,6 +17,8 @@ export interface PlayerInfo {
   ry: number;
   /** Stable public player id (for friends); absent for bots. */
   pid?: string;
+  /** Club tag shown on the name tag, e.g. "PIKA". */
+  club?: { tag: string; color: string } | null;
 }
 
 export interface RoomInfo {
@@ -28,13 +33,18 @@ export interface RoomInfo {
 /** The two minigames share one race engine: Toboggan Rush down the mountain and Canoe Dash down the river. */
 export type RaceGame = "toboggan" | "canoe";
 
-export type HubAct = "cocoa" | "soak" | "croissant" | "icecream" | "taffy" | "marshmallow" | "guitar" | "ride" | "skate" | "climb" | "stop";
+export type HubAct =
+  | "cocoa" | "soak" | "croissant" | "icecream" | "taffy" | "marshmallow" | "guitar" | "ride" | "skate" | "climb"
+  | "train" | "balloon" | "dance" | "sing" | "fish" | "stop";
 
 /** Where each cozy activity can be started (the server checks you're there). */
 export const ACT_PLACES: Record<Exclude<HubAct, "stop">, string> = {
   cocoa: "lodge", soak: "hotSpring", croissant: "bakery", icecream: "icecream", taffy: "maple", marshmallow: "camp",
   guitar: "bandstand", ride: "ferris", skate: "rink", climb: "lookout",
+  train: "station", balloon: "balloons", dance: "*", sing: "*", fish: "*",
 };
+/** Group activities: doing these near other beavers doing the same counts as a group activity. */
+export const GROUP_ACTS: HubAct[] = ["dance", "sing", "guitar", "skate"];
 /** Which daily-quest kind an activity counts toward, if any. */
 export const ACT_QUEST: Partial<Record<HubAct, "ride" | "skate" | "treat" | "music">> = {
   croissant: "treat", icecream: "treat", taffy: "treat", marshmallow: "treat", cocoa: "treat", guitar: "music", ride: "ride", skate: "skate",
@@ -79,7 +89,35 @@ export type ClientMsg =
   | { t: "enterCabin" }
   | { t: "visitCabin"; id: string }
   | { t: "leaveCabin" }
-  | { t: "saveCabin"; items: PlacedItem[] };
+  | { t: "saveCabin"; items: PlacedItem[] }
+  // Village life
+  | { t: "fish" }
+  | { t: "spot"; bug: string }
+  | { t: "read" }
+  | { t: "plant"; plot: number; seed: string }
+  | { t: "water"; plot: number }
+  | { t: "harvest"; plot: number }
+  | { t: "sell"; item: string; n: number }
+  | { t: "talk"; npc: string }
+  | { t: "gift"; pid: string; item: string }
+  // Cabins on Cottage Lane
+  | { t: "likeCabin" }
+  | { t: "signGuestbook"; stamp: number }
+  | { t: "neighbours" }
+  // Clubs
+  | { t: "clubCreate"; name: string; color: string }
+  | { t: "clubJoin"; code: string }
+  | { t: "clubLeave" }
+  // Summit
+  | { t: "gondola"; up: boolean }
+  // Minigames and golf
+  | { t: "queueGame"; game: MiniGame }
+  | { t: "input"; steer: number; fwd: number; press: boolean }
+  | { t: "leaderboard"; game: MiniGame | "golf" }
+  | { t: "golfQueue"; holes: number }
+  | { t: "golfShot"; aim: number; power: number; club: Club }
+  | { t: "golfAim"; aim: number; club: Club }
+  | { t: "golfQuit" };
 
 export interface RaceResultWire {
   id: string;
@@ -89,7 +127,15 @@ export interface RaceResultWire {
   finished: boolean;
   time: number | null;
   coins: number;
+  /** Minigame score (pinecones, seconds, hits, logs) when it isn't a race time. */
+  score?: number;
 }
+
+export interface GolfPlayerWire { id: string; name: string; isBot: boolean; look: Look | null; ball: [number, number]; strokes: number[]; done: boolean; quit: boolean }
+
+export interface CabinSocial { likes: number; liked: boolean; guestbook: { name: string; stamp: number; at: number }[] }
+
+export interface LeaderRow { name: string; score: number; me?: boolean }
 
 export type ServerMsg =
   | { t: "welcome"; you: string; token: string; room: RoomInfo; players: PlayerInfo[]; coins: number; owned: string[]; look: Look }
@@ -116,4 +162,21 @@ export type ServerMsg =
   | QuestsWire
   | { t: "pinecones"; day: string; spots: { id: number; x: number; z: number }[]; collected: number[] }
   | { t: "furniture"; counts: Record<string, number> }
-  | { t: "cabin"; owner: string; ownerName: string; items: PlacedItem[]; editable: boolean; look: Look };
+  | { t: "cabin"; owner: string; ownerName: string; items: PlacedItem[]; editable: boolean; look: Look; social?: CabinSocial }
+  | LifeWire
+  | { t: "lifeSay"; text: string; npc?: string; coins?: number; gifts?: string[]; catch?: { fish: string; size: number; record: boolean }; pages?: string[] }
+  | { t: "gift"; from: string; name: string; item: string }
+  | { t: "cabinSocial"; social: CabinSocial }
+  | { t: "neighbours"; list: { id: string; name: string; likes: number; online: boolean; you?: boolean }[]; coziest: { name: string; likes: number }[] }
+  | { t: "club"; club: { code: string; name: string; tag: string; color: string; members: string[] } | null }
+  | { t: "playerClub"; id: string; club: { tag: string; color: string } | null }
+  | { t: "summit"; players: PlayerInfo[] }
+  | { t: "gameStart"; game: MiniGame; seed: number; players: { id: string; name: string; look: Look | null; isBot: boolean }[]; countdownMs: number }
+  | { t: "game"; time: number; s: unknown }
+  | { t: "gameEnd"; game: MiniGame; results: RaceResultWire[]; best?: number }
+  | { t: "leaderboard"; game: MiniGame | "golf"; week: string; rows: LeaderRow[] }
+  | { t: "golfStart"; holes: number[]; players: GolfPlayerWire[] }
+  | { t: "golfShot"; id: string; club: Club; path: number[]; holed: boolean; penalty: boolean; lie: string; strokes: number }
+  | { t: "golfAim"; id: string; aim: number; club: Club }
+  | { t: "golfState"; idx: number; players: GolfPlayerWire[]; nextAt: number }
+  | { t: "golfEnd"; totals: { id: string; name: string; isBot: boolean; total: number; toPar: number; quit: boolean; holes: number; coins: number }[] };

@@ -12,3 +12,7 @@ export * from "./quests";
 export * from "./cabin";
 export * from "./progress";
 export * from "./world";
+export * from "./life";
+export * from "./minigames";
+export * from "./golf";
+export * from "./services";

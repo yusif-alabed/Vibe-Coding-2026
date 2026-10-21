@@ -1,4 +1,4 @@
-import { BRIDGES, fencePosts, FOOTHILLS_R, FOREST_GRID, forestTreeAt, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS, RIVER_LINE, STREETS, TOWN_AREAS, TOWN_PLACES, TRAILS, townClear } from "@beaver/shared";
+import { TRAIN, BRIDGES, fencePosts, FOOTHILLS_R, FOREST_GRID, forestTreeAt, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS, RIVER_LINE, STREETS, TOWN_AREAS, TOWN_PLACES, TRAILS, townClear } from "@beaver/shared";
 import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
@@ -7,6 +7,7 @@ import { bench, canoe, cliff, dock, fencePost, fenceRails, Frame, fountain, gran
 import { buildMountainMesh, type MountainOpts } from "./village/mountains";
 import { buildTown, type FerrisInfo } from "./village/town";
 import { buildNeon } from "./village/neon";
+import { BALLOON_COLORS, buildBalloon, buildGondolaLine, buildRailway, buildTrain, gondolaCabins, trainUnit } from "./village/transport";
 import { boulder, buttercup, daisy, fern, grassTuft, lupine, spruce, stoneBlock } from "./village/nature";
 
 /**
@@ -186,6 +187,9 @@ export interface HubWorld {
   spins: { mesh: GpuMesh; x: number; y: number; z: number; ry: number; speed: number; axis: "z" | "y"; mode: "lit" | "glow" | "beam" }[];
   gondola: GpuMesh;
   ferris: FerrisInfo | null;
+  train: { engine: GpuMesh; car: GpuMesh; lamp: GpuMesh };
+  liftCabin: GpuMesh;
+  balloons: GpuMesh[];
   chimneys: Vec3[];
   fires: Vec3[];
   ground: GpuMesh;
@@ -585,6 +589,7 @@ export function buildHub(r: Renderer): HubWorld {
       const jx = x + (hash2(x, z) - 0.5) * 3.5, jz = z + (hash2(z, x) - 0.5) * 3.5;
       const rr = Math.hypot(jx, jz);
       if (rr > 158 || rr <= HUB.radius + 2) continue;
+      if (Math.abs(rr - TRAIN.r) < 5) continue; // the railway
       if (hash2(jx * 1.3, jz * 0.7) > (rr < 125 ? 0.75 : 0.5)) continue;
       if (riverDist(jx, jz) < 6) continue;
       const h = heightAt(jx, jz);
@@ -745,6 +750,11 @@ export function buildHub(r: Renderer): HubWorld {
   // ------------------------------------------------------------ Mountains, portal, steam
   const mountains = buildMountainMesh({ inner: 152, outer: 720, baseHeight: heightAt, heroAngle: -Math.PI / 2 - 0.12 });
   const town = buildTown(heightAt);
+  const rail = buildRailway(heightAt);
+  const lift = buildGondolaLine(heightAt);
+  const trainM = buildTrain();
+  town.body.merge(rail.body).merge(lift.body);
+  town.glow.merge(rail.glow);
   const neonWire = new MeshBuilder();
   const neon = buildNeon(heightAt, neonWire, { bridgeRails, fountainY: fountainInfo.poolY - 1.3 });
   const portal = new MeshBuilder().torus(compose(0, 0, 0, 0, Math.PI / 2, 0), P.portal, 3, 0.35, 24, 6);
@@ -759,6 +769,9 @@ export function buildHub(r: Renderer): HubWorld {
     spins: town.spins.map((sp) => ({ ...sp, mesh: r.upload(sp.mesh.build()) })),
     gondola: r.upload(town.gondola.build()),
     ferris: town.ferris,
+    train: { engine: r.upload(trainM.engine.build()), car: r.upload(trainM.car.build()), lamp: r.upload(trainM.lamp.build()) },
+    liftCabin: r.upload(lift.cabin.build()),
+    balloons: BALLOON_COLORS.map(([a, b]) => r.upload(buildBalloon(a, b).build())),
     chimneys: town.chimneys,
     fires: town.fires,
     ground: r.upload(ground.build()),
@@ -800,6 +813,13 @@ export function buildHub(r: Renderer): HubWorld {
       { text: "🎡 Fairground", x: 27, y: 16.5, z: 66 },
       { text: "🌲 Ranger Station", x: -8, y: 8, z: 80 },
       { text: "🏕️ Campground", x: -19, y: 4, z: 62 },
+      { text: "⛳ Golf Clubhouse", x: -46, y: 9.5, z: 76 },
+      { text: "🚂 Valley Station", x: 90, y: 8, z: 31 },
+      { text: "🚡 Summit Gondola", x: 18, y: 10, z: -53 },
+      { text: "🎈 Balloon Meadow", x: 52, y: 4, z: -52 },
+      { text: "🥕 Community Garden", x: 56, y: 3, z: 11 },
+      { text: "🎨 Dye Shop", x: -66, y: 9, z: 7.5 },
+      { text: "🏡 Cottage Lane", x: -43.5, y: 3.5, z: -12 },
     ],
   };
 }
@@ -863,6 +883,23 @@ export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
       const p = ferrisSeat(fw, i, time);
       r.draw(w.gondola, compose(p[0], p[1], p[2], fw.ry), { cut: true });
     }
+  }
+  // The valley train (on the shared timetable, so everyone sees it in the same place).
+  const now = Date.now();
+  for (let which = 0; which < TRAIN.trains; which++) {
+    for (let k = 0; k <= TRAIN.cars; k++) {
+      const u = trainUnit(k, now, which);
+      if (heightAt(u.x, u.z) > u.y + 3) continue; // in the tunnel
+      r.draw(k === 0 ? w.train.engine : w.train.car, compose(u.x, u.y, u.z, u.yaw), { cut: true });
+      if (k === 0) r.draw(w.train.lamp, compose(u.x, u.y, u.z, u.yaw), { unlit: true, emissive: 0.4 + night });
+    }
+  }
+  for (const c of gondolaCabins(time)) r.draw(w.liftCabin, compose(c.p[0], c.p[1], c.p[2], c.yaw), { cut: true });
+  // Tethered hot-air balloons bobbing on the meadow.
+  for (let i = 0; i < 3; i++) {
+    const ang = (i / 3) * Math.PI * 2 + 0.3;
+    const bx = TOWN_PLACES.balloons.x + Math.cos(ang) * 5, bz = TOWN_PLACES.balloons.z + Math.sin(ang) * 5;
+    r.draw(w.balloons[i], compose(bx, heightAt(bx, bz) + 0.05 + Math.max(0, Math.sin(time * 0.5 + i * 2)) * 0.25, bz, time * 0.03 + i, 0, Math.sin(time * 0.7 + i) * 0.02), { cut: true });
   }
   const pulse = 1 + Math.sin(time * 3) * 0.05;
   r.draw(w.portal, compose(PL.trailhead.x, heightAt(PL.trailhead.x, PL.trailhead.z) + 3.3, PL.trailhead.z, 0, 0, time * 0.8, pulse), { unlit: true, emissive: 0.3 });

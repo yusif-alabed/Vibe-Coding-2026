@@ -34,7 +34,8 @@ export class HubRoom {
   }
 
   playerInfo(c: Client): PlayerInfo {
-    return { id: c.id, name: c.name, look: c.record.look, x: c.x, z: c.z, ry: c.ry, pid: c.record.pid };
+    const club = c.record.club ? { tag: c.record.club.tag, color: c.record.club.color } : null;
+    return { id: c.id, name: c.name, look: c.record.look, x: c.x, z: c.z, ry: c.ry, pid: c.record.pid, club };
   }
 
   add(c: Client, spawn?: { x: number; z: number }): void {
@@ -61,6 +62,7 @@ export class HubRoom {
   remove(c: Client): void {
     if (!this.clients.delete(c.id)) return;
     c.hubId = null;
+    c.act = null;
     this.broadcast({ t: "left", id: c.id });
   }
 
@@ -105,6 +107,7 @@ export class HubRoom {
   }
 
   act(c: Client, a: HubAct): void {
+    c.act = a === "stop" ? null : a;
     this.broadcast({ t: "act", id: c.id, a });
   }
 

@@ -10,6 +10,10 @@ import { applyMood, currentMood, drawWeather } from "./game/weather";
 import { applyVillageLight, buildHub, drawHub, heightAt, type HubWorld } from "./game/hubWorld";
 import { Input } from "./game/input";
 import { RaceScene } from "./game/raceScene";
+import { ArcadeScene } from "./game/arcadeScene";
+import { GolfScene } from "./game/golfScene";
+import { SummitScene } from "./game/summitScene";
+import { giftToast } from "./ui/life";
 import type { Ctx, Scene } from "./game/scene";
 import { OfflineNet } from "./net/offline";
 import { OnlineNet, type Net } from "./net/net";
@@ -57,11 +61,17 @@ const input = new Input(canvas);
 const sound = new Sound();
 const prefs = loadPrefs();
 renderer.quality = prefs.graphics;
+/** Comfort settings that apply to the whole page. */
+export function applyComfort() {
+  document.body.classList.toggle("big-text", prefs.textSize === "large");
+}
+applyComfort();
 const buildStart = performance.now();
 const hub: HubWorld = buildHub(renderer);
 const buildMs = Math.round(performance.now() - buildStart);
 
 let scene: Scene | null = null;
+let friendInviteSent = false;
 let ctx: Ctx | null = null;
 let titleEl: HTMLElement | null = null;
 const titleLook: Look = { ...DEFAULT_LOOK, fur: storageGet("bb-fur") ?? DEFAULT_LOOK.fur };
@@ -73,13 +83,17 @@ function showTitle() {
     h("div.swatch.pe" + (c === titleLook.fur ? ".on" : ""), { style: { background: c }, title: "Fur colour", onclick: () => { titleLook.fur = c; drawSwatches(); } }),
   ));
   drawSwatches();
-  const code = h("input.field.pe", { placeholder: "Cabin code", maxLength: 5, style: "text-transform:uppercase" }) as HTMLInputElement;
+  const code = h("input.field.pe", { placeholder: "Cabin code", maxLength: 5, style: "text-transform:uppercase", value: (params.get("room") ?? "").toUpperCase().slice(0, 5) }) as HTMLInputElement;
+  const invitedRoom = params.get("room");
+  const invitedFriend = params.get("friend");
   const recovery = h("input.field.pe", { placeholder: "Recovery code (from your other device)", maxLength: 12, style: "text-transform:uppercase" }) as HTMLInputElement;
   const go = (room?: string) => start(name.value, room, recovery.value.trim() || undefined);
   name.addEventListener("keydown", (e) => { if (e.key === "Enter") go("public"); });
 
   const buttons = serverUrl
     ? [
+        invitedRoom ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom.toUpperCase()) }, `🎉 Join your friend's cabin ${invitedRoom.toUpperCase()}`) : null,
+        invitedFriend ? h("div.hint", { style: "margin:0" }, "👋 A friend invited you! Play online and you'll get a friend request to them.") : null,
         h("button.btn.orange.pe", { onclick: () => go("public") }, "🏔️ Play online"),
         h("div.row", {}, [
           h("button.btn.pe", { style: "flex:1", onclick: () => go("private-new") }, "🏡 New private cabin"),
@@ -126,7 +140,7 @@ function start(rawName: string, room?: string, recovery?: string) {
   const net: Net = room && serverUrl ? new OnlineNet(serverUrl) : new OfflineNet();
   ctx = {
     r: renderer, input, net, ui, sound, prefs,
-    state: { you: "", name, coins: 0, owned: [], look: titleLook, furniture: {}, quests: null, account: null, friends: [], party: { leader: null, members: [] } },
+    state: { you: "", name, coins: 0, owned: [], look: titleLook, furniture: {}, quests: null, account: null, friends: [], party: { leader: null, members: [] }, life: null, club: null, neighbours: null, leaderboard: null },
   };
   titleEl?.remove();
   titleEl = null;
@@ -152,6 +166,35 @@ function start(rawName: string, room?: string, recovery?: string) {
     if (m.t === "account") {
       ctx.state.account = { pid: m.pid, friendCode: m.friendCode, recoveryCode: m.recoveryCode };
       storageSet("bb-recovery", m.recoveryCode);
+      // Opened from a friend's invite link: send them a friend request straight away.
+      const inviteFriend = params.get("friend");
+      if (inviteFriend && inviteFriend.toUpperCase() !== m.friendCode && !friendInviteSent) {
+        friendInviteSent = true;
+        ctx.net.send({ t: "friendRequest", code: inviteFriend });
+      }
+    }
+    if (m.t === "life") ctx.state.life = m;
+    if (m.t === "club") ctx.state.club = m.club;
+    if (m.t === "neighbours") ctx.state.neighbours = { list: m.list, coziest: m.coziest };
+    if (m.t === "leaderboard") ctx.state.leaderboard = { game: m.game, week: m.week, rows: m.rows };
+    if (m.t === "gift") giftToast(ui, m.name, m.item);
+    if (m.t === "gameStart") {
+      scene?.dispose();
+      scene = new ArcadeScene(ctx, m);
+      sound.setMode("race");
+      return;
+    }
+    if (m.t === "golfStart") {
+      scene?.dispose();
+      scene = new GolfScene(ctx, m);
+      sound.setMode("village");
+      return;
+    }
+    if (m.t === "summit") {
+      scene?.dispose();
+      scene = new SummitScene(ctx, m);
+      sound.setMode("village");
+      return;
     }
     if (m.t === "friends") ctx.state.friends = m.list;
     if (m.t === "party") ctx.state.party = { leader: m.leader, members: m.members };

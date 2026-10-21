@@ -198,6 +198,23 @@ export class CabinScene implements Scene {
   private photo: PhotoMode;
   private night = 0;
   private windowTint: [number, number, number, number] = [0, 0, 0, 0];
+  private socialEl!: HTMLElement;
+  private social = { likes: 0, liked: false, guestbook: [] as { name: string; stamp: number; at: number }[] };
+
+  /** ❤️ likes and the guestbook of stamps visitors leave. */
+  private renderSocial() {
+    const STAMPS = ["🌲", "🦫", "🍁", "⛰️", "☕", "🌸", "⭐", "❤️", "🎈", "🐟", "🦋", "🏡"];
+    const mine = this.msg.editable;
+    const s = this.social;
+    this.socialEl.replaceChildren(...[
+      h("div.row", { style: "justify-content:space-between" }, [
+        h("b", {}, `❤️ ${s.likes} this week`),
+        mine ? null : h("button.btn.small" + (s.liked ? ".cream" : ".red"), { disabled: s.liked, onclick: () => this.ctx.net.send({ t: "likeCabin" }) }, s.liked ? "Liked!" : "❤️ Love it"),
+      ]),
+      h("div.hint", { style: "margin:0" }, `📖 Guestbook: ${s.guestbook.length ? s.guestbook.slice(-10).map((g) => `${STAMPS[g.stamp] ?? "⭐"} ${g.name}`).join(" · ") : "no stamps yet"}`),
+      mine ? null : h("div.row", { style: "flex-wrap:wrap;gap:3px" }, STAMPS.map((st, i) => h("button.btn.small.cream", { title: "Stamp the guestbook", style: "padding:3px 6px", onclick: () => this.ctx.net.send({ t: "signGuestbook", stamp: i }) }, st))),
+    ].filter((x): x is HTMLElement => !!x));
+  }
 
   constructor(private ctx: Ctx, private msg: Extract<ServerMsg, { t: "cabin" }>) {
     this.shell = buildShell(ctx.r);
@@ -220,6 +237,7 @@ export class CabinScene implements Scene {
         h("div.pill", {}, mine ? "🏡 Your cabin" : `🏡 ${msg.ownerName}'s cabin`),
         h("div.row", {}, [h("div.pill.coins", { title: "Coins" }, ["🪙", this.coinsEl])]),
       ]),
+      (this.socialEl = h("div.card.pe", { style: "position:absolute;right:12px;top:calc(70px + env(safe-area-inset-top,0px));padding:8px 12px;max-width:min(300px,70vw);display:grid;gap:6px" })),
       this.hintEl,
       h("div.hud-bottom", {}, [
         h("button.btn.orange.pe", { onclick: () => this.leave() }, "🚪 Back to the village"),
@@ -236,6 +254,8 @@ export class CabinScene implements Scene {
       maxPitch: 1.0,
     });
     this.setHint();
+    if (msg.social) this.social = msg.social;
+    this.renderSocial();
     // Arrive near the door, on the first free spot.
     const spots: [number, number][] = [[0, HALF_D - 1], [-1.2, HALF_D - 1], [1.2, HALF_D - 1], [-2.4, HALF_D - 1], [2.4, HALF_D - 1], [0, HALF_D + 0.2], [-3.6, HALF_D - 1], [3.6, HALF_D - 1]];
     const free = spots.find(([x, z]) => !this.blocked(x, z)) ?? [0, HALF_D + 0.2];
@@ -410,6 +430,13 @@ export class CabinScene implements Scene {
         break;
       case "error":
         toast(this.root, m.text, 3200);
+        break;
+      case "cabinSocial":
+        this.social = m.social;
+        this.renderSocial();
+        break;
+      case "lifeSay":
+        toast(this.root, m.text, 4000);
         break;
     }
   }
