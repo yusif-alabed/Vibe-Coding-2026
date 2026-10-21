@@ -43,9 +43,13 @@ import {
   NAME_MAX,
   PORTAL_RADIUS,
   purchase,
-  RACE,
+  LOBBY,
+  minPlayers,
   sanitizeLook,
+  validateMoveIn,
+  WORD_INFO,
   type ClientMsg,
+  type LobbyWire,
   type RaceGame,
 } from "@beaver/shared";
 import { Client } from "./client";
@@ -53,25 +57,31 @@ import { HubRoom } from "./rooms/HubRoom";
 import { RaceRoom } from "./rooms/RaceRoom";
 import { GolfRoom } from "./rooms/GolfRoom";
 import { WordRoom } from "./rooms/WordRoom";
+import { Space } from "./rooms/Space";
 import { PlayerStore, type PlayerRecord } from "./store";
 
 const CLUB_COLORS = ["#e2483d", "#2fa7a2", "#f5c242", "#a77bff", "#ff7eb3", "#4c8cff", "#6fbf4a", "#ff9a3c"];
-const GOLF_WAIT_MS = 8000;
-/** How long players at the Lodge door wait for each other before the bots fill in. */
-const WORD_WAIT_MS = 6000;
+/** Where you step off the gondola at the summit, and how far the plateau reaches. */
+const SUMMIT_ARRIVAL = { x: -15, z: 16, ry: Math.PI };
+const SUMMIT_RADIUS = 34;
+/** Cabins are small: anything further than this from the middle is outside the walls. */
+const CABIN_RADIUS = 12;
+const CABIN_DOOR = { x: 0, z: 4.6 };
 
-interface GolfQueue { key: string; hubId: string; holes: number; players: Client[]; timer: NodeJS.Timeout; startsAt: number }
-
-interface WordQueue { key: string; hubId: string; game: WordGame; players: Client[]; timer: NodeJS.Timeout; startsAt: number }
-
-interface Queue {
-  hubId: string;
+/**
+ * Real players waiting for a round. There are no bots online, so a lobby waits for company:
+ * the countdown starts when a second beaver joins, and a full lobby starts straight away.
+ * Anyone in it can start early (or play alone, where the game allows it).
+ */
+type Lobby = {
   key: string;
-  game: MiniGame;
+  hubId: string;
   players: Client[];
-  timer: NodeJS.Timeout;
-  startsAt: number;
-}
+  size: number;
+  min: number;
+  timer: NodeJS.Timeout | null;
+  startsAt: number | null;
+} & ({ kind: "mini"; game: MiniGame } | { kind: "golf"; holes: number } | { kind: "word"; game: WordGame });
 
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -90,10 +100,10 @@ export class GameServer {
   readonly hubs = new Map<string, HubRoom>();
   readonly races = new Map<string, RaceRoom>();
   readonly golfs = new Map<string, GolfRoom>();
-  private golfQueues = new Map<string, GolfQueue>();
   readonly words = new Map<string, WordRoom>();
-  private wordQueues = new Map<string, WordQueue>();
-  private queues = new Map<string, Queue>();
+  readonly lobbies = new Map<string, Lobby>();
+  /** The summits and the cabins with someone in them. */
+  readonly spaces = new Map<string, Space>();
   private clients = new Map<WebSocket, Client>();
   private wss: WebSocketServer;
   private publicCount = 0;
@@ -168,9 +178,14 @@ export class GameServer {
   private handle(c: Client, msg: ClientMsg): void {
     const hub = c.hubId ? this.hubs.get(c.hubId) : undefined;
     const race = c.raceId ? this.races.get(c.raceId) : undefined;
+    /** Wherever beavers can see each other: the village, the summit, a cabin. */
+    const here: Space | undefined = hub ?? (c.spaceId ? this.spaces.get(c.spaceId) : undefined);
     switch (msg.t) {
       case "move": {
-        if (!hub) break;
+        if (!hub) {
+          here?.move(c, Number(msg.x), Number(msg.z), Number(msg.ry));
+          break;
+        }
         hub.move(c, Number(msg.x), Number(msg.z), Number(msg.ry));
         const place = visitedPlace(c.x, c.z);
         if (place && place !== c.lastVisit) this.sendAll(c, recordVisit(c.record, c.record.token, place));
@@ -178,16 +193,16 @@ export class GameServer {
         break;
       }
       case "chat":
-        hub?.chat(c, msg.text);
+        here?.chat(c, msg.text);
         break;
       case "quick":
-        if (!hub) break;
-        hub.quick(c, Number(msg.i));
+        if (!here) break;
+        here.quick(c, Number(msg.i));
         this.progress(c, { kind: "quickchat" });
         break;
       case "emote":
-        if (!hub) break;
-        hub.emote(c, Number(msg.i));
+        if (!here) break;
+        here.emote(c, Number(msg.i));
         this.progress(c, { kind: "emote" });
         break;
       case "act": {
@@ -204,7 +219,7 @@ export class GameServer {
       }
       case "look":
         c.record.look = sanitizeLook(msg.look, c.record.owned, c.record.look.fur);
-        hub?.updateLook(c);
+        here?.updateLook(c);
         break;
       case "buy": {
         const item = CATALOG_BY_ID[String(msg.item)];
@@ -222,10 +237,19 @@ export class GameServer {
         break;
       }
       case "queueRace":
-        if (hub) this.enqueue(c, hub, msg.game === "canoe" ? "canoe" : "toboggan");
+        if (hub) this.queueMini(c, hub, msg.game === "canoe" ? "canoe" : "toboggan");
         break;
       case "queueGame":
-        if (hub && String(msg.game) in ARCADE_INFO) this.enqueue(c, hub, msg.game);
+        if (hub && Object.hasOwn(ARCADE_INFO, String(msg.game))) this.queueMini(c, hub, msg.game);
+        break;
+      case "lobbyStart":
+        this.startLobbyNow(c);
+        break;
+      case "lobbyJoin":
+        if (hub) this.joinOpenLobby(c, hub, String(msg.key));
+        break;
+      case "lobbyLeave":
+        this.leaveLobby(c);
         break;
       case "input":
         race?.input(c, Number(msg.steer), Number(msg.fwd), !!msg.press);
@@ -234,10 +258,10 @@ export class GameServer {
         this.sendLeaderboard(c, msg.game);
         break;
       case "golfQueue":
-        if (hub) this.golfQueue(c, hub, Number(msg.holes));
+        if (hub) this.queueGolf(c, hub, Number(msg.holes));
         break;
       case "queueWord":
-        if (hub && isWordGame(msg.game)) this.wordQueue(c, hub, msg.game);
+        if (hub && isWordGame(msg.game)) this.queueWord(c, hub, msg.game);
         break;
       case "wordAct": {
         const w = c.wordId ? this.words.get(c.wordId) : undefined;
@@ -251,7 +275,7 @@ export class GameServer {
       case "wordQuit": {
         const w = c.wordId ? this.words.get(c.wordId) : undefined;
         if (w) w.quit(c);
-        else this.dequeueWord(c);
+        else this.leaveLobby(c);
         break;
       }
       case "golfShot": {
@@ -267,7 +291,7 @@ export class GameServer {
       case "golfQuit": {
         const g = c.golfId ? this.golfs.get(c.golfId) : undefined;
         if (g) { g.quit(c); this.later(() => this.backToVillage(c, g.hubId), 2500); }
-        else this.dequeueGolf(c);
+        else this.leaveLobby(c);
         break;
       }
       case "fish": case "spot": case "read": case "plant": case "water": case "harvest": case "sell": case "talk": {
@@ -295,7 +319,7 @@ export class GameServer {
         this.gondola(c, !!msg.up);
         break;
       case "leaveQueue":
-        this.dequeue(c);
+        this.leaveLobby(c);
         break;
       case "steer":
         race?.steer(c, Number(msg.v));
@@ -379,18 +403,23 @@ export class GameServer {
       }
       case "enterCabin":
       case "visitCabin": {
-        if (!hub || c.queued) break;
+        if (!hub) break;
         const owner = msg.t === "enterCabin" ? c : [...this.clients.values()].find((o) => o.id === String(msg.id));
         if (!owner) {
           c.send({ t: "error", text: "That beaver isn't online right now." });
           break;
         }
+        this.leaveLobby(c);
         c.returnHubId = hub.info.id;
         c.returnPos = { x: c.x, z: c.z };
         hub.remove(c);
         c.cabinOf = owner.id;
+        // Cabins are shared: everyone inside sees everyone else walking about.
+        const cabin = this.space(`cabin:${owner.id}`, CABIN_RADIUS);
+        cabin.enter(c, CABIN_DOOR);
+        c.spaceId = cabin.id;
         c.send({ t: "furniture", counts: c.record.furniture });
-        c.send({ t: "cabin", owner: owner.id, ownerName: owner.name, items: owner.record.cabin, editable: owner === c, look: owner.record.look, social: this.socialOf(owner.record, c) });
+        c.send({ t: "cabin", owner: owner.id, ownerName: owner.name, items: owner.record.cabin, editable: owner === c, look: owner.record.look, social: this.socialOf(owner.record, c), players: cabin.others(c) });
         break;
       }
       case "saveCabin": {
@@ -403,11 +432,16 @@ export class GameServer {
         }
         c.record.cabin = r.items;
         if (r.items.length > 0) this.progress(c, { kind: "decorate" });
+        // Visitors watch the room change as you decorate.
+        const cabin = this.spaces.get(`cabin:${c.id}`);
+        for (const o of cabin?.clients.values() ?? []) {
+          if (o !== c) o.send({ t: "cabin", owner: c.id, ownerName: c.name, items: r.items, editable: false, look: c.record.look, social: this.socialOf(c.record, o) });
+        }
         break;
       }
       case "leaveCabin": {
         if (!c.cabinOf) break;
-        c.cabinOf = null;
+        this.leaveSpace(c);
         const back = (c.returnHubId && this.hubs.get(c.returnHubId)) || this.publicHub();
         this.joinHub(c, back.full ? this.publicHub() : back, c.returnPos ?? undefined);
         break;
@@ -500,11 +534,9 @@ export class GameServer {
     const hub = oc?.hubId ? this.hubs.get(oc.hubId) : undefined;
     if (!oc || !hub) { c.send({ t: "error", text: "You can't join them right now." }); return; }
     if (hub.full) { c.send({ t: "error", text: "That village is full." }); return; }
-    if (c.raceId || c.golfId) return;
-    this.dequeue(c);
-    this.dequeueGolf(c);
-    if (c.cabinOf) c.cabinOf = null;
-    c.summit = false;
+    if (c.raceId || c.golfId || c.wordId) return;
+    this.leaveLobby(c);
+    this.leaveSpace(c);
     const cur = c.hubId ? this.hubs.get(c.hubId) : undefined;
     if (cur === hub) return;
     cur?.remove(c);
@@ -586,6 +618,7 @@ export class GameServer {
     c.send({ t: "furniture", counts: c.record.furniture });
     c.send(lifeWire(c.record));
     c.send({ t: "club", club: this.clubWire(c.record) });
+    c.send({ t: "lobbies", list: this.lobbiesIn(hub.info.id) });
   }
 
   private sendAll(c: Client, msgs: import("@beaver/shared").ServerMsg[]): void {
@@ -700,15 +733,20 @@ export class GameServer {
   private gondola(c: Client, up: boolean): void {
     if (up) {
       const hub = c.hubId ? this.hubs.get(c.hubId) : undefined;
-      if (!hub || c.queued || Math.hypot(c.x - TOWN_PLACES.gondola.x, c.z - TOWN_PLACES.gondola.z) > 9) return;
+      if (!hub || Math.hypot(c.x - TOWN_PLACES.gondola.x, c.z - TOWN_PLACES.gondola.z) > 9) return;
       c.returnHubId = hub.info.id;
+      this.leaveLobby(c);
       hub.remove(c);
       c.summit = true;
-      c.send({ t: "summit", players: [] });
+      // One summit per village, so the beavers you rode up with are there too.
+      const top = this.space(`summit:${hub.info.id}`, SUMMIT_RADIUS);
+      top.enter(c, SUMMIT_ARRIVAL);
+      c.spaceId = top.id;
+      c.send({ t: "summit", players: top.others(c) });
       this.sendAll(c, recordVisit(c.record, c.record.token, "summit"));
       this.notifyFriends(c);
     } else if (c.summit) {
-      c.summit = false;
+      this.leaveSpace(c);
       const back = (c.returnHubId && this.hubs.get(c.returnHubId)) || this.publicHub();
       this.joinHub(c, back.full ? this.publicHub() : back, { x: TOWN_PLACES.gondola.x + 2, z: TOWN_PLACES.gondola.z + 3 });
       this.notifyFriends(c);
@@ -723,126 +761,220 @@ export class GameServer {
     c.send({ t: "leaderboard", game, week: weekKey(), rows });
   }
 
-  private golfQueue(c: Client, hub: HubRoom, holes: number): void {
-    if (c.queued || c.raceId || c.golfId) return;
-    if (Math.hypot(c.x - TOWN_PLACES.clubhouse.x, c.z - TOWN_PLACES.clubhouse.z) > 10) {
+  // ------------------------------------------------------------------ Lobbies
+  //
+  // Every round online is real players only. Walking up to a game opens (or joins) a lobby for
+  // it in your village; everyone else in the village can see who's waiting and hop in from
+  // anywhere. Party leaders bring their party along.
+
+  /** Toboggan Rush, Canoe Dash and the four arcade games. */
+  private queueMini(c: Client, hub: HubRoom, game: MiniGame): void {
+    const spotName = GAME_SPOTS[game];
+    const spot = (HUB_PLACES as Record<string, { x: number; z: number }>)[spotName] ?? (TOWN_PLACES as Record<string, { x: number; z: number }>)[spotName];
+    const reach = game === "toboggan" ? PORTAL_RADIUS + 2 : game === "canoe" ? 7 : 11;
+    const key = `${hub.info.id}:${game}`;
+    if (!this.lobbies.has(key) && (!spot || Math.hypot(c.x - spot.x, c.z - spot.z) > reach)) {
+      c.send({ t: "error", text: game === "canoe" ? "Walk to the Lake Dock to join the Canoe Dash!" : game === "toboggan" ? "Walk to the trailhead portal to join the race!" : `Walk over to play ${ARCADE_INFO[game].name}!` });
+      return;
+    }
+    this.joinLobby(c, hub, key, () => ({ kind: "mini", game, min: minPlayers(game) }));
+  }
+
+  private queueGolf(c: Client, hub: HubRoom, holes: number): void {
+    const n = Math.max(1, Math.min(9, Math.floor(holes) || 9));
+    const key = `${hub.info.id}:golf:${n}`;
+    if (!this.lobbies.has(key) && Math.hypot(c.x - TOWN_PLACES.clubhouse.x, c.z - TOWN_PLACES.clubhouse.z) > 10) {
       c.send({ t: "error", text: "Walk to the golf clubhouse to tee off!" });
       return;
     }
-    const n = Math.max(1, Math.min(9, Math.floor(holes) || 9));
-    const key = `${hub.info.id}:golf:${n}`;
-    let q = this.golfQueues.get(key);
-    if (!q) {
-      q = { key, hubId: hub.info.id, holes: n, players: [], startsAt: Date.now() + GOLF_WAIT_MS, timer: setTimeout(() => this.startGolf(key), GOLF_WAIT_MS) };
-      this.golfQueues.set(key, q);
-    }
-    const group = [c, ...this.partyMates(c).filter((m) => m.hubId === hub.info.id && !m.queued && !m.raceId && !m.golfId)];
-    for (const m of group) {
-      if (q.players.length >= 4) break;
-      q.players.push(m);
-      m.queued = true;
-    }
-    for (const p of q.players) p.send({ t: "queue", count: q.players.length, size: 4, startsInMs: Math.max(0, q.startsAt - Date.now()) });
-    if (q.players.length >= 4) this.startGolf(key);
+    this.joinLobby(c, hub, key, () => ({ kind: "golf", holes: n, min: 1 }));
   }
 
-  private dequeueGolf(c: Client): void {
-    for (const q of this.golfQueues.values()) {
-      const i = q.players.indexOf(c);
-      if (i < 0) continue;
-      q.players.splice(i, 1);
-      c.queued = false;
-      if (q.players.length === 0) { clearTimeout(q.timer); this.golfQueues.delete(q.key); }
+  private queueWord(c: Client, hub: HubRoom, game: WordGame): void {
+    if (!isWordGame(game)) return;
+    const key = `${hub.info.id}:word:${game}`;
+    if (!this.lobbies.has(key) && Math.hypot(c.x - TOWN_PLACES.wordlodge.x, c.z - TOWN_PLACES.wordlodge.z) > 9) {
+      c.send({ t: "error", text: "Walk up Library Lane to the Word Lodge first!" });
+      return;
     }
+    this.joinLobby(c, hub, key, () => ({ kind: "word", game, min: 1 }));
   }
 
-  private startGolf(key: string): void {
-    const q = this.golfQueues.get(key);
-    if (!q) return;
-    clearTimeout(q.timer);
-    this.golfQueues.delete(key);
-    if (q.players.length === 0) return;
-    const hub = this.hubs.get(q.hubId);
-    for (const p of q.players) { p.queued = false; hub?.remove(p); }
+  /** Hop into a lobby someone else opened, from anywhere in the village. */
+  private joinOpenLobby(c: Client, hub: HubRoom, key: string): void {
+    const l = this.lobbies.get(key);
+    if (!l || l.hubId !== hub.info.id) { c.send({ t: "error", text: "That game has already started." }); return; }
+    this.joinLobby(c, hub, key, () => l);
+  }
+
+  private joinLobby(c: Client, hub: HubRoom, key: string, make: () => Pick<Lobby, "min"> & ({ kind: "mini"; game: MiniGame } | { kind: "golf"; holes: number } | { kind: "word"; game: WordGame })): void {
+    if (c.raceId || c.golfId || c.wordId) return;
+    if (c.lobbyKey === key) return;
+    this.leaveLobby(c);
+    let l = this.lobbies.get(key);
+    if (!l) {
+      l = { ...make(), key, hubId: hub.info.id, players: [], size: LOBBY.size, timer: null, startsAt: null } as Lobby;
+      this.lobbies.set(key, l);
+    }
+    if (l.players.length >= l.size) { c.send({ t: "error", text: "That game is full — the next one opens as soon as it starts." }); return; }
+    const free = (m: Client) => m.hubId === hub.info.id && !m.queued && !m.raceId && !m.golfId && !m.wordId;
+    for (const m of [c, ...this.partyMates(c).filter(free)]) {
+      if (l.players.length >= l.size) break;
+      l.players.push(m);
+      m.lobbyKey = key;
+    }
+    this.lobbyChanged(l);
+  }
+
+  private leaveLobby(c: Client): void {
+    const l = c.lobbyKey ? this.lobbies.get(c.lobbyKey) : undefined;
+    c.lobbyKey = null;
+    if (!l) return;
+    l.players = l.players.filter((p) => p !== c);
+    c.send({ t: "queue", lobby: null });
+    this.lobbyChanged(l);
+  }
+
+  /** "Start now", or "Play alone" when you're the only one there. */
+  private startLobbyNow(c: Client): void {
+    const l = c.lobbyKey ? this.lobbies.get(c.lobbyKey) : undefined;
+    if (!l) return;
+    if (l.players.length < l.min) { c.send({ t: "error", text: "This one needs at least two beavers — hang on for someone to join!" }); return; }
+    this.launch(l);
+  }
+
+  /** Starts, schedules or cancels the countdown, and tells everyone who's waiting. */
+  private lobbyChanged(l: Lobby): void {
+    if (l.players.length === 0) {
+      if (l.timer) clearTimeout(l.timer);
+      this.lobbies.delete(l.key);
+      this.announceLobbies(l.hubId);
+      return;
+    }
+    if (l.players.length >= l.size) { this.launch(l); return; }
+    if (l.players.length >= Math.max(2, l.min)) {
+      if (!l.timer) {
+        l.startsAt = Date.now() + LOBBY.countdownMs;
+        l.timer = setTimeout(() => this.launch(l), LOBBY.countdownMs);
+      }
+    } else if (l.timer) {
+      // The only other beaver left: wait for company again.
+      clearTimeout(l.timer);
+      l.timer = null;
+      l.startsAt = null;
+    }
+    const wire = this.lobbyWire(l);
+    for (const p of l.players) p.send({ t: "queue", lobby: wire });
+    this.announceLobbies(l.hubId);
+  }
+
+  private lobbyWire(l: Lobby): LobbyWire {
+    const info = l.kind === "mini" ? ARCADE_INFO[l.game] : l.kind === "word" ? WORD_INFO[l.game] : null;
+    return {
+      key: l.key,
+      kind: l.kind,
+      game: l.kind === "golf" ? "golf" : l.game,
+      title: l.kind === "golf" ? `Golf · ${l.holes} hole${l.holes > 1 ? "s" : ""}` : info!.name,
+      icon: info ? info.icon : "⛳",
+      count: l.players.length,
+      size: l.size,
+      min: l.min,
+      names: l.players.map((p) => p.name),
+      startsInMs: l.startsAt === null ? null : Math.max(0, l.startsAt - Date.now()),
+    };
+  }
+
+  private lobbiesIn(hubId: string): LobbyWire[] {
+    return [...this.lobbies.values()].filter((l) => l.hubId === hubId).map((l) => this.lobbyWire(l));
+  }
+
+  private announceLobbies(hubId: string): void {
+    this.hubs.get(hubId)?.broadcast({ t: "lobbies", list: this.lobbiesIn(hubId) });
+  }
+
+  /** Moves everyone in the lobby out of the village and into their round. */
+  private launch(l: Lobby): void {
+    if (this.lobbies.get(l.key) !== l) return;
+    if (l.timer) clearTimeout(l.timer);
+    this.lobbies.delete(l.key);
+    const players = l.players.filter((p) => this.isConnected(p) && p.hubId === l.hubId);
+    for (const p of l.players) p.lobbyKey = null;
+    const hub = this.hubs.get(l.hubId);
+    for (const p of players) hub?.remove(p);
+    this.announceLobbies(l.hubId);
+    if (players.length === 0) return;
+    const seed = randomInt(1, 2 ** 31);
+    if (l.kind === "mini") this.startRace(players, l.hubId, l.game, seed);
+    else if (l.kind === "golf") this.startGolf(players, l.hubId, l.holes, seed);
+    else this.startWord(players, l.hubId, l.game, seed);
+  }
+
+  private startRace(players: Client[], hubId: string, game: MiniGame, seed: number): void {
+    const id = `race-${randomBytes(4).toString("hex")}`;
+    const room = new RaceRoom(id, players, seed, (r) => this.endRace(r, hubId), game);
+    this.races.set(id, room);
+  }
+
+  private startGolf(players: Client[], hubId: string, holes: number, seed: number): void {
     const id = `golf-${randomBytes(4).toString("hex")}`;
-    const room = new GolfRoom(id, q.players, q.holes, randomInt(1, 2 ** 31), (r, totals) => {
+    const room = new GolfRoom(id, players, holes, seed, (r, totals) => {
       this.golfs.delete(r.id);
       for (const t of totals) {
         const cl = r.players.find((p) => p.id === t.id) ?? [...this.clients.values()].find((p) => p.id === t.id);
         if (!cl || t.isBot || t.holes === 0) continue;
         if (t.holes === r.match.holes.length && !t.quit) recordBest(cl.record, "golf", t.toPar);
       }
-      for (const p of r.players) this.later(() => this.backToVillage(p, q.hubId), 6000);
+      for (const p of r.players) this.later(() => this.backToVillage(p, hubId), 6000);
     });
-    room.hubId = q.hubId;
+    room.hubId = hubId;
     this.golfs.set(id, room);
     // Count a golf quest as soon as you finish your first hole.
-    room.onHole = (pid) => { const cl = q.players.find((p) => p.id === pid); if (cl) this.progress(cl, { kind: "golf" }); };
+    room.onHole = (pid) => { const cl = players.find((p) => p.id === pid); if (cl) this.progress(cl, { kind: "golf" }); };
   }
 
-
-  // ---------------------------------------------------------------- The Word Lodge
-
-  /**
-   * Queues for a round at the Lodge. Players who ask for the same game in the same village
-   * wait together for a few seconds, so friends standing at the door end up in one room; the
-   * round then fills the remaining lecterns with bots.
-   */
-  private wordQueue(c: Client, hub: HubRoom, game: WordGame): void {
-    if (c.queued || c.raceId || c.golfId || c.wordId) return;
-    if (!isWordGame(game)) return;
-    if (Math.hypot(c.x - TOWN_PLACES.wordlodge.x, c.z - TOWN_PLACES.wordlodge.z) > 9) {
-      c.send({ t: "error", text: "Walk up Library Lane to the Word Lodge first!" });
-      return;
-    }
-    const key = `${hub.info.id}:word:${game}`;
-    let q = this.wordQueues.get(key);
-    if (!q) {
-      q = { key, hubId: hub.info.id, game, players: [], startsAt: Date.now() + WORD_WAIT_MS, timer: setTimeout(() => this.startWord(key), WORD_WAIT_MS) };
-      this.wordQueues.set(key, q);
-    }
-    const group = [c, ...this.partyMates(c).filter((m) => m.hubId === hub.info.id && !m.queued && !m.raceId && !m.golfId && !m.wordId)];
-    for (const m of group) {
-      if (q.players.length >= 4) break;
-      q.players.push(m);
-      m.queued = true;
-    }
-    for (const p of q.players) p.send({ t: "queue", count: q.players.length, size: 4, startsInMs: Math.max(0, q.startsAt - Date.now()) });
-    if (q.players.length >= 4) this.startWord(key);
-  }
-
-  private dequeueWord(c: Client): void {
-    for (const q of this.wordQueues.values()) {
-      const i = q.players.indexOf(c);
-      if (i < 0) continue;
-      q.players.splice(i, 1);
-      c.queued = false;
-      if (q.players.length === 0) { clearTimeout(q.timer); this.wordQueues.delete(q.key); }
-    }
-  }
-
-  private startWord(key: string): void {
-    const q = this.wordQueues.get(key);
-    if (!q) return;
-    clearTimeout(q.timer);
-    this.wordQueues.delete(key);
-    if (q.players.length === 0) return;
-    const hub = this.hubs.get(q.hubId);
-    for (const p of q.players) { p.queued = false; hub?.remove(p); }
+  private startWord(players: Client[], hubId: string, game: WordGame, seed: number): void {
     const id = `word-${randomBytes(4).toString("hex")}`;
-    const room = new WordRoom(id, [...q.players], q.game, randomInt(1, 2 ** 31), (r, results) => {
+    const room = new WordRoom(id, [...players], game, seed, (r, results) => {
       this.words.delete(r.id);
       for (const res of results) {
         if (res.isBot) continue;
         const cl = [...this.clients.values()].find((p) => p.id === res.id);
-        if (cl) recordBest(cl.record, `word:${q.game}`, res.score);
+        if (cl) recordBest(cl.record, `word:${game}`, res.score);
       }
-      for (const p of q.players) this.later(() => this.backToLodge(p, q.hubId), 7000);
+      for (const p of players) this.later(() => this.backToLodge(p, hubId), 7000);
     });
-    room.hubId = q.hubId;
+    room.hubId = hubId;
     this.words.set(id, room);
-    room.onSolve = (pid) => { const cl = q.players.find((p) => p.id === pid); if (cl) this.progress(cl, { kind: "arcade" }); };
+    room.onSolve = (pid) => { const cl = players.find((p) => p.id === pid); if (cl) this.progress(cl, { kind: "arcade" }); };
   }
+
+  // ------------------------------------------------------------------ Shared spaces
+
+  /** The summit or cabin space with this id, made on first use. */
+  private space(id: string, radius: number): Space {
+    let s = this.spaces.get(id);
+    if (!s) {
+      s = new Space(id, this.store, (prev, next, dtMs) => validateMoveIn(prev, next, dtMs, radius));
+      this.spaces.set(id, s);
+    }
+    return s;
+  }
+
+  /** Steps out of the summit or a cabin; an empty space is put away. */
+  private leaveSpace(c: Client): void {
+    c.summit = false;
+    c.cabinOf = null;
+    const s = c.spaceId ? this.spaces.get(c.spaceId) : undefined;
+    c.spaceId = null;
+    if (!s) return;
+    s.leave(c);
+    if (s.clients.size === 0) {
+      s.dispose();
+      this.spaces.delete(s.id);
+    }
+  }
+
+  // ---------------------------------------------------------------- The Word Lodge
 
   private backToLodge(c: Client, hubId: string): void {
     if (!this.isConnected(c) || c.hubId || c.raceId || c.golfId || c.wordId) return;
@@ -885,70 +1017,6 @@ export class GameServer {
     return hub;
   }
 
-  private enqueue(c: Client, hub: HubRoom, game: MiniGame): void {
-    if (c.queued || c.raceId || c.golfId) return;
-    const spotName = GAME_SPOTS[game];
-    const spot = (HUB_PLACES as Record<string, { x: number; z: number }>)[spotName] ?? (TOWN_PLACES as Record<string, { x: number; z: number }>)[spotName];
-    const reach = game === "toboggan" ? PORTAL_RADIUS + 2 : game === "canoe" ? 7 : 11;
-    if (!spot || Math.hypot(c.x - spot.x, c.z - spot.z) > reach) {
-      c.send({ t: "error", text: game === "canoe" ? "Walk to the Lake Dock to join the Canoe Dash!" : game === "toboggan" ? "Walk to the trailhead portal to join the race!" : `Walk over to play ${ARCADE_INFO[game].name}!` });
-      return;
-    }
-    // Party members queue together: the leader brings everyone in the same village along.
-    const group = [c, ...this.partyMates(c).filter((m) => m.hubId === hub.info.id && !m.queued && !m.raceId)];
-    const key = `${hub.info.id}:${game}`;
-    let q = this.queues.get(key);
-    if (!q) {
-      const startsAt = Date.now() + RACE.queueWaitMs;
-      q = { hubId: hub.info.id, key, game, players: [], startsAt, timer: setTimeout(() => this.startRace(key), RACE.queueWaitMs) };
-      this.queues.set(key, q);
-    }
-    for (const m of group) {
-      if (q.players.length >= RACE.size) break;
-      q.players.push(m);
-      m.queued = true;
-    }
-    this.announceQueue(q);
-    if (q.players.length >= RACE.size) this.startRace(key);
-  }
-
-  private dequeue(c: Client): void {
-    if (!c.queued) return;
-    c.queued = false;
-    for (const q of this.queues.values()) {
-      const i = q.players.indexOf(c);
-      if (i >= 0) {
-        q.players.splice(i, 1);
-        if (q.players.length === 0) {
-          clearTimeout(q.timer);
-          this.queues.delete(q.key);
-        } else this.announceQueue(q);
-      }
-    }
-  }
-
-  private announceQueue(q: Queue): void {
-    for (const p of q.players) p.send({ t: "queue", count: q.players.length, size: RACE.size, startsInMs: Math.max(0, q.startsAt - Date.now()) });
-  }
-
-  private startRace(key: string): void {
-    const q = this.queues.get(key);
-    if (!q) return;
-    clearTimeout(q.timer);
-    this.queues.delete(key);
-    const hubId = q.hubId;
-    const players = q.players.splice(0, RACE.size);
-    if (players.length === 0) return;
-    const hub = this.hubs.get(hubId);
-    for (const p of players) {
-      p.queued = false;
-      hub?.remove(p);
-    }
-    const id = `race-${randomBytes(4).toString("hex")}`;
-    const room = new RaceRoom(id, players, randomInt(1, 2 ** 31), (r) => this.endRace(r, hubId), q.game);
-    this.races.set(id, room);
-  }
-
   private endRace(room: RaceRoom, hubId: string): void {
     this.races.delete(room.id);
     room.dispose();
@@ -989,7 +1057,8 @@ export class GameServer {
     const c = this.clients.get(ws);
     if (!c) return;
     this.clients.delete(ws);
-    this.dequeue(c);
+    this.leaveLobby(c);
+    this.leaveSpace(c);
     if (c.hubId) {
       const hub = this.hubs.get(c.hubId);
       hub?.remove(c);
@@ -1000,9 +1069,7 @@ export class GameServer {
       }
     }
     if (c.raceId) this.races.get(c.raceId)?.drop(c);
-    this.dequeueGolf(c);
     if (c.golfId) this.golfs.get(c.golfId)?.quit(c);
-    this.dequeueWord(c);
     if (c.wordId) this.words.get(c.wordId)?.drop(c);
     this.notifyFriends(c);
     const party = this.partyOf(c.record.pid);
@@ -1026,9 +1093,8 @@ export class GameServer {
     for (const r of this.races.values()) r.dispose();
     for (const g of this.golfs.values()) g.dispose();
     for (const w of this.words.values()) w.dispose();
-    for (const q of this.golfQueues.values()) clearTimeout(q.timer);
-    for (const q of this.wordQueues.values()) clearTimeout(q.timer);
-    for (const q of this.queues.values()) clearTimeout(q.timer);
+    for (const s of this.spaces.values()) s.dispose();
+    for (const l of this.lobbies.values()) if (l.timer) clearTimeout(l.timer);
     this.wss.close();
   }
 }

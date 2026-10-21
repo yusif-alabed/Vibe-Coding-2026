@@ -51,6 +51,32 @@ export function validateMove(prev: Pos, proposed: Pos, dtMs: number): Pos {
   return { x, z };
 }
 
+/**
+ * Movement check for the small shared spaces (the summit, a cabin): the same speed cap as the
+ * village, inside a circle of `radius`. They have no server-side colliders; the client keeps
+ * beavers off the furniture and out of the lake.
+ */
+export function validateMoveIn(prev: Pos, proposed: Pos, dtMs: number, radius: number): Pos {
+  if (!Number.isFinite(proposed.x) || !Number.isFinite(proposed.z)) return { ...prev };
+  const dt = Math.max(0, Math.min(dtMs, 1000)) / 1000;
+  const maxDist = HUB.maxSpeed * HUB.speedTolerance * dt + 0.05;
+  let dx = proposed.x - prev.x;
+  let dz = proposed.z - prev.z;
+  const d = Math.hypot(dx, dz);
+  if (d > maxDist) {
+    dx = (dx / d) * maxDist;
+    dz = (dz / d) * maxDist;
+  }
+  let x = prev.x + dx;
+  let z = prev.z + dz;
+  const r = Math.hypot(x, z);
+  if (r > radius) {
+    x = (x / r) * radius;
+    z = (z / r) * radius;
+  }
+  return { x, z };
+}
+
 /** Colliders bucketed on a coarse grid, so a move only checks the handful of solids around it. */
 const CELL = 8;
 let grid: Map<number, { x: number; z: number; r: number }[]> | null = null;

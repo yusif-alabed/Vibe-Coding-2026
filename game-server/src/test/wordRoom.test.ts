@@ -51,23 +51,30 @@ async function connect(name: string) {
     c.x = TOWN_PLACES.wordlodge.x;
     c.z = TOWN_PLACES.wordlodge.z;
   };
-  return { ws, inbox, waitFor, welcome, goToLodge, send: (m: object) => ws.send(JSON.stringify(m)) };
+  const send = (m: object) => ws.send(JSON.stringify(m));
+  /** Online there are no bots: queue at the door, then choose to play alone. */
+  const playAlone = async (game: string) => {
+    send({ t: "queueWord", game });
+    await waitFor("queue", (m) => !!m.lobby, 2000);
+    send({ t: "lobbyStart" });
+    return waitFor("wordStart");
+  };
+  return { ws, inbox, waitFor, welcome, goToLodge, send, playAlone };
 }
 
 describe("the Word Lodge", () => {
-  it("only starts a round at the Lodge, and fills the empty lecterns with bots", async () => {
+  it("only starts a round at the Lodge, and never seats a bot", async () => {
     const a = await connect("Speller");
     a.send({ t: "queueWord", game: "wordle" });
     await a.waitFor("error", (m) => /Library Lane/.test(m.text), 2000);
 
     a.goToLodge();
-    a.send({ t: "queueWord", game: "wordle" });
-    const start = await a.waitFor("wordStart");
+    const start = await a.playAlone("wordle");
     assert.equal(start.game, "wordle");
     assert.equal(start.setup.length, 5);
     assert.equal(start.setup.tries, 6);
-    assert.ok(start.rivals.length >= 2, "a word game needs opponents");
-    assert.ok(start.rivals.some((r) => r.isBot), "empty lecterns get bots");
+    assert.equal(start.rivals.length, 1, "playing alone means just you");
+    assert.ok(!start.rivals.some((r) => r.isBot), "no bots online");
     assert.deepEqual(start.you.rows, [], "you start with a blank board");
     a.send({ t: "wordQuit" });
     await a.waitFor("wordEnd");
@@ -77,8 +84,7 @@ describe("the Word Lodge", () => {
   it("marks a guess and never lets a rival see the letters", async () => {
     const a = await connect("Guesser");
     a.goToLodge();
-    a.send({ t: "queueWord", game: "wordle" });
-    const start = await a.waitFor("wordStart");
+    const start = await a.playAlone("wordle");
 
     a.send({ t: "wordAct", a: { kind: "guess", word: "crane" } });
     const st = await a.waitFor("wordState", (m) => !!m.you && m.you.rows.length > 0, 3000);
@@ -97,8 +103,7 @@ describe("the Word Lodge", () => {
   it("refuses a non-word without spending a row", async () => {
     const a = await connect("Typo");
     a.goToLodge();
-    a.send({ t: "queueWord", game: "wordle" });
-    await a.waitFor("wordStart");
+    await a.playAlone("wordle");
     a.send({ t: "wordAct", a: { kind: "guess", word: "zzzzz" } });
     const st = await a.waitFor("wordState", (m) => !!m.you?.note, 3000);
     assert.equal(st.you!.rows.length, 0, "a refused guess must not cost a row");
@@ -111,8 +116,7 @@ describe("the Word Lodge", () => {
   it("leaving reveals the answer, pays out, and stops the room", async () => {
     const a = await connect("Quitter");
     a.goToLodge();
-    a.send({ t: "queueWord", game: "bee" });
-    await a.waitFor("wordStart");
+    await a.playAlone("bee");
     a.send({ t: "wordQuit" });
     const end = await a.waitFor("wordEnd", () => true, 3000);
     assert.ok(end.answer.length > 0, "the answer is revealed once it can't be used");
@@ -132,8 +136,7 @@ describe("the Word Lodge", () => {
   it("a disconnect closes the round rather than leaving its clock running", async () => {
     const a = await connect("Vanisher");
     a.goToLodge();
-    a.send({ t: "queueWord", game: "connections" });
-    await a.waitFor("wordStart");
+    await a.playAlone("connections");
     assert.equal(game.words.size, 1);
     a.ws.close();
     for (let i = 0; i < 100 && game.words.size > 0; i++) await new Promise((r) => setTimeout(r, 20));
@@ -147,8 +150,7 @@ describe("the Word Lodge", () => {
     for (const game of WORD_GAMES) {
       const a = await connect(`Prober-${game}`);
       a.goToLodge();
-      a.send({ t: "queueWord", game });
-      const start = await a.waitFor("wordStart");
+      const start = await a.playAlone(game);
 
       const payload = JSON.stringify(start);
       assert.ok(!("seed" in start), `${game}: wordStart must not carry the seed`);

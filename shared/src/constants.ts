@@ -220,5 +220,14 @@ export const RACE = {
   timeLimitS: 70,
 } as const;
 
+/**
+ * Online lobbies. Rounds hold real players only: a lobby waits for company, counts down once a
+ * second beaver joins, and starts straight away when it's full.
+ */
+export const LOBBY = {
+  size: 4,
+  countdownMs: 15000,
+} as const;
+
 export const FUR_COLORS = ["#8a5a3b", "#a8703f", "#6b4428", "#c48a52", "#4e3324", "#b5835a", "#d9b38c", "#3b2a20", "#9a6f58"] as const;
 export const NAME_MAX = 16;

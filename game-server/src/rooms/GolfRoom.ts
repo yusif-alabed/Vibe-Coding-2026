@@ -1,10 +1,10 @@
-import { BOT_NAMES, GOLF_HOLES, GolfMatch, golfCoins, type Club, type GolfPlayerWire, type ServerMsg } from "@beaver/shared";
+import { GOLF_HOLES, GolfMatch, golfCoins, type Club, type GolfPlayerWire, type ServerMsg } from "@beaver/shared";
 import type { Client } from "../client";
 
 /**
  * One round of golf at the Bow Valley course. Everybody plays their own ball on the same hole at the
  * same time; the group moves on when everyone has holed out. Players can quit whenever they like.
- * Solo players get a bot partner or two for company.
+ * Only real players tee off online; a beaver who chose to play alone plays alone.
  */
 export class GolfRoom {
   readonly match: GolfMatch;
@@ -22,11 +22,7 @@ export class GolfRoom {
     seed: number,
     private readonly onDone: (room: GolfRoom, totals: ReturnType<GolfMatch["totals"]>) => void,
   ) {
-    const bots = players.length === 1 ? 1 : 0;
-    const entrants = [
-      ...players.map((c) => ({ id: c.id, name: c.name, isBot: false })),
-      ...Array.from({ length: bots }, (_, i) => ({ id: `gbot-${id}-${i}`, name: BOT_NAMES[(seed + i) % BOT_NAMES.length], isBot: true })),
-    ];
+    const entrants = players.map((c) => ({ id: c.id, name: c.name, isBot: false }));
     this.match = new GolfMatch(holes, entrants, seed);
     for (const c of players) c.golfId = id;
     this.broadcast({ t: "golfStart", holes: this.match.holes, players: this.wire() });
@@ -72,9 +68,6 @@ export class GolfRoom {
 
   private tick(): void {
     const now = Date.now();
-    for (const b of this.match.botTurns(now)) {
-      this.broadcast({ t: "golfShot", id: b.id, club: b.club, path: b.result.path, holed: b.result.holed, penalty: b.result.penalty, lie: b.result.lie, strokes: this.match.strokes(this.match.players.find((p) => p.id === b.id)!) });
-    }
     const waiting = this.match.nextAt;
     if (this.match.advance(now)) {
       if (this.match.over) this.end();

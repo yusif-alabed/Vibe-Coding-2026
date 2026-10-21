@@ -22,6 +22,10 @@ describe("rewards", () => {
     assert.equal(coinsForRace({ place: 2, finished: true, racers: 4 }), 35);
     assert.equal(coinsForRace({ place: 4, finished: true, racers: 4 }), 15);
   });
+  it("doesn't pay a winner's bonus for racing on your own", () => {
+    assert.equal(coinsForRace({ place: 1, finished: true, racers: 1 }), 25);
+    assert.equal(coinsForRace({ place: 1, finished: true, racers: 2 }), 50);
+  });
   it("pays only participation if you did not finish", () => {
     assert.equal(coinsForRace({ place: 1, finished: false, racers: 4 }), 10);
   });

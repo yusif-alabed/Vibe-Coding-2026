@@ -146,6 +146,7 @@ export class OfflineNet implements Net {
   private myAct: string | null = null;
   private inHub = false;
   private queued = false;
+  private queuedGame: MiniGame | null = null;
   private lastVisit: string | null = null;
   private inCabin = false;
   private returnPos: { x: number; z: number } | null = null;
@@ -459,6 +460,8 @@ export class OfflineNet implements Net {
         break;
       }
       case "move": {
+        // The summit and cabins send their own positions; they aren't village positions.
+        if (!this.inHub) break;
         const now = performance.now();
         const p = validateMove(this.me, { x: msg.x, z: msg.z }, now - this.lastMove);
         this.lastMove = now;
@@ -539,14 +542,25 @@ export class OfflineNet implements Net {
         }
         if (this.queued || this.sim) return;
         this.queued = true;
-        this.emit({ t: "queue", count: 1, size: RACE.size, startsInMs: 2500 });
+        this.queuedGame = game;
+        const info = ARCADE_INFO[game];
+        // Solo mode: the bots are always ready, so the "lobby" is just a short countdown.
+        this.emit({ t: "queue", lobby: { key: "solo", kind: "mini", game, title: info.name, icon: info.icon, count: 1, size: RACE.size, min: 1, names: [this.me.name], startsInMs: 2500 } });
         window.setTimeout(() => {
-          if (this.queued) this.startRace(game);
+          if (this.queued && this.queuedGame === game) this.startRace(game);
         }, 2500);
         break;
       }
+      case "lobbyStart":
+        if (this.queued && this.queuedGame) this.startRace(this.queuedGame);
+        break;
+      case "lobbyJoin":
+        break;
       case "leaveQueue":
+      case "lobbyLeave":
         this.queued = false;
+        this.queuedGame = null;
+        this.emit({ t: "queue", lobby: null });
         break;
       case "steer":
         this.steer = Math.max(-1, Math.min(1, Number(msg.v) || 0));

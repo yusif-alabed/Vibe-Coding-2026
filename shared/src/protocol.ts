@@ -51,6 +51,27 @@ export const ACT_QUEST: Partial<Record<HubAct, "ride" | "skate" | "treat" | "mus
   croissant: "treat", icecream: "treat", taffy: "treat", marshmallow: "treat", cocoa: "treat", guitar: "music", ride: "ride", skate: "skate",
 };
 
+/**
+ * A game waiting for players. Online there are no bots: a lobby gathers real beavers, starts a
+ * short countdown once a second one joins, and starts at once when it's full. A beaver on their
+ * own can choose to play alone (except in team games).
+ */
+export interface LobbyWire {
+  key: string;
+  kind: "mini" | "golf" | "word";
+  /** The minigame, "golf" or the word game. */
+  game: string;
+  title: string;
+  icon: string;
+  count: number;
+  size: number;
+  /** Fewest players the round can start with. */
+  min: number;
+  names: string[];
+  /** Null while it's waiting for a second player. */
+  startsInMs: number | null;
+}
+
 export interface FriendView {
   pid: string;
   name: string;
@@ -80,6 +101,10 @@ export type ClientMsg =
   | { t: "buy"; item: string }
   | { t: "queueRace"; game?: RaceGame }
   | { t: "leaveQueue" }
+  /** Start the lobby you're in now (or play alone), join an open lobby in your village, or leave. */
+  | { t: "lobbyStart" }
+  | { t: "lobbyJoin"; key: string }
+  | { t: "lobbyLeave" }
   | { t: "steer"; v: number }
   | { t: "block"; id: string }
   | { t: "report"; id: string; reason: string }
@@ -159,7 +184,10 @@ export type ServerMsg =
   | { t: "partyInvite"; from: string; name: string }
   | { t: "party"; leader: string | null; members: { pid: string; name: string; online: boolean }[] }
   | { t: "wallet"; coins: number; owned: string[] }
-  | { t: "queue"; count: number; size: number; startsInMs: number }
+  /** The lobby you're waiting in, or null once you've left it. */
+  | { t: "queue"; lobby: LobbyWire | null }
+  /** Every open lobby in your village, so you can see who's waiting for a game. */
+  | { t: "lobbies"; list: LobbyWire[] }
   | { t: "raceStart"; game?: RaceGame; seed: number; racers: { id: string; name: string; look: Look | null; isBot: boolean }[]; countdownMs: number }
   | { t: "race"; time: number; r: RaceSnapshot }
   | { t: "raceEnd"; results: RaceResultWire[] }
@@ -169,7 +197,8 @@ export type ServerMsg =
   | QuestsWire
   | { t: "pinecones"; day: string; spots: { id: number; x: number; z: number }[]; collected: number[] }
   | { t: "furniture"; counts: Record<string, number> }
-  | { t: "cabin"; owner: string; ownerName: string; items: PlacedItem[]; editable: boolean; look: Look; social?: CabinSocial }
+  /** `players`: everyone else in the cabin right now (online cabins are shared). */
+  | { t: "cabin"; owner: string; ownerName: string; items: PlacedItem[]; editable: boolean; look: Look; social?: CabinSocial; players?: PlayerInfo[] }
   | LifeWire
   | { t: "lifeSay"; text: string; npc?: string; coins?: number; gifts?: string[]; catch?: { fish: string; size: number; record: boolean }; pages?: string[] }
   | { t: "gift"; from: string; name: string; item: string }
@@ -177,6 +206,7 @@ export type ServerMsg =
   | { t: "neighbours"; list: { id: string; name: string; likes: number; online: boolean; you?: boolean }[]; coziest: { name: string; likes: number }[] }
   | { t: "club"; club: { code: string; name: string; tag: string; color: string; members: string[] } | null }
   | { t: "playerClub"; id: string; club: { tag: string; color: string } | null }
+  /** Everyone already up at the summit (the summit is shared online). */
   | { t: "summit"; players: PlayerInfo[] }
   | { t: "gameStart"; game: MiniGame; seed: number; players: { id: string; name: string; look: Look | null; isBot: boolean }[]; countdownMs: number }
   | { t: "game"; time: number; s: unknown }

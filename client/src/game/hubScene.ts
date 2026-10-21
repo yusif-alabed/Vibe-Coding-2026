@@ -35,6 +35,7 @@ import {
   TRAIN_LOOP_S,
   trainAngle,
   type LeaderGame,
+  type LobbyWire,
   type MiniGame,
 } from "@beaver/shared";
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
@@ -257,7 +258,13 @@ export class HubScene implements Scene {
   private countEl: HTMLElement;
   private menuEl: HTMLElement | null = null;
   private panelEl: HTMLElement | null = null;
-  private queueInfo: { count: number; size: number; until: number } | null = null;
+  /** The lobby you're waiting in, and when its countdown ends (performance.now() time). */
+  private lobby: LobbyWire | null = null;
+  private lobbyUntil: number | null = null;
+  /** Everyone's open lobbies in this village, so you can see who's waiting and hop in. */
+  private openLobbies: { l: LobbyWire; until: number | null }[] = [];
+  private lobbyEl: HTMLElement;
+  private lobbyKey = "";
   private actionKey = "";
   private blocked = new Set<string>();
   private questsEl: HTMLElement;
@@ -336,6 +343,8 @@ export class HubScene implements Scene {
     this.root.append(this.chatlog);
     this.actionEl = h("div.action.pe");
     this.root.append(this.actionEl);
+    this.lobbyEl = h("div.lobby");
+    this.root.append(this.lobbyEl);
 
     const input = h("input.field.pe", { placeholder: "Say something nice…", maxLength: 120, enterKeyHint: "send" }) as HTMLInputElement;
     const send = () => {
@@ -436,7 +445,7 @@ export class HubScene implements Scene {
 
   private goHome() {
     this.closeOverlays();
-    if (this.queueInfo) { this.ctx.net.send({ t: "leaveQueue" }); this.queueInfo = null; }
+    if (this.lobby) this.ctx.net.send({ t: "lobbyLeave" });
     this.ctx.net.send({ t: "enterCabin" });
   }
 
@@ -612,9 +621,17 @@ export class HubScene implements Scene {
         this.refreshShop();
         break;
       case "queue":
-        this.queueInfo = { count: m.count, size: m.size, until: performance.now() + m.startsInMs };
+        this.lobby = m.lobby;
+        this.lobbyUntil = m.lobby?.startsInMs == null ? null : performance.now() + m.lobby.startsInMs;
         this.actionKey = "";
+        this.renderLobby();
         break;
+      case "lobbies": {
+        const now = performance.now();
+        this.openLobbies = m.list.map((l) => ({ l, until: l.startsInMs === null ? null : now + l.startsInMs }));
+        this.renderLobby();
+        break;
+      }
       case "system":
         this.log(null, m.text);
         break;
@@ -926,21 +943,15 @@ export class HubScene implements Scene {
 
   private runAction() {
     const k = this.nearby();
-    if (k === "race") this.ctx.net.send(this.queueInfo ? { t: "leaveQueue" } : { t: "queueRace" });
-    if (k === "race" && this.queueInfo) this.queueInfo = null;
-    if (k === "canoe") this.ctx.net.send(this.queueInfo ? { t: "leaveQueue" } : { t: "queueRace", game: "canoe" });
-    if (k === "canoe" && this.queueInfo) this.queueInfo = null;
-    if (k.startsWith("game:")) {
-      const g = k.slice(5) as MiniGame;
-      this.ctx.net.send(this.queueInfo ? { t: "leaveQueue" } : { t: "queueGame", game: g });
-      if (this.queueInfo) this.queueInfo = null;
-    }
+    const spot = this.spotGame(k);
+    if (spot && this.lobby?.game === spot) this.ctx.net.send({ t: "lobbyLeave" });
+    else if (k === "race") this.ctx.net.send({ t: "queueRace" });
+    else if (k === "canoe") this.ctx.net.send({ t: "queueRace", game: "canoe" });
+    else if (k.startsWith("game:")) this.ctx.net.send({ t: "queueGame", game: k.slice(5) as MiniGame });
+    else if (k === "golf") this.openLife("golf");
     if (k === "shop") this.openShop("hat");
     if (k === "dyeshop") this.openShop("dye");
     if (k === "arcade") this.openLife("leaderboard", "hunt");
-    if (k === "golf") {
-      if (this.queueInfo) { this.ctx.net.send({ t: "golfQuit" }); this.queueInfo = null; } else this.openLife("golf");
-    }
     if (k === "wordlodge") this.openLife("wordlodge");
     if (k === "garden") this.openLife("garden");
     if (k === "lane") this.openLife("neighbours");
@@ -991,16 +1002,9 @@ export class HubScene implements Scene {
   private updateAction() {
     const k = this.nearby();
     let label = "";
-    const queueable = k === "race" || k === "canoe" || k.startsWith("game:") || k === "golf";
-    if (queueable && this.queueInfo) {
-      const s = Math.max(0, Math.ceil((this.queueInfo.until - performance.now()) / 1000));
-      label = `⏳ Players ${this.queueInfo.count}/${this.queueInfo.size} · starting in ${s}s · Leave`;
-    } else if (k === "race" || k === "canoe") label = k === "race" ? "🛷 Ride Toboggan Rush!" : "🛶 Race the Canoe Dash!";
-    else if (this.queueInfo) {
-      this.ctx.net.send({ t: "leaveQueue" });
-      this.ctx.net.send({ t: "golfQuit" });
-      this.queueInfo = null;
-    }
+    const spot = this.spotGame(k);
+    if (spot && this.lobby?.game === spot) label = "⏳ Waiting for players · Leave";
+    else if (k === "race" || k === "canoe") label = k === "race" ? "🛷 Ride Toboggan Rush!" : "🛶 Race the Canoe Dash!";
     if (!label && k.startsWith("game:")) { const g = ARCADE_INFO[k.slice(5) as MiniGame]; label = `${g.icon} Play ${g.name}!`; }
     if (!label && k === "golf") label = "⛳ Play a round of golf";
     if (k === "shop") label = "🎒 Open the Outfitter";
@@ -1032,6 +1036,59 @@ export class HubScene implements Scene {
         sec ? h("button.btn.cream.small", { onclick: () => { sec.run(); this.actionKey = ""; } }, sec.label) : null,
       ]),
     ] : []));
+  }
+
+  /** Which game a place starts ("toboggan", "hunt", "golf"…), if any. */
+  private spotGame(k: string): string | null {
+    if (k === "race") return "toboggan";
+    if (k === "canoe") return "canoe";
+    if (k.startsWith("game:")) return k.slice(5);
+    if (k === "golf") return "golf";
+    return null;
+  }
+
+  /**
+   * The lobby card: the game you're waiting for (who's in, the countdown, start now / play alone,
+   * leave), or else the games other beavers in the village are waiting for, with a Join button.
+   */
+  private renderLobby() {
+    const online = this.ctx.net.mode === "online";
+    const secs = (until: number | null) => (until === null ? null : Math.max(0, Math.ceil((until - performance.now()) / 1000)));
+    const mine = this.lobby;
+    const others = online ? this.openLobbies.filter((o) => o.l.key !== mine?.key && o.l.count < o.l.size) : [];
+    const key = JSON.stringify([mine, secs(this.lobbyUntil), others.map((o) => [o.l, secs(o.until)])]);
+    if (key === this.lobbyKey) return;
+    this.lobbyKey = key;
+    if (!mine && !others.length) { this.lobbyEl.replaceChildren(); return; }
+    const children: HTMLElement[] = [];
+    if (mine) {
+      const s = secs(this.lobbyUntil);
+      const status = s !== null ? `Starting in ${s}s…` : mine.count < mine.min ? "Waiting for another beaver to join…" : "Waiting for more beavers to join…";
+      const canStart = online && mine.count >= mine.min;
+      children.push(h("div.card.pe.lobby-mine", {}, [
+        h("div.lobby-title", {}, [`${mine.icon} ${mine.title}`, h("span.n", {}, `${mine.count}/${mine.size}`)]),
+        h("div.lobby-names", {}, mine.names.join(" · ")),
+        h("div.lobby-status", {}, status),
+        h("div.row", { style: "justify-content:center;gap:6px" }, [
+          canStart ? h("button.btn.small.orange", { onclick: () => this.ctx.net.send({ t: "lobbyStart" }) }, mine.count === 1 ? "🦫 Play alone" : "▶ Start now") : null,
+          h("button.btn.small.cream", { onclick: () => this.ctx.net.send({ t: "lobbyLeave" }) }, "Leave"),
+        ]),
+      ]));
+    }
+    if (others.length) {
+      children.push(h("div.card.pe.lobby-open", {}, [
+        h("div.lobby-head", {}, "🎮 Beavers waiting to play"),
+        ...others.slice(0, 4).map(({ l, until }) => {
+          const s = secs(until);
+          const who = l.names.length > 2 ? `${l.names.slice(0, 2).join(", ")} +${l.names.length - 2}` : l.names.join(", ");
+          return h("div.lobby-row", {}, [
+            h("span", { style: "flex:1" }, [h("b", {}, `${l.icon} ${l.title}`), ` · ${who} (${l.count}/${l.size})${s !== null ? ` · ${s}s` : ""}`]),
+            h("button.btn.small", { onclick: () => this.ctx.net.send({ t: "lobbyJoin", key: l.key }) }, "Join"),
+          ]);
+        }),
+      ]));
+    }
+    this.lobbyEl.replaceChildren(...children);
   }
 
   // ---------- Frame ----------
@@ -1157,6 +1214,7 @@ export class HubScene implements Scene {
 
     this.animate(dt);
     this.updateAction();
+    this.renderLobby();
   }
 
   /** Townsfolk, bugs to spot, pets, the gondola ride and timed rides ending. */

@@ -359,7 +359,8 @@ export function coinsForGame(game: MiniGame, r: ScoreResult, players: number): n
   if (game === "dam") return r.finished ? 35 + r.score * 2 : 10 + r.score;
   if (game === "hunt") return 8 + r.score * 2 + (r.place === 1 && players > 1 ? 10 : 0);
   if (game === "snowball") return (r.finished ? 25 : 10) + r.score * 2;
-  if (game === "logroll") return base;
+  // Last beaver standing on your own log is a lot easier than against three others.
+  if (game === "logroll") return players > 1 ? base : 15;
   return base;
 }
 
@@ -371,6 +372,11 @@ export function weekKey(now = Date.now()): string {
   const jan1 = Date.UTC(monday.getUTCFullYear(), 0, 1);
   const wk = Math.floor((monday.getTime() - jan1) / (7 * 86400000)) + 1;
   return `${monday.getUTCFullYear()}-W${String(wk).padStart(2, "0")}`;
+}
+
+/** Fewest real players a round can start with: a snowball fight needs someone to throw at. */
+export function minPlayers(game: MiniGame): number {
+  return game === "snowball" ? 2 : 1;
 }
 
 /** Where each minigame is joined from in the village. */

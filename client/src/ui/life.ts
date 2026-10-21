@@ -372,7 +372,7 @@ export function openGolf(ctx: Ctx, root: HTMLElement) {
   const draw = () => {
     const par = GOLF_HOLES.slice(0, holes).reduce((s, x) => s + x.par, 0);
     body.replaceChildren(
-      h("div.hint", { style: "margin:0 0 8px" }, "Nine holes along the Bow River under Mount Rundle. Play with friends in your party, or with a friendly bot beaver. You can quit any time and keep the coins for the holes you finished."),
+      h("div.hint", { style: "margin:0 0 8px" }, `Nine holes along the Bow River under Mount Rundle. ${ctx.net.mode === "online" ? "Other beavers in the village can join your group before you tee off, or play on your own." : "Play with friends in your party, or with a friendly bot beaver."} You can quit any time and keep the coins for the holes you finished.`),
       h("h3", {}, "How many holes?"),
       h("div.tabs", { style: "padding:0;flex-wrap:wrap" }, Array.from({ length: 9 }, (_, i) => i + 1).map((n) => h("button.tab" + (n === holes ? ".on" : ""), { onclick: () => { holes = n; draw(); } }, String(n)))),
       h("div", { style: "margin:8px 0" }, GOLF_HOLES.slice(0, holes).map((x) => h("div.friend", {}, [h("b", { style: "width:26px" }, String(x.n)), h("span", { style: "flex:1" }, x.name), h("span.hint", { style: "margin:0" }, `Par ${x.par}`)]))),
@@ -398,7 +398,7 @@ export function openWordLodge(ctx: Ctx, root: HTMLElement) {
     bee: "Seven letters, one of them compulsory. Make as many words as you can before the clock runs out.",
   };
   const body = h("div.settings-body", {}, [
-    h("div.hint", { style: "margin:0 0 10px" }, "Warm lamps, a wall of books and a board at the far end. Pick a game — bot beavers take the other lecterns until your friends can join you."),
+    h("div.hint", { style: "margin:0 0 10px" }, `Warm lamps, a wall of books and a board at the far end. Pick a game — ${ctx.net.mode === "online" ? "other beavers in the village can join you at the lecterns before it starts, or you can play on your own." : "bot beavers take the other lecterns."}`),
     ...games.map((g) => {
       const info = WORD_INFO[g];
       return h("div.friend", { style: "align-items:flex-start;gap:10px" }, [

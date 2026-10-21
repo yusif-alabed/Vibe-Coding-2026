@@ -1,13 +1,12 @@
-import { BOT_NAMES, WordMatch, type RaceResultWire, type WordAction, type WordGame } from "@beaver/shared";
+import { WordMatch, type RaceResultWire, type WordAction, type WordGame } from "@beaver/shared";
 import type { Client } from "../client";
 
 /**
  * One round in the Word Lodge.
  *
  * Built the same way as `GolfRoom`: the rules all live in `WordMatch` in `shared/`, and this
- * only feeds it actions and a clock, then fans the results out. Bot beavers fill the empty
- * lecterns, and they are ordinary players as far as the match is concerned — when real players
- * fill those seats instead, nothing here changes.
+ * only feeds it actions and a clock, then fans the results out. Online, every lectern is a real
+ * player who came through a lobby; the match still knows how to run bots for solo mode.
  *
  * The one thing this room must get right is who sees what. Each player gets their own board
  * through `self()`, and everybody's `rivals()` view, which carries colours, counts and scores
@@ -29,12 +28,7 @@ export class WordRoom {
     seed: number,
     private readonly onDone: (room: WordRoom, results: ReturnType<WordMatch["results"]>) => void,
   ) {
-    // Always at least two at the lecterns: a word game you play alone is a different game.
-    const bots = Math.max(1, 3 - players.length);
-    const entrants = [
-      ...players.map((c) => ({ id: c.id, name: c.name, isBot: false })),
-      ...Array.from({ length: bots }, (_, i) => ({ id: `wbot-${id}-${i}`, name: BOT_NAMES[(seed + i * 7) % BOT_NAMES.length], isBot: true })),
-    ];
+    const entrants = players.map((c) => ({ id: c.id, name: c.name, isBot: false }));
     const now = Date.now();
     this.match = new WordMatch(game, seed, entrants, now);
     for (const c of players) c.wordId = id;
@@ -88,13 +82,7 @@ export class WordRoom {
 
   private tick(): void {
     if (this.ended) return;
-    const now = Date.now();
-    const moved = this.match.botTurns(now).length > 0;
-    for (const b of this.match.players) {
-      if (b.isBot && b.solved && !this.solvedOnce.has(b.id)) this.solvedOnce.add(b.id);
-    }
-    if (this.match.advance(now)) { this.end(); return; }
-    if (moved) this.broadcastState();
+    if (this.match.advance(Date.now())) this.end();
   }
 
   private sendEndTo(targets: Client[]): void {

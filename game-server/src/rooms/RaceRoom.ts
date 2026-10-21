@@ -1,10 +1,11 @@
-import { ARCADE_INFO, BOT_NAMES, coinsForGame, coinsForRace, makeSim, RACE, type GameSim, type MiniGame, type PlayerInput, type RaceSnapshot, type ScoreResult, type ServerMsg } from "@beaver/shared";
+import { ARCADE_INFO, coinsForGame, coinsForRace, makeSim, RACE, type GameSim, type MiniGame, type PlayerInput, type RaceSnapshot, type ScoreResult, type ServerMsg } from "@beaver/shared";
 import type { Client } from "../client";
 
 /**
  * A dedicated room for one minigame round (Toboggan Rush, Canoe Dash, Pinecone Hunt, Log Rolling,
- * Snowball Fight or Dam Builder), isolated from the hub. Empty seats are filled with bot beavers so
- * a round can always start. The server runs the simulation and decides results and coin rewards.
+ * Snowball Fight or Dam Builder), isolated from the hub. Everyone in it is a real player who came
+ * through a lobby; there are no bots online. The server runs the simulation and decides results
+ * and coin rewards.
  */
 export class RaceRoom {
   readonly sim: GameSim;
@@ -21,12 +22,7 @@ export class RaceRoom {
     private readonly onDone: (room: RaceRoom) => void,
     readonly game: MiniGame = "toboggan",
   ) {
-    const size = game === "dam" ? Math.max(2, players.length) : game === "snowball" ? 4 : RACE.size;
-    const bots = Math.max(0, size - players.length);
-    const entrants = [
-      ...players.map((c) => ({ id: c.id, name: c.name, isBot: false })),
-      ...Array.from({ length: bots }, (_, i) => ({ id: `bot-${id}-${i}`, name: BOT_NAMES[(seed + i) % BOT_NAMES.length], isBot: true })),
-    ];
+    const entrants = players.map((c) => ({ id: c.id, name: c.name, isBot: false }));
     this.sim = makeSim(game, seed, entrants);
     for (const c of players) {
       c.raceId = id;

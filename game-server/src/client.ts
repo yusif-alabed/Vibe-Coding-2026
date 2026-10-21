@@ -23,7 +23,10 @@ export class Client {
   /** Where this client currently is. */
   hubId: string | null = null;
   raceId: string | null = null;
-  queued = false;
+  /** Waiting in a lobby (its key), if any. */
+  lobbyKey: string | null = null;
+  /** The summit or a cabin this player is in, if any (the village is `hubId`). */
+  spaceId: string | null = null;
   /** Whose cabin this player is in (their own id, or a friend's), if any. */
   cabinOf: string | null = null;
   returnHubId: string | null = null;
@@ -36,6 +39,10 @@ export class Client {
     private readonly ws: WebSocket,
     readonly record: PlayerRecord,
   ) {}
+
+  get queued() {
+    return this.lobbyKey !== null;
+  }
 
   get name() {
     return this.record.name;

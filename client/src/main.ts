@@ -114,7 +114,7 @@ function showTitle() {
     swatches,
     h("div.stack", {}, buttons),
     h("div.hint", {}, serverUrl
-      ? [h("b", {}, "Online: "), "real players on the game server. ", h("b", {}, "Private cabin: "), "share the code with friends."]
+      ? [h("b", {}, "Online: "), "every game is played with real beavers — no bots. ", h("b", {}, "Private cabin: "), "share the code with friends."]
       : [h("b", {}, "Solo preview: "), "runs right in your browser with friendly bot beavers. Run the game server (see README) to play together online."]),
   ]));
   ui.append(titleEl);

@@ -11,11 +11,13 @@ import { applyMood, currentMood, drawWeather, type WorldMood } from "./weather";
 import { buildMountainMesh } from "./village/mountains";
 import { boulder, spruce } from "./village/nature";
 import { PhotoMode } from "./photo";
+import { chatBar, Others } from "./others";
 import type { Ctx, Scene } from "./scene";
 
 /**
  * 🏔️ The summit, at the top of the gondola: a snowy plateau with a turquoise glacier lake, a glowing
  * blue ice cave you can walk into, a viewpoint with a telescope, and the whole valley far below.
+ * Online it's shared: everyone who rode up from your village is up here with you.
  */
 
 const R = 34;
@@ -126,30 +128,51 @@ export class SummitScene implements Scene {
   private photo: PhotoMode;
   private seenCave = false;
   private seenLake = false;
+  private labels: HTMLElement;
+  private others: Others;
+  private chat: { el: HTMLElement; focus: () => void };
+  private sendAcc = 0;
+  private lastSent = { x: NaN, z: NaN, ry: NaN };
 
-  constructor(private ctx: Ctx, _m: Extract<ServerMsg, { t: "summit" }>) {
+  constructor(private ctx: Ctx, m: Extract<ServerMsg, { t: "summit" }>) {
     this.m = build(ctx.r);
     this.root = h("div", { style: "position:absolute;inset:0" });
+    this.labels = h("div", { style: "position:absolute;inset:0;overflow:hidden;pointer-events:none" });
+    this.others = new Others(ctx, this.labels, m.players);
     this.actionEl = h("div.action.pe");
+    this.chat = chatBar(ctx);
     this.root.append(
+      this.labels,
       h("div.hud-top", {}, [h("div.pill", {}, "🏔️ Sulphur Summit · 2,281 m"), h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${ctx.state.coins}`)])]),
       this.actionEl,
       h("div.dock", {}, [
         h("button.btn.cream.icon.pe", { title: "Photo mode", onclick: () => this.photo.open(this.me.ry, 6.5) }, "📷"),
         h("button.btn.orange.icon.pe", { title: "Ride the gondola down", onclick: () => this.down() }, "🚡"),
       ]),
+      h("div.hud-bottom", {}, [
+        this.chat.el,
+        h("button.btn.orange.icon.pe", { title: "Wave", onclick: () => ctx.net.send({ t: "emote", i: 0 }) }, "👋"),
+      ]),
     );
+    window.addEventListener("keydown", this.onKey);
     ctx.ui.append(this.root);
     this.photo = new PhotoMode(ctx, this.root, { place: () => "Sulphur Summit, Banff", onShot: () => ctx.net.send({ t: "photo" }) });
     if (wantsJoystick(ctx.prefs)) this.joystick = new Joystick(this.root);
-    toast(this.root, "🚡 Welcome to the summit! Explore the ice cave, the glacier lake and the viewpoint.", 4200);
+    const company = m.players.length ? ` ${m.players.length === 1 ? `${m.players[0].name} is` : `${m.players.length} beavers are`} up here too!` : "";
+    toast(this.root, `🚡 Welcome to the summit! Explore the ice cave, the glacier lake and the viewpoint.${company}`, 4200);
   }
+
+  private onKey = (e: KeyboardEvent) => {
+    if ((e.target as HTMLElement)?.tagName === "INPUT" || this.photo.active) return;
+    if (e.key === "Enter") { this.chat.focus(); e.preventDefault(); }
+  };
 
   private down() {
     this.ctx.net.send({ t: "gondola", up: false });
   }
 
   handle(m: ServerMsg) {
+    if (this.others.handle(m)) return;
     if (m.t === "wallet") this.ctx.state.coins = m.coins;
     if (m.t === "error") toast(this.root, m.text);
     if (m.t === "lifeSay") toast(this.root, m.text, 4200);
@@ -177,6 +200,7 @@ export class SummitScene implements Scene {
 
   update(dt: number) {
     this.time += dt;
+    this.others.update(dt);
     if (this.photo.active) { this.photo.update(dt); return; }
     const inp = this.ctx.input;
     this.yaw -= inp.consumeDrag() * 0.006;
@@ -208,6 +232,7 @@ export class SummitScene implements Scene {
     me.moving = lerp(me.moving, len > 0 ? 1 : 0, Math.min(1, dt * 10));
     me.ry = lerpAngle(me.ry, me.tr, Math.min(1, dt * 12));
     me.walk += dt * 11 * me.moving;
+    this.sendMove(dt);
     const k = this.nearby();
     if (k === "cave" && !this.seenCave) { this.seenCave = true; this.ctx.sound.play("chime"); }
     if (k === "lake" && !this.seenLake) { this.seenLake = true; this.ctx.sound.play("chime"); }
@@ -216,6 +241,17 @@ export class SummitScene implements Scene {
       this.actionKey = label;
       this.actionEl.replaceChildren(label ? h("button.btn", { onclick: () => this.run(k), style: "font-size:19px;padding:12px 20px" }, label) : "");
     }
+  }
+
+  /** Tells the others where you are, a few times a second while you're moving. */
+  private sendMove(dt: number) {
+    this.sendAcc += dt;
+    if (this.sendAcc < 0.1) return;
+    this.sendAcc = 0;
+    const me = this.me, l = this.lastSent;
+    if (Math.hypot(me.x - l.x, me.z - l.z) < 0.02 && Math.abs(me.tr - l.ry) < 0.02) return;
+    this.lastSent = { x: me.x, z: me.z, ry: me.tr };
+    this.ctx.net.send({ t: "move", x: Math.round(me.x * 100) / 100, z: Math.round(me.z * 100) / 100, ry: Math.round(me.tr * 100) / 100 });
   }
 
   render() {
@@ -258,12 +294,16 @@ export class SummitScene implements Scene {
       walk: me.walk, moving: me.moving, swim: 0, time: this.time, seed: 1, sled: 0,
       jump: pose?.jump ?? 0, wave: pose?.wave ?? (this.telescope ? 0 : 0), cheer: pose?.cheer ?? 0, expr: pose?.expr ?? (this.nearby() ? "happy" : "neutral"),
     });
+    this.others.draw(r, groundY);
     r.end();
+    this.others.placeLabels(r, groundY, this.photo.active);
     this.photo.afterRender();
   }
 
   dispose() {
     for (const g of Object.values(this.m)) this.ctx.r.dispose(g);
+    window.removeEventListener("keydown", this.onKey);
+    this.others.dispose();
     this.joystick?.dispose();
     this.photo.dispose();
     this.root.remove();

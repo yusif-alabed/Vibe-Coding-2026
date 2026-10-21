@@ -164,6 +164,19 @@ input.field:focus { box-shadow: 0 0 0 3px #7ff3f0; }
   .photo-row > b { display: none; }
   .dock .btn.icon { width: 44px; height: 44px; font-size: 21px; }
 }
+/* Lobbies: the game you're waiting for, and the ones other beavers are waiting for */
+.lobby { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); width: min(330px, calc(100vw - 24px)); display: grid; gap: 6px; pointer-events: none; z-index: 4; }
+.lobby .card { padding: 8px 12px; border-radius: 16px; }
+.lobby-title { display: flex; justify-content: space-between; align-items: center; gap: 6px; font: 700 16px var(--font-display); }
+.lobby-title .n { font-size: 13px; background: var(--cream-2); border: 2px solid var(--ink); border-radius: 999px; padding: 0 8px; }
+.lobby-names { font-weight: 800; font-size: 13px; margin: 2px 0; }
+.lobby-status { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+.lobby-head { font: 700 14px var(--font-display); margin-bottom: 4px; }
+.lobby-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
+.lobby-row + .lobby-row { border-top: 2px dashed var(--cream-2); }
+@media (max-width: 760px) { .lobby { top: auto; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); } }
+.has-joy .lobby { bottom: calc(230px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 761px) { .has-joy .lobby { bottom: auto; } }
 /* Invites, settings, friends, joystick */
 .invite { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); padding: 12px 16px; text-align: center; z-index: 8; animation: pop .2s ease-out; max-width: calc(100% - 24px); }
 .settings { width: min(520px, 100%); }

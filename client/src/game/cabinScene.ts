@@ -19,6 +19,7 @@ import { drawBeaver, getBeaverMeshes } from "./beaver";
 import { applyTimeOfDay, dayPhase } from "./daylight";
 import { applyMood, currentMood } from "./weather";
 import { PhotoMode } from "./photo";
+import { chatBar, Others } from "./others";
 import type { Ctx, Scene } from "./scene";
 import { CELL, furnitureMesh } from "./village/furniture";
 
@@ -200,6 +201,11 @@ export class CabinScene implements Scene {
   private windowTint: [number, number, number, number] = [0, 0, 0, 0];
   private socialEl!: HTMLElement;
   private social = { likes: 0, liked: false, guestbook: [] as { name: string; stamp: number; at: number }[] };
+  /** Everyone else in the cabin (online cabins are shared). */
+  private others: Others;
+  private chat: { el: HTMLElement; focus: () => void };
+  private sendAcc = 0;
+  private lastSent = { x: NaN, z: NaN, ry: NaN };
 
   /** ❤️ likes and the guestbook of stamps visitors leave. */
   private renderSocial() {
@@ -221,6 +227,10 @@ export class CabinScene implements Scene {
     this.items = msg.items.map((i) => ({ ...i }));
     this.root = h("div", { style: "position:absolute;inset:0" });
     ctx.ui.append(this.root);
+    const labels = h("div", { style: "position:absolute;inset:0;overflow:hidden;pointer-events:none" });
+    this.root.append(labels);
+    this.others = new Others(ctx, labels, msg.players ?? []);
+    this.chat = chatBar(ctx);
     const hud = h("div", { style: "position:absolute;inset:0" });
     this.root.append(hud);
     const mine = msg.editable;
@@ -241,7 +251,7 @@ export class CabinScene implements Scene {
       this.hintEl,
       h("div.hud-bottom", {}, [
         h("button.btn.orange.pe", { onclick: () => this.leave() }, "🚪 Back to the village"),
-        h("div", { style: "flex:1" }),
+        ctx.net.mode === "online" ? this.chat.el : h("div", { style: "flex:1" }),
         mine ? (this.editBtn = h("button.btn.gold.pe", { onclick: () => this.setEditing(!this.editing) }, "✏️ Decorate")) : null,
         h("button.btn.cream.icon.pe", { title: "Photo mode", onclick: () => this.photo.open(this.me.ry, 5) }, "📷"),
       ]),
@@ -258,7 +268,9 @@ export class CabinScene implements Scene {
     this.renderSocial();
     // Arrive near the door, on the first free spot.
     const spots: [number, number][] = [[0, HALF_D - 1], [-1.2, HALF_D - 1], [1.2, HALF_D - 1], [-2.4, HALF_D - 1], [2.4, HALF_D - 1], [0, HALF_D + 0.2], [-3.6, HALF_D - 1], [3.6, HALF_D - 1]];
-    const free = spots.find(([x, z]) => !this.blocked(x, z)) ?? [0, HALF_D + 0.2];
+    // Not on top of anyone already in here, either.
+    const taken = (x: number, z: number) => (msg.players ?? []).some((p) => Math.hypot(p.x - x, p.z - z) < 1);
+    const free = spots.find(([x, z]) => !this.blocked(x, z) && !taken(x, z)) ?? spots.find(([x, z]) => !this.blocked(x, z)) ?? [0, HALF_D + 0.2];
     this.me.x = free[0];
     this.me.z = free[1];
     window.addEventListener("keydown", this.onKey);
@@ -278,6 +290,7 @@ export class CabinScene implements Scene {
     }
     if ((k === "delete" || k === "backspace") && this.held) this.putAway();
     if (k === " ") this.me.jumpT = 1;
+    if (k === "enter" && this.ctx.net.mode === "online") { this.chat.focus(); e.preventDefault(); }
   };
 
   private setHint() {
@@ -402,6 +415,7 @@ export class CabinScene implements Scene {
   }
 
   handle(m: ServerMsg) {
+    if (this.others.handle(m)) return;
     switch (m.t) {
       case "furniture":
         this.ctx.state.furniture = m.counts;
@@ -420,7 +434,8 @@ export class CabinScene implements Scene {
         if (m.bonusNow) setTimeout(() => toast(this.root, "🎉 All daily quests done! +50 bonus coins", 3500), 900);
         break;
       case "cabin":
-        // The server rejected a save and sent the stored layout back.
+        // The server rejected a save and sent the stored layout back, or (visiting) the owner
+        // just moved something.
         this.items = m.items.map((i) => ({ ...i }));
         this.held = null;
         this.renderEditUi();
@@ -481,6 +496,8 @@ export class CabinScene implements Scene {
 
   update(dt: number) {
     this.time += dt;
+    this.others.update(dt);
+    this.sendMove(dt);
     const inp = this.ctx.input;
     if (this.saveTimer > 0) {
       this.saveTimer -= dt;
@@ -556,6 +573,17 @@ export class CabinScene implements Scene {
       }
     }
     this.animateMe(dt, mx, mz);
+  }
+
+  /** Tells everyone else in the cabin where you are. */
+  private sendMove(dt: number) {
+    this.sendAcc += dt;
+    if (this.sendAcc < 0.1) return;
+    this.sendAcc = 0;
+    const me = this.me, l = this.lastSent;
+    if (Math.hypot(me.x - l.x, me.z - l.z) < 0.02 && Math.abs(me.tr - l.ry) < 0.02) return;
+    this.lastSent = { x: me.x, z: me.z, ry: me.tr };
+    this.ctx.net.send({ t: "move", x: Math.round(me.x * 100) / 100, z: Math.round(me.z * 100) / 100, ry: Math.round(me.tr * 100) / 100 });
   }
 
   private animateMe(dt: number, mx: number, mz: number) {
@@ -642,7 +670,12 @@ export class CabinScene implements Scene {
       wave: pose ? pose.wave : Math.min(1, me.waveT), cheer: pose?.cheer ?? 0, talk: 0,
       expr: pose?.expr ?? (me.waveT > 0 ? "happy" : "neutral"),
     });
-    if (!this.msg.editable) {
+    const shadow = (x: number, _y: number, z: number) => r.draw(this.shell.shadow, compose(x, 0.02, z), { unlit: true, alpha: 0.12 });
+    this.others.draw(r, () => 0, shadow);
+    // The owner waits by the fire to greet you, unless they're actually here walking about.
+    const ownerHere = this.others.has(this.msg.owner);
+    if (this.ownerTag) this.ownerTag.style.display = "none";
+    if (!this.msg.editable && !ownerHere) {
       const ox = 2.2, oz = -HALF_D + 2.3;
       r.draw(this.shell.shadow, compose(ox, 0.02, oz), { unlit: true, alpha: 0.12 });
       const wave = Math.sin(this.time * 0.7) > 0.75 ? 1 : 0;
@@ -656,6 +689,7 @@ export class CabinScene implements Scene {
       }
     }
     r.end();
+    this.others.placeLabels(r, () => 0, this.photo.active);
     this.photo.afterRender();
     const s = r.project(me.x, 2.75, me.z);
     this.meTag.style.display = s && !this.photo.active ? "" : "none";
@@ -675,6 +709,7 @@ export class CabinScene implements Scene {
 
   dispose() {
     this.flushSave();
+    this.others.dispose();
     this.photo.dispose();
     window.removeEventListener("keydown", this.onKey);
     this.root.remove();
