@@ -17,6 +17,7 @@ import { h, toast } from "../ui/dom";
 import { furnitureGrid } from "../ui/furnitureShop";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
 import { applyTimeOfDay, dayPhase } from "./daylight";
+import { applyMood, currentMood } from "./weather";
 import { PhotoMode } from "./photo";
 import type { Ctx, Scene } from "./scene";
 import { CELL, furnitureMesh } from "./village/furniture";
@@ -557,6 +558,9 @@ export class CabinScene implements Scene {
     // The same 25-minute day as the village: sunlight through the open front by day,
     // cool moonlight and a cosy fire-lit glow by night.
     const night = applyTimeOfDay(r, dayPhase(this.ctx.prefs.time));
+    applyMood(r, currentMood(this.ctx.prefs));
+    e.snow = 0;
+    e.wet = 0;
     const outside = { sky: e.skyHorizon, top: e.skyTop, sun: e.sunColor };
     this.night = night;
     e.lightDir = mixDir([0.42, 0.78, 0.46], [0.3, 0.85, 0.42], night);

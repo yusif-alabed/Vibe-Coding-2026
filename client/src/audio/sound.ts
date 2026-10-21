@@ -56,6 +56,7 @@ export class Sound {
   private mode: "village" | "race" | "cabin" | "title" = "title";
   private whooshGain: GainNode | null = null;
   private lastBird = 0;
+  private rainGain: GainNode | null = null;
 
   constructor() {
     const start = () => {
@@ -130,6 +131,7 @@ export class Sound {
 
   setMode(mode: "village" | "race" | "cabin" | "title") {
     this.mode = mode;
+    if (mode === "title") this.setRain(0);
     if (mode !== "village" && this.amb) for (const k of Object.keys(this.amb) as (keyof NonNullable<typeof this.amb>)[]) this.amb[k].target = 0;
     if (mode !== "race") this.setWhoosh(0);
   }
@@ -447,6 +449,26 @@ export class Sound {
       o.stop(t + 0.16);
       this.amb.crickets.gain.gain.value = 1;
     }
+  }
+
+  /** Steady rain on the roofs (0..1). */
+  setRain(level: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.rainGain) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 2600;
+      f.Q.value = 0.4;
+      this.rainGain = ctx.createGain();
+      this.rainGain.gain.value = 0;
+      src.connect(f).connect(this.rainGain).connect(this.ambBus);
+      src.start();
+    }
+    this.rainGain.gain.setTargetAtTime(Math.max(0, Math.min(1, level)) * 0.35, ctx.currentTime, 0.8);
   }
 
   dispose() {

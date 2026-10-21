@@ -11,3 +11,4 @@ export * from "./village";
 export * from "./quests";
 export * from "./cabin";
 export * from "./progress";
+export * from "./world";

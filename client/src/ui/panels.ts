@@ -62,8 +62,16 @@ export function openSettings(ctx: Ctx, root: HTMLElement, onChange: () => void):
       segmented(p.graphics, [["high", "✨ Beautiful"], ["low", "⚡ Fast (older phones)"]], (v) => set("graphics", v)),
       h("h3", {}, "🌗 Time of day"),
       segmented(p.time, [["auto", "🔄 Real cycle"], ["golden", "🌅 Golden hour"], ["day", "☀️ Day"], ["night", "🌙 Night"]], (v) => set("time", v)),
+      h("h3", {}, "🍂 Season"),
+      segmented(p.season, [["auto", "📅 Real calendar"], ["spring", "🌸 Spring"], ["summer", "🌞 Summer"], ["autumn", "🍂 Autumn"], ["winter", "❄️ Winter"]], (v) => set("season", v)),
+      h("h3", {}, "🌦️ Weather"),
+      segmented(p.weather, [["auto", "🔄 Changing"], ["clear", "☀️ Clear"], ["rain", "🌧️ Rain"], ["snow", "🌨️ Snow"], ["fog", "🌫️ Fog"], ["rainbow", "🌈 Rainbow"]], (v) => set("weather", v)),
       h("h3", {}, "🕹️ Touch joystick"),
       segmented(p.joystick, [["auto", "Auto"], ["on", "On"], ["off", "Off"]], (v) => set("joystick", v)),
+      h("h3", {}, "♿ Comfort"),
+      segmented(p.textSize, [["normal", "Aa Normal text"], ["large", "Aa Large text & buttons"]], (v) => set("textSize", v)),
+      segmented(p.shapes ? "on" : "off", [["off", "Map: colours"], ["on", "Map: colours + shapes"]], (v) => set("shapes", v === "on")),
+      segmented(p.haptics ? "on" : "off", [["on", "📳 Vibration on"], ["off", "Vibration off"]], (v) => set("haptics", v === "on")),
       h("h3", {}, "💾 Your beaver"),
       solo
         ? h("div.hint", {}, "Solo progress is saved in this browser. Play online to get a recovery code for other devices.")

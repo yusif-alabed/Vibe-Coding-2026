@@ -6,6 +6,7 @@ import { P, rgb } from "./palette";
 import { bench, canoe, cliff, dock, fencePost, fenceRails, Frame, fountain, grandLodge, lanternPost, timberCabin, box } from "./village/architecture";
 import { buildMountainMesh, type MountainOpts } from "./village/mountains";
 import { buildTown, type FerrisInfo } from "./village/town";
+import { buildNeon } from "./village/neon";
 import { boulder, buttercup, daisy, fern, grassTuft, lupine, spruce, stoneBlock } from "./village/nature";
 
 /**
@@ -177,6 +178,9 @@ function groundColor(x: number, y: number, z: number, ny: number): Vec3 {
 
 export interface HubWorld {
   terrain: GpuMesh;
+  /** Colourful night lights: bright cores and soft halos (halos only show after dark). */
+  neon: GpuMesh;
+  neonHalo: GpuMesh;
   townGlass: GpuMesh;
   townIce: GpuMesh;
   spins: { mesh: GpuMesh; x: number; y: number; z: number; ry: number; speed: number; axis: "z" | "y"; mode: "lit" | "glow" | "beam" }[];
@@ -475,6 +479,7 @@ export function buildHub(r: Renderer): HubWorld {
   finish();
 
   // Bridges over the river, with railings.
+  const bridgeRails: Vec3[][] = [];
   for (const BRIDGE of BRIDGES) {
     const fr = new Frame(BRIDGE.x, 0, BRIDGE.z, BRIDGE.ry);
     // Each board follows the arch at its own position, so the ends sit right on the banks.
@@ -494,6 +499,11 @@ export function buildHub(r: Renderer): HubWorld {
     }
     for (const lz of [-BRIDGE.halfLength + 0.15, BRIDGE.halfLength - 0.15]) {
       p.cylinder(fr.m(0, deck(lz) - 0.18, lz, 0.34, 4.4, 0.34, 0, 0, Math.PI / 2), C("#7a4b2c"), 8);
+    }
+    for (const s of [-1.9, 1.9]) {
+      const rail: Vec3[] = [];
+      for (let i = -nb; i <= nb; i++) rail.push(fr.p(s, deck(i) + 1.05, i));
+      bridgeRails.push(rail);
     }
     for (const s of [-1.9, 1.9]) for (let i = -nb; i < nb; i++) {
       const y0 = deck(i), y1 = deck(i + 1);
@@ -735,6 +745,8 @@ export function buildHub(r: Renderer): HubWorld {
   // ------------------------------------------------------------ Mountains, portal, steam
   const mountains = buildMountainMesh({ inner: 152, outer: 720, baseHeight: heightAt, heroAngle: -Math.PI / 2 - 0.12 });
   const town = buildTown(heightAt);
+  const neonWire = new MeshBuilder();
+  const neon = buildNeon(heightAt, neonWire, { bridgeRails, fountainY: fountainInfo.poolY - 1.3 });
   const portal = new MeshBuilder().torus(compose(0, 0, 0, 0, Math.PI / 2, 0), P.portal, 3, 0.35, 24, 6);
   const steam = new MeshBuilder().sphere(compose(0, 0, 0), "#ffffff", 4, 6);
   const shadow = new MeshBuilder();
@@ -753,7 +765,9 @@ export function buildHub(r: Renderer): HubWorld {
     grass: r.upload(grass.build()),
     flowers: r.upload(flowers.build()),
     trees: r.upload(trees.build()),
-    props: [...props, r.upload(town.body.build())],
+    props: [...props, r.upload(town.body.build()), r.upload(neonWire.build())],
+    neon: r.upload(neon.core.build()),
+    neonHalo: r.upload(neon.halo.build()),
     glow: r.upload(glow.merge(town.glow).build()),
     water: r.upload(w.build()),
     falls: r.upload(falls.build()),
@@ -819,36 +833,40 @@ export function applyVillageLight(r: Renderer) {
 export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   const I = compose(0, 0, 0);
   r.draw(w.mountains, I, { noCast: true });
-  r.draw(w.terrain, I, { noCast: true });
-  r.draw(w.ground, I, { noCast: true });
+  r.draw(w.terrain, I, { noCast: true, season: true });
+  r.draw(w.ground, I, { noCast: true, season: true });
   // The fast graphics setting skips the (very many) grass blades and flowers.
   if (r.quality !== "low") {
-    r.draw(w.grass, I, { sway: 0.06, noCast: true });
-    r.draw(w.flowers, I, { sway: 0.05, noCast: true });
+    r.draw(w.grass, I, { sway: 0.06, noCast: true, season: true, cut: true });
+    if (r.env.snow < 0.5) r.draw(w.flowers, I, { sway: 0.05, noCast: true, season: true, cut: true });
   }
-  r.draw(w.trees, I, { sway: 0.22 });
-  for (const prop of w.props) r.draw(prop, I);
+  r.draw(w.trees, I, { sway: 0.22, season: true, cut: true });
+  for (const prop of w.props) r.draw(prop, I, { season: true, cut: true });
   // Windows and lanterns glow brighter as night falls.
-  r.draw(w.glow, I, { unlit: true, emissive: 0.25 + night * 0.9 });
+  r.draw(w.glow, I, { unlit: true, emissive: 0.25 + night * 0.9, cut: true });
+  // Neon signs and festoon lights: pastel bulbs by day, glowing colours with soft halos at night.
+  const flicker = 1 + Math.sin(time * 2.1) * 0.06 + Math.sin(time * 7.3) * 0.03;
+  r.draw(w.neon, I, { unlit: true, emissive: (0.1 + night * 1.5) * flicker, noCast: true, cut: true });
+  if (night > 0.05) r.draw(w.neonHalo, I, { unlit: true, emissive: 0.6, alpha: 0.22 * night, noCast: true, noFog: true });
   r.draw(w.townIce, I, { unlit: true, emissive: 0.05, noCast: true });
-  r.draw(w.townGlass, I, { alpha: 0.38 });
+  r.draw(w.townGlass, I, { alpha: 0.38, cut: true });
   for (const sp of w.spins) {
     const a = time * sp.speed;
     const m = sp.axis === "y" ? compose(sp.x, sp.y, sp.z, sp.ry + a) : compose(sp.x, sp.y, sp.z, sp.ry, 0, a);
-    if (sp.mode === "lit") r.draw(sp.mesh, m);
-    else if (sp.mode === "glow") r.draw(sp.mesh, m, { unlit: true, emissive: 0.4 });
+    if (sp.mode === "lit") r.draw(sp.mesh, m, { cut: true });
+    else if (sp.mode === "glow") r.draw(sp.mesh, m, { unlit: true, emissive: 0.4, cut: true });
     else r.draw(sp.mesh, m, { unlit: true, alpha: 0.13, noFog: true });
   }
   const fw = w.ferris;
   if (fw) {
     for (let i = 0; i < fw.seats; i++) {
       const p = ferrisSeat(fw, i, time);
-      r.draw(w.gondola, compose(p[0], p[1], p[2], fw.ry));
+      r.draw(w.gondola, compose(p[0], p[1], p[2], fw.ry), { cut: true });
     }
   }
   const pulse = 1 + Math.sin(time * 3) * 0.05;
   r.draw(w.portal, compose(PL.trailhead.x, heightAt(PL.trailhead.x, PL.trailhead.z) + 3.3, PL.trailhead.z, 0, 0, time * 0.8, pulse), { unlit: true, emissive: 0.3 });
   r.draw(w.water, I, { wave: 1, alpha: 0.84 });
-  r.draw(w.falls, I, { wave: 2, alpha: 0.82 });
+  r.draw(w.falls, I, { wave: 2, alpha: 0.82, cut: true });
   r.draw(w.foam, I, { unlit: true, alpha: 0.42 });
 }

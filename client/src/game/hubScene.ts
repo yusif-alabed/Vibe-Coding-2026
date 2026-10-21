@@ -14,6 +14,8 @@ import {
   type HubAct,
   type Look,
   type QuestsWire,
+  SEASON_INFO,
+  WEATHER_INFO,
   type PlayerInfo,
   type ServerMsg,
   type Slot,
@@ -30,6 +32,7 @@ import { wantsJoystick } from "../prefs";
 import { Ambient } from "./ambient";
 import { streetYaw } from "./cameraZones";
 import { applyTimeOfDay, dayPhase, timeLabel } from "./daylight";
+import { applyMood, currentMood, drawWeather, umbrellaMesh, umbrellaWeather, type WorldMood } from "./weather";
 import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
@@ -221,6 +224,7 @@ export class HubScene implements Scene {
   private friendsPanel: { el: HTMLElement; refresh: () => void } | null = null;
   private joystick: Joystick | null = null;
   private ambient: Ambient;
+  private mood!: WorldMood;
   private minimap: Minimap;
   private clockEl: HTMLElement;
   private clockKey = "";
@@ -850,6 +854,7 @@ export class HubScene implements Scene {
     {
       const prox = Ambient.proximity(me.x, me.z, this.world.fires);
       this.ctx.sound.setNight(this.night);
+      if (this.mood) this.ctx.sound.setRain(this.mood.weather.kind === "rain" ? this.mood.weather.amount : 0);
       this.ctx.sound.updateAmbience(prox.water, prox.fire, dt);
     }
 
@@ -1018,6 +1023,8 @@ export class HubScene implements Scene {
     const me = this.me;
     r.time = this.time;
     this.night = applyTimeOfDay(r, dayPhase(this.ctx.prefs.time));
+    this.mood = currentMood(this.ctx.prefs);
+    applyMood(r, this.mood);
     // Follow where the beaver is drawn (on the Ferris wheel, up the lookout, out on the ice…).
     const fp = this.drawPos(me);
     const py = fp.y;
@@ -1048,10 +1055,13 @@ export class HubScene implements Scene {
     r.resize();
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     r.shadowFocus = [focus.x, py, focus.z];
+    // Anything between the camera and your beaver turns see-through (only on your screen).
+    r.cutFocus = this.photo.active ? null : [focus.x, py + 1.1, focus.z];
     r.begin(lookAt(cam, look), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
 
     drawHub(r, this.world, this.time, this.night);
     this.ambient.draw(r, this.time, this.night);
+    drawWeather(r, this.mood, this.time, cam, this.night);
     this.drawNpcs();
 
     const coneMesh = pineconeMesh(r);
@@ -1090,8 +1100,11 @@ export class HubScene implements Scene {
         // A folded spa towel balanced on the head.
         r.draw(cozyM.towel, compose(d.x, y + 2.12 + Math.sin(this.time * 1.4 + a.seed) * 0.02, d.z, d.ry + 0.2, 0, 0.08), { outline: 0.02 });
       }
+      // Umbrellas come out in the rain and snow.
+      const brolly = !held && !a.act && a.swim < 0.5 && umbrellaWeather(this.mood) > 0.3;
+      if (brolly) r.draw(umbrellaMesh(r, a.seed), compose(d.x + Math.sin(d.ry) * 0.35, y + 3.05, d.z + Math.cos(d.ry) * 0.35, d.ry, -0.12, Math.sin(this.time * 1.3 + a.seed) * 0.05), { outline: 0.02 });
       drawBeaver(r, getBeaverMeshes(r, a.info.look), compose(d.x, y, d.z, d.ry), {
-        hold: held ? 1 : 0, sip, sled: d.seated,
+        hold: held ? 1 : brolly ? 0.45 : 0, sip, sled: d.seated,
         walk: a.act === "skate" ? this.time * 3 : a.walk, moving: a.act === "skate" ? 0.45 : a.moving, swim: a.act === "soak" ? 0 : a.swim, time: this.time, seed: a.seed, talk: a.talkT > 0 ? 1 : 0,
         jump: posed ? pose.jump : Math.sin(a.jumpT * Math.PI) * (a.jumpT > 0 ? 1 : 0),
         wave: posed ? pose.wave : Math.min(1, a.waveT),
@@ -1121,11 +1134,13 @@ export class HubScene implements Scene {
     }
     this.minimap.update(performance.now(), { x: this.me.x, z: this.me.z, ry: this.me.ry }, this.yaw, dots);
     const t = timeLabel(dayPhase(this.ctx.prefs.time));
-    const key = `${t.icon}${t.name}${t.clock}`;
+    const mood = this.mood ?? currentMood(this.ctx.prefs);
+    const si = SEASON_INFO[mood.season], wi = WEATHER_INFO[mood.weather.kind];
+    const key = `${t.icon}${t.name}${t.clock}${si.icon}${wi.icon}`;
     if (key !== this.clockKey) {
       this.clockKey = key;
-      this.clockEl.textContent = `${t.icon} ${t.clock}`;
-      this.clockEl.title = `${t.name} · one full day lasts 25 minutes`;
+      this.clockEl.textContent = `${si.icon}${wi.icon ? " " + wi.icon : ""} ${t.icon} ${t.clock}`;
+      this.clockEl.title = `${si.name} · ${wi.name} · ${t.name} · one full day lasts 25 minutes`;
     }
   }
 

@@ -3,10 +3,18 @@ export interface Prefs {
   graphics: "high" | "low";
   time: "auto" | "golden" | "day" | "night";
   joystick: "auto" | "on" | "off";
+  season: "auto" | "spring" | "summer" | "autumn" | "winter";
+  weather: "auto" | "clear" | "rain" | "snow" | "fog" | "rainbow";
+  /** Bigger text and buttons. */
+  textSize: "normal" | "large";
+  /** Map markers drawn with distinct shapes as well as colours. */
+  shapes: boolean;
+  /** Little vibrations on phones for coins, quests and bumps. */
+  haptics: boolean;
 }
 
 const KEY = "bb-prefs";
-const DEFAULTS: Prefs = { graphics: "high", time: "auto", joystick: "auto" };
+const DEFAULTS: Prefs = { graphics: "high", time: "auto", joystick: "auto", season: "auto", weather: "auto", textSize: "normal", shapes: false, haptics: true };
 
 export function loadPrefs(): Prefs {
   try {

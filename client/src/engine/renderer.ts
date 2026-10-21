@@ -53,6 +53,8 @@ uniform float uFogNear; uniform float uFogDensity; uniform float uFogHeight; uni
 uniform vec4 uTint; uniform float uUnlit; uniform float uNoFog; uniform float uOutline; uniform vec3 uInk; uniform float uAlpha;
 uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength;
 uniform float uWave; uniform float uTime; uniform float uEmissive;
+uniform float uSeasonOn; uniform vec4 uSeasonCol; uniform float uSnow; uniform float uWet;
+uniform float uCutOn; uniform vec3 uCutFocus; uniform float uCutRadius;
 uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel;
 out vec4 outColor;
 
@@ -97,6 +99,22 @@ vec3 waterNormal(vec2 p, float t) {
 void main() {
   vec3 V = normalize(uCamPos - vWorld);
   vec3 L = normalize(uLightDir);
+  if (uCutOn > 0.5 && uCutRadius > 0.0) {
+    // See-through: anything between the camera and your beaver dissolves (dithered, so it fades softly),
+    // so you can always see yourself when the camera passes through a tree or a wall.
+    vec3 seg = uCutFocus - uCamPos;
+    float len = length(seg);
+    vec3 dir = seg / max(len, 1e-3);
+    vec3 rel = vWorld - uCamPos;
+    float t = dot(rel, dir);
+    if (t > 0.0 && t < len - 0.6) {
+      float d = length(rel - dir * t);
+      float rad = uCutRadius * mix(0.45, 1.0, clamp(t / len, 0.0, 1.0));
+      float k = smoothstep(rad, rad * 0.6, d);
+      float dither = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+      if (k > dither) discard;
+    }
+  }
   if (uOutline > 0.0) {
     // Only the back of the hull is drawn, so it reads as an outline around the silhouette.
     if (dot(vSmooth, V) > 0.15) discard;
@@ -108,6 +126,15 @@ void main() {
   float grassness = smoothstep(0.045, 0.16, vCol.g - max(vCol.r, vCol.b));
   vec3 materialCol = mix(vCol, textureCol, uUseTexture * uTextureStrength * grassness);
   vec3 base = mix(materialCol, uTint.rgb, uTint.a);
+  if (uSeasonOn > 0.5) {
+    // Seasons: tint the greenery (golden autumn, fresh spring), settle snow on upward faces, darken when wet.
+    float green = smoothstep(0.03, 0.14, base.g - max(base.r, base.b));
+    float lum = dot(base, vec3(0.299, 0.587, 0.114));
+    base = mix(base, uSeasonCol.rgb * lum * 2.1, green * uSeasonCol.a);
+    float up = smoothstep(0.5, 0.88, n.y);
+    base = mix(base, vec3(0.94, 0.97, 1.0), up * uSnow * (0.6 + 0.4 * green));
+    base *= 1.0 - uWet * 0.2;
+  }
   vec3 col;
   float alpha = uAlpha;
 
@@ -272,6 +299,10 @@ export interface DrawOpts {
   sway?: number;
   /** Don't cast a shadow (terrain, decals, tiny details). */
   noCast?: boolean;
+  /** Seasonal tint, snow cover and rain wetness apply to this draw (terrain, foliage, buildings). */
+  season?: boolean;
+  /** This draw dissolves where it blocks the view of the player (see Renderer.cutFocus). */
+  cut?: boolean;
   /** Extra brightness for unlit glowing things (windows, lanterns). */
   emissive?: number;
 }
@@ -296,6 +327,10 @@ export interface Environment {
   /** Night sky: 0 = none, 1 = full starry sky with the moon at moonDir. */
   stars: number;
   moonDir: Vec3;
+  /** Season tint for greenery (rgb target, amount), snow cover (0..1) and wetness (0..1). */
+  seasonCol: [number, number, number, number];
+  snow: number;
+  wet: number;
   /** Draw the procedural sky before the scene. */
   sky: boolean;
 }
@@ -323,6 +358,9 @@ export class Renderer {
   /** World point the sun's shadow map is centred on (usually the player). null = no shadows. */
   shadowFocus: Vec3 | null = null;
   shadowsEnabled = true;
+  /** When set, draws marked `cut` turn see-through between the camera and this point (the player). */
+  cutFocus: Vec3 | null = null;
+  cutRadius = 1.8;
   /** Graphics setting: "low" renders at 1x resolution without sun shadows. */
   quality: "high" | "low" = "high";
   private shadowSupported = true;
@@ -342,6 +380,9 @@ export class Renderer {
     clouds: 1,
     stars: 0,
     moonDir: [-0.5, 0.6, 0.4],
+    seasonCol: [0, 0, 0, 0],
+    snow: 0,
+    wet: 0,
     sky: true,
   };
   private queue: Item[] = [];
@@ -352,7 +393,7 @@ export class Renderer {
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
     this.prog = this.link(VS, FS, ["aPos", "aNrm", "aCol", "aSmooth"]);
-    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uShadowMap", "uShadowOn", "uShadowTexel"]) {
+    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
     this.shadowProg = this.link(SHADOW_VS, SHADOW_FS, ["aPos", "", "", "aSmooth"]);
@@ -575,6 +616,11 @@ export class Renderer {
     gl.uniform1f(this.u.uExposure, e.exposure);
     gl.uniform1f(this.u.uTime, this.time);
     gl.uniform1f(this.u.uShadowOn, shadows ? 1 : 0);
+    gl.uniform4fv(this.u.uSeasonCol, e.seasonCol);
+    gl.uniform3fv(this.u.uCutFocus, this.cutFocus ?? [0, 0, 0]);
+    gl.uniform1f(this.u.uCutRadius, this.cutFocus ? this.cutRadius : 0);
+    gl.uniform1f(this.u.uSnow, e.snow);
+    gl.uniform1f(this.u.uWet, e.wet);
     gl.uniform1f(this.u.uShadowTexel, 1 / SHADOW_SIZE);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
@@ -597,6 +643,7 @@ export class Renderer {
     }
     gl.bindVertexArray(null);
     this.queue = [];
+    this.cutFocus = null;
   }
 
   private drawNow({ mesh, model, opts }: Item): void {
@@ -610,6 +657,8 @@ export class Renderer {
     gl.uniform1f(this.u.uAlpha, opts.alpha ?? 1);
     gl.uniform1f(this.u.uNoFog, opts.noFog ? 1 : 0);
     gl.uniform1f(this.u.uEmissive, opts.emissive ?? 0);
+    gl.uniform1f(this.u.uSeasonOn, opts.season ? 1 : 0);
+    gl.uniform1f(this.u.uCutOn, opts.cut ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, opts.texture ?? this.whiteTexture);
     gl.uniform1i(this.u.uTexture, 0);

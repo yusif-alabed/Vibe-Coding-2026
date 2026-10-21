@@ -5,6 +5,7 @@ import { drawBeaver, getBeaverMeshes } from "./beaver";
 import { buildMountains, buildSky } from "./hubWorld";
 import { buildRaceWorld, courseTilt, setRaceTheme, trackToWorld, waterY, type RaceWorld } from "./raceWorld";
 import { applyTimeOfDay, dayPhase } from "./daylight";
+import { applyMood, currentMood, drawWeather, type WorldMood } from "./weather";
 import type { Ctx, Scene } from "./scene";
 import type { GpuMesh } from "../engine/renderer";
 
@@ -49,6 +50,7 @@ export class RaceScene implements Scene {
 
   private game: RaceGame;
   private night = 0;
+  private mood!: WorldMood;
   private paddleAcc = 0;
 
   constructor(private ctx: Ctx, start: Extract<ServerMsg, { t: "raceStart" }>) {
@@ -208,6 +210,9 @@ export class RaceScene implements Scene {
     // Crisp snowy afternoon on the run (or a warm summer afternoon on the river).
     // Races follow the shared day/night cycle too: sunset toboggan runs and moonlit canoe races.
     const night = applyTimeOfDay(r, dayPhase(this.ctx.prefs.time));
+    this.mood = currentMood(this.ctx.prefs);
+    applyMood(r, this.mood);
+    r.env.snow = 0;
     const sun = r.env.lightDir;
     // The course heads toward -z, so turn the light to come from in front and to the side.
     r.env.lightDir = [sun[0] * 0.6, sun[1], -Math.abs(sun[2]) - 0.5];
@@ -241,6 +246,7 @@ export class RaceScene implements Scene {
     r.draw(this.world.props, I, { sway: 0.15 });
     r.draw(this.world.glow, I, { unlit: true, emissive: this.night * 0.8 });
     if (this.world.water) r.draw(this.world.water, I, { wave: 1, alpha: 0.86 });
+    drawWeather(r, this.mood, this.time, cam, night);
 
     for (const g of this.layout.gates) {
       const [x, y, z] = trackToWorld(g.x, g.z);
