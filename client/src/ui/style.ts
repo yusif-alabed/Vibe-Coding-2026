@@ -248,4 +248,27 @@ body.big-text .pill { font-size: 18px; }
 body.big-text .chatline, body.big-text .hint { font-size: 16px; }
 body.big-text .tag { font-size: 17px; }
 body.big-text .place { font-size: 18px; }
+
+/* ---- The Word Lodge ---- */
+.word-how { position: absolute; left: 50%; top: 13%; transform: translateX(-50%); padding: 10px 16px; max-width: min(460px, 90vw); text-align: center; font-weight: 700; font-size: 14px; }
+.word-note { position: absolute; left: 50%; top: calc(13% + 64px); transform: translateX(-50%); padding: 7px 14px; font-weight: 800; text-align: center; max-width: min(420px, 90vw); opacity: 0; }
+.word-note:not(:empty) { opacity: 1; }
+.word-note.pop { animation: pop .22s ease-out; }
+.word-hint { top: auto; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); opacity: 1; font-size: 13px; color: var(--muted); }
+.word-row { display: grid; grid-template-columns: 1fr 54px 30px; gap: 6px; align-items: center; }
+.word-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.word-row .bar { height: 9px; border: 2px solid var(--ink); border-radius: 999px; background: #fff; overflow: hidden; }
+.word-row .bar i { display: block; height: 100%; width: 0; background: var(--teal); transition: width .25s; }
+.word-row.me { color: var(--teal-dk); }
+.pill.urgent { background: var(--orange); color: #fff; }
+.kb { position: absolute; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 5px; width: min(520px, calc(100% - 16px)); }
+.kb-row { display: flex; gap: 4px; justify-content: center; }
+.kb-key { flex: 1 1 0; min-width: 0; height: 46px; font: 800 15px var(--font-ui); background: var(--cream); color: var(--ink); border: 2.5px solid var(--ink); border-radius: 8px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; touch-action: manipulation; }
+.kb-key:active { transform: translateY(3px); box-shadow: none; }
+.kb-key.wide { flex: 1.6 1 0; font-size: 12px; }
+.kb-key.m-g { background: #6aaa64; color: #fff; }
+.kb-key.m-y { background: #c9b458; color: #fff; }
+.kb-key.m-b { background: #787c7e; color: #fff; }
+@media (max-width: 560px) { .kb-key { height: 42px; font-size: 14px; } }
+body.big-text .kb-key { font-size: 17px; }
 `

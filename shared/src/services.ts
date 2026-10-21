@@ -3,7 +3,8 @@ import { fish, fishingSpot, harvest, lifeEvent, lifeWire, plant, readFact, sell,
 import { questEvent, type ProgressRecord } from "./progress";
 import { visitedPlace, type QuestEvent, type VisitPlace } from "./quests";
 import { TOWN_PLACES } from "./constants";
-import { weekKey, type MiniGame, ARCADE_INFO } from "./minigames";
+import { weekKey, type LeaderGame, type MiniGame, ARCADE_INFO } from "./minigames";
+import { WORD_INFO, type WordGame } from "./words/types";
 
 /**
  * Per-player rules shared by the game server and solo mode, so both behave exactly the same:
@@ -113,8 +114,34 @@ export function actAllowed(a: HubAct, x: number, z: number): boolean {
   return visitedPlace(x, z) === where;
 }
 
+/** Whether an untrusted string names a board the server keeps. */
+export function isLeaderGame(game: unknown): game is LeaderGame {
+  if (typeof game !== "string") return false;
+  if (game === "golf") return true;
+  if (game.startsWith("word:")) return game.slice(5) in WORD_INFO;
+  return game in ARCADE_INFO;
+}
+
+/** The name, icon and units for anything with a weekly leaderboard. */
+export function leaderInfo(game: LeaderGame): { name: string; icon: string; scoreLabel: string } {
+  if (game === "golf") return { name: "Golf", icon: "⛳", scoreLabel: "strokes vs par (full rounds)" };
+  if (game.startsWith("word:")) {
+    const w = WORD_INFO[game.slice(5) as WordGame];
+    return { name: w.name, icon: w.icon, scoreLabel: w.scoreLabel };
+  }
+  const a = ARCADE_INFO[game as MiniGame];
+  return { name: a.name, icon: a.icon, scoreLabel: a.scoreLabel };
+}
+
+/** Whether a smaller score wins: a race time or a golf round, but never a word score. */
+export function lowerIsBetter(game: LeaderGame): boolean {
+  if (game === "golf") return true;
+  if (game.startsWith("word:")) return false;
+  return !!ARCADE_INFO[game as MiniGame]?.lowerIsBetter;
+}
+
 /** Remembers a personal best for the week. Returns true if it's a new best. */
-export function recordBest(rec: PlayerRecordLike, game: MiniGame | "golf", score: number, now = Date.now()): boolean {
+export function recordBest(rec: PlayerRecordLike, game: LeaderGame, score: number, now = Date.now()): boolean {
   rec.bests ??= {};
   const week = weekKey(now);
   const cur = rec.bests[game];
@@ -127,9 +154,9 @@ export function recordBest(rec: PlayerRecordLike, game: MiniGame | "golf", score
 }
 
 /** Builds a leaderboard from many players' bests. */
-export function leaderRows(entries: { name: string; best?: { week: string; score: number }; me?: boolean }[], game: MiniGame | "golf", now = Date.now()): LeaderRow[] {
+export function leaderRows(entries: { name: string; best?: { week: string; score: number }; me?: boolean }[], game: LeaderGame, now = Date.now()): LeaderRow[] {
   const week = weekKey(now);
-  const lower = game === "golf" || !!ARCADE_INFO[game as MiniGame]?.lowerIsBetter;
+  const lower = lowerIsBetter(game);
   return entries
     .filter((e) => e.best && e.best.week === week)
     .map((e) => ({ name: e.name, score: e.best!.score, me: e.me || undefined }))

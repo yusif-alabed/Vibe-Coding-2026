@@ -56,15 +56,19 @@ import {
   takeItem,
   TOWN_PLACES,
   weekKey,
+  lowerIsBetter,
+  WordMatch,
   hashString,
   mulberry32,
   type CabinSocial,
   type GameSim,
+  type LeaderGame,
   type LifeEvent,
   type MiniGame,
   type PlayerInput,
   type PlayerRecordLike,
   type RaceSnapshot,
+  type WordGame,
 } from "@beaver/shared";
 import type { Net } from "./net";
 
@@ -134,6 +138,8 @@ export class OfflineNet implements Net {
   private inp: PlayerInput = { steer: 0, fwd: 0, press: false };
   private golf: GolfMatch | null = null;
   private golfTimer = 0;
+  private word: WordMatch | null = null;
+  private wordTimer = 0;
   private summit = false;
   private myAct: string | null = null;
   private inHub = false;
@@ -297,13 +303,14 @@ export class OfflineNet implements Net {
   }
 
   /** Bot beavers post scores too, so the weekly board isn't lonely. */
-  private leaderboard(game: MiniGame | "golf") {
+  private leaderboard(game: LeaderGame) {
     const week = weekKey();
     const rand = mulberry32(hashString(`${week}|${game}`));
-    const info = game === "golf" ? null : ARCADE_INFO[game];
     const fake = (): number => {
       if (game === "golf") return Math.round(rand() * 14 - 2);
-      if (info?.lowerIsBetter) return Math.round((44 + rand() * 18) * 10) / 10;
+      // Word scores are on their own scale: a solved Wordle is a few hundred, a Bee round less.
+      if (game.startsWith("word:")) return Math.round(game === "word:bee" ? 20 + rand() * 90 : 60 + rand() * 180);
+      if (lowerIsBetter(game)) return Math.round((44 + rand() * 18) * 10) / 10;
       if (game === "hunt") return Math.round(10 + rand() * 18);
       if (game === "logroll") return Math.round((15 + rand() * 45) * 10) / 10;
       if (game === "snowball") return Math.round(3 + rand() * 9);
@@ -366,6 +373,72 @@ export class OfflineNet implements Net {
       this.me.z = TOWN_PLACES.clubhouse.z - 1.5;
       this.welcome();
     }, quit ? 2500 : 6000);
+  }
+
+  // ---------------------------------------------------------------- The Word Lodge
+  //
+  // Exactly the shape the game server's WordRoom uses: one `WordMatch` driven by actions and a
+  // clock, with bots filling the other lecterns. When online play arrives the only difference
+  // is where the match object lives.
+
+  private startWord(game: WordGame) {
+    if (this.word || this.golf || this.queued || this.sim) return;
+    if (Math.hypot(this.me.x - TOWN_PLACES.wordlodge.x, this.me.z - TOWN_PLACES.wordlodge.z) > 9) {
+      this.emit({ t: "error", text: "Walk up Library Lane to the Word Lodge first!" });
+      return;
+    }
+    const others = this.party.length ? this.party.slice(0, 3) : [pick(BOT_NAMES), pick(BOT_NAMES)];
+    const names = [...new Set(others)].slice(0, 3);
+    const entrants = [
+      { id: this.me.id, name: this.me.name, isBot: false },
+      ...names.map((n, i) => ({ id: `wbot-${i}`, name: n, isBot: true })),
+    ];
+    const seed = Math.floor(Math.random() * 2 ** 31);
+    const now = Date.now();
+    const w = (this.word = new WordMatch(game, seed, entrants, now));
+    this.inHub = false;
+    this.emit({
+      t: "wordStart", game, seed, setup: w.setup,
+      you: w.self(this.me.id)!, rivals: w.rivals(), endsAt: now + w.setup.seconds * 1000,
+    });
+    this.wordTimer = window.setInterval(() => {
+      const t = Date.now();
+      if (this.word !== w) return;
+      // Rivals moving is the whole point of being in the room together, so any bot turn is
+      // broadcast immediately rather than waiting for the next state tick.
+      const moved = w.botTurns(t).length > 0;
+      if (w.advance(t)) { this.endWord(false); return; }
+      if (moved) this.emit({ t: "wordState", you: w.self(this.me.id), rivals: w.rivals() });
+    }, 500);
+    this.timers.push(this.wordTimer);
+  }
+
+  private endWord(quit: boolean) {
+    const w = this.word;
+    if (!w) return;
+    clearInterval(this.wordTimer);
+    if (quit) w.quit(this.me.id, Date.now());
+    w.advance(Date.now() + w.setup.seconds * 1000);
+    const results = w.results().map((r) => ({
+      id: r.id, name: r.name, isBot: r.isBot, place: r.place, finished: r.solved,
+      time: r.time, coins: r.coins, score: r.score, solved: r.solved,
+    }));
+    const mine = results.find((r) => r.id === this.me.id);
+    let best: number | undefined;
+    if (mine) {
+      this.save.coins += mine.coins;
+      if (recordBest(this.save, `word:${w.game}`, mine.score ?? 0)) best = mine.score;
+      this.progress({ kind: "arcade" });
+    }
+    store(this.save);
+    this.word = null;
+    this.emit({ t: "wordEnd", game: w.game, results, answer: w.reveal(), best });
+    this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
+    window.setTimeout(() => {
+      this.me.x = TOWN_PLACES.wordlodge.x + rand(-1.5, 1.5);
+      this.me.z = TOWN_PLACES.wordlodge.z + 2;
+      this.welcome();
+    }, quit ? 500 : 7000);
   }
 
   send(msg: ClientMsg): void {
@@ -565,6 +638,20 @@ export class OfflineNet implements Net {
       case "golfQuit":
         if (this.golf) this.endGolf(true);
         else this.queued = false;
+        break;
+      case "queueWord":
+        this.startWord(msg.game);
+        break;
+      case "wordAct": {
+        const w = this.word;
+        if (!w) break;
+        const r = w.act(this.me.id, msg.a, Date.now());
+        if (r.ok || r.note) this.emit({ t: "wordState", you: w.self(this.me.id), rivals: w.rivals() });
+        if (w.advance(Date.now())) this.endWord(false);
+        break;
+      }
+      case "wordQuit":
+        if (this.word) this.endWord(true);
         break;
       case "buyFurniture": {
         const r = buyFurniture(this.save.coins, this.save.furniture, msg.item, seasonAt());

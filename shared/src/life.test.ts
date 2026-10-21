@@ -4,9 +4,10 @@ import { fish, harvest, plant, sell, talk, water, journalOf, lifeEvent, NPC_BY_I
 import { GOLF_HOLES, GolfMatch, simulateShot, planShot, surfaceAt, golfCoins } from "./golf";
 import { makeSim, weekKey } from "./minigames";
 import { mulberry32 } from "./rng";
-import { recordBest, leaderRows, handleLife } from "./services";
+import { recordBest, leaderRows, handleLife, type PlayerRecordLike } from "./services";
 
-const rec = () => ({ coins: 100, owned: [] as string[], furniture: {} as Record<string, number> });
+// Typed as the full record so the fields the game adds on demand (bag, npcs, bests) are visible.
+const rec = (): PlayerRecordLike => ({ coins: 100, owned: [], furniture: {}, cabin: [] });
 
 describe("village life", () => {
   it("fishing needs water and fills the journal and bag", () => {
@@ -108,7 +109,7 @@ describe("minigames", () => {
   });
 
   it("weekly bests and leaderboards", () => {
-    const r = { ...rec(), cabin: [] };
+    const r = rec();
     const now = Date.UTC(2026, 9, 21);
     assert.equal(recordBest(r, "hunt", 10, now), true);
     assert.equal(recordBest(r, "hunt", 8, now), false);

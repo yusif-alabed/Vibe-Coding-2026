@@ -3,8 +3,9 @@ import type { RaceSnapshot } from "./race";
 import type { PlacedItem } from "./cabin";
 import type { QuestsWire } from "./progress";
 import type { LifeWire } from "./life";
-import type { MiniGame } from "./minigames";
+import type { LeaderGame, MiniGame } from "./minigames";
 import type { Club } from "./golf";
+import type { WordAction, WordGame, WordRivalWire, WordSelfWire, WordSetup } from "./words/types";
 
 /** Wire protocol between the browser client and the game server (JSON over WebSocket). */
 
@@ -113,11 +114,15 @@ export type ClientMsg =
   // Minigames and golf
   | { t: "queueGame"; game: MiniGame }
   | { t: "input"; steer: number; fwd: number; press: boolean }
-  | { t: "leaderboard"; game: MiniGame | "golf" }
+  | { t: "leaderboard"; game: LeaderGame }
   | { t: "golfQueue"; holes: number }
   | { t: "golfShot"; aim: number; power: number; club: Club }
   | { t: "golfAim"; aim: number; club: Club }
-  | { t: "golfQuit" };
+  | { t: "golfQuit" }
+  // The Word Lodge
+  | { t: "queueWord"; game: WordGame }
+  | { t: "wordAct"; a: WordAction }
+  | { t: "wordQuit" };
 
 export interface RaceResultWire {
   id: string;
@@ -129,6 +134,8 @@ export interface RaceResultWire {
   coins: number;
   /** Minigame score (pinecones, seconds, hits, logs) when it isn't a race time. */
   score?: number;
+  /** Word Lodge: whether the puzzle was actually solved, not just scored. */
+  solved?: boolean;
 }
 
 export interface GolfPlayerWire { id: string; name: string; isBot: boolean; look: Look | null; ball: [number, number]; strokes: number[]; done: boolean; quit: boolean }
@@ -174,9 +181,13 @@ export type ServerMsg =
   | { t: "gameStart"; game: MiniGame; seed: number; players: { id: string; name: string; look: Look | null; isBot: boolean }[]; countdownMs: number }
   | { t: "game"; time: number; s: unknown }
   | { t: "gameEnd"; game: MiniGame; results: RaceResultWire[]; best?: number }
-  | { t: "leaderboard"; game: MiniGame | "golf"; week: string; rows: LeaderRow[] }
+  | { t: "leaderboard"; game: LeaderGame; week: string; rows: LeaderRow[] }
   | { t: "golfStart"; holes: number[]; players: GolfPlayerWire[] }
   | { t: "golfShot"; id: string; club: Club; path: number[]; holed: boolean; penalty: boolean; lie: string; strokes: number }
   | { t: "golfAim"; id: string; aim: number; club: Club }
   | { t: "golfState"; idx: number; players: GolfPlayerWire[]; nextAt: number }
+  | { t: "wordStart"; game: WordGame; seed: number; setup: WordSetup; you: WordSelfWire; rivals: WordRivalWire[]; endsAt: number }
+  /** The board after a move: your own letters plus what everyone is allowed to see of the rest. */
+  | { t: "wordState"; you: WordSelfWire | null; rivals: WordRivalWire[] }
+  | { t: "wordEnd"; game: WordGame; results: RaceResultWire[]; answer: string; best?: number }
   | { t: "golfEnd"; totals: { id: string; name: string; isBot: boolean; total: number; toPar: number; quit: boolean; holes: number; coins: number }[] };

@@ -91,8 +91,27 @@ const PATHS: [number, number, number, number][] = [
 export const TRAILS: readonly [number, number, number, number][] = PATHS;
 /** River centreline (the client carves and fills the channel from this). */
 export const RIVER_LINE: readonly [number, number][] = RIVER;
-export const pathDistance = (x: number, z: number) => Math.min(...PATHS.map((p) => sceneryDistSeg(x, z, ...p)));
-export const riverDistance = (x: number, z: number) => Math.min(...RIVER.slice(0, -1).map((p, i) => sceneryDistSeg(x, z, ...p, ...RIVER[i + 1])));
+// Both of these are called per terrain vertex while the world is built, and again per frame
+// for every beaver, label and dropped pinecone — and on the server for every movement check.
+// Written as `Math.min(...list.map(...))` they allocated an array and a closure on each call;
+// a plain loop does the same work without the garbage.
+export const pathDistance = (x: number, z: number) => {
+  let best = Infinity;
+  for (const p of PATHS) {
+    const d = sceneryDistSeg(x, z, p[0], p[1], p[2], p[3]);
+    if (d < best) best = d;
+  }
+  return best;
+};
+export const riverDistance = (x: number, z: number) => {
+  let best = Infinity;
+  for (let i = 0; i < RIVER.length - 1; i++) {
+    const a = RIVER[i], b = RIVER[i + 1];
+    const d = sceneryDistSeg(x, z, a[0], a[1], b[0], b[1]);
+    if (d < best) best = d;
+  }
+  return best;
+};
 export const sceneryHeight = (x: number, z: number) => {
   const r = Math.hypot(x, z);
   let h = 0;

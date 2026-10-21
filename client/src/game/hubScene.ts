@@ -34,6 +34,7 @@ import {
   TRAIN,
   TRAIN_LOOP_S,
   trainAngle,
+  type LeaderGame,
   type MiniGame,
 } from "@beaver/shared";
 import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
@@ -54,7 +55,7 @@ import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./b
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import { gondolaPoint, nextBoarding, railPoint, trainUnit } from "./village/transport";
 import { isFlyingPet, PetFollower, petMesh } from "./pets";
-import { buzz, Fishing, npcSay, openBag, openClubs, openGarden, openGolf, openJournal, openLeaderboard, openNeighbours, PLACE_TITLES, type Panel } from "../ui/life";
+import { buzz, Fishing, npcSay, openBag, openClubs, openGarden, openGolf, openJournal, openLeaderboard, openNeighbours, openWordLodge, PLACE_TITLES, type Panel } from "../ui/life";
 import type { Ctx, Scene } from "./scene";
 
 const WALK_SPEED = 7.5;
@@ -710,11 +711,12 @@ export class HubScene implements Scene {
   }
 
   /** Opens one of the village-life panels (journal, bag, garden, clubs, neighbours, leaderboards). */
-  private openLife(kind: string, game?: MiniGame | "golf") {
+  private openLife(kind: string, game?: LeaderGame) {
     this.closeOverlays();
     const root = this.root;
     const ctx = this.ctx;
     const p = kind === "journal" ? openJournal(ctx, root) : kind === "bag" ? openBag(ctx, root) : kind === "garden" ? openGarden(ctx, root)
+      : kind === "wordlodge" ? { el: openWordLodge(ctx, root), refresh: () => {} }
       : kind === "clubs" ? openClubs(ctx, root) : kind === "neighbours" ? openNeighbours(ctx, root) : kind === "golf" ? { el: openGolf(ctx, root), refresh: () => {} }
       : openLeaderboard(ctx, root, game ?? "hunt");
     this.lifePanel = p;
@@ -890,6 +892,7 @@ export class HubScene implements Scene {
     if (d(PL.arcade) < PL.arcade.r + 4.5) return "arcade";
     if (d(PL.hotSpring) < 6) return "hotSpring";
     if (d(TOWN_PLACES.clubhouse) < 8) return "golf";
+    if (d(TOWN_PLACES.wordlodge) < 7) return "wordlodge";
     if (d(TOWN_PLACES.gondola) < 7) return "gondola";
     if (d(TOWN_PLACES.dyeshop) < 5) return "dyeshop";
     if (d(TOWN_PLACES.cottageLane) < 4.5) return "lane";
@@ -938,6 +941,7 @@ export class HubScene implements Scene {
     if (k === "golf") {
       if (this.queueInfo) { this.ctx.net.send({ t: "golfQuit" }); this.queueInfo = null; } else this.openLife("golf");
     }
+    if (k === "wordlodge") this.openLife("wordlodge");
     if (k === "garden") this.openLife("garden");
     if (k === "lane") this.openLife("neighbours");
     if (k === "library") this.ctx.net.send({ t: "read" });
@@ -1002,6 +1006,7 @@ export class HubScene implements Scene {
     if (k === "shop") label = "🎒 Open the Outfitter";
     if (k === "dyeshop") label = "🎨 Open the dye station";
     if (k === "arcade") label = "🕹️ Arcade high scores";
+    if (k === "wordlodge") label = "📚 Go into the Word Lodge";
     if (k === "garden") label = "🥕 Tend your garden";
     if (k === "lane") label = "🏡 Cottage Lane noticeboard";
     if (k === "library") label = "📚 Read a Banff fact";

@@ -13,6 +13,7 @@ import { RaceScene } from "./game/raceScene";
 import { ArcadeScene } from "./game/arcadeScene";
 import { GolfScene } from "./game/golfScene";
 import { SummitScene } from "./game/summitScene";
+import { WordScene } from "./game/wordScene";
 import { giftToast } from "./ui/life";
 import type { Ctx, Scene } from "./game/scene";
 import { OfflineNet } from "./net/offline";
@@ -190,6 +191,12 @@ function start(rawName: string, room?: string, recovery?: string) {
       sound.setMode("village");
       return;
     }
+    if (m.t === "wordStart") {
+      scene?.dispose();
+      scene = new WordScene(ctx, m);
+      sound.setMode("cabin");
+      return;
+    }
     if (m.t === "summit") {
       scene?.dispose();
       scene = new SummitScene(ctx, m);
@@ -298,7 +305,9 @@ function renderCharacterSheet(dt: number) {
   applyVillageLight(r);
   r.shadowFocus = [0, 0, 0];
   r.begin(lookAt(cam, close ? [0, 1.45, 0] : [0, 0.6, 0.4]), perspective(aspect < 0.9 ? 0.95 : 0.72, aspect, 0.5, 1600), cam);
-  r.draw(hub.terrain, compose(0, -0.02, 30), { noCast: true });
+  // The character sheet stands on a slab of the village terrain; its chunks are offset
+  // together, so each one keeps its own bounds relative to the model matrix.
+  for (const c of hub.terrain) r.draw(c.mesh, compose(0, -0.02, 30), { noCast: true, bound: [c.b[0], c.b[1] - 0.02, c.b[2] + 30, c.b[3]] });
   if (!sheetLabels.length) {
     sheetLabels = sheet.map((c) => { const el = h("div.place", {}, c.label); ui.append(el); return el; });
     ui.append(h("div.pill.pe", { style: "position:absolute;left:12px;top:12px;cursor:pointer", onclick: () => { sheetBack = !sheetBack; } }, "🔄 Turn around"));

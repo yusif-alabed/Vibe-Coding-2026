@@ -11,7 +11,7 @@ export type BuildingKind =
   | "bakery" | "post" | "store" | "flowers" | "icecream" | "toys" | "library" | "maple" | "townhall"
   | "cottage" | "windmill" | "watermill" | "lookout" | "observatory" | "greenhouse" | "ranger"
   | "lighthouse" | "bandstand" | "stall" | "ferris" | "tent"
-  | "clubhouse" | "station" | "gondola" | "dyeshop";
+  | "clubhouse" | "station" | "gondola" | "dyeshop" | "wordlodge";
 
 export interface TownBuilding {
   kind: BuildingKind;
@@ -45,6 +45,7 @@ export const STREETS: [number, number, number, number][] = [
   [30, -34, 48, -46], // past the hot springs to the balloon meadow
   [10, -40, 16, -48], // to the summit gondola
   [52, -8, 56, 6], // to the community garden
+  [-86, -8.5, -86, -26], // Library Lane, north from the library to the Word Lodge
 ];
 
 export const TOWN_BUILDINGS: TownBuilding[] = [
@@ -99,6 +100,8 @@ export const TOWN_BUILDINGS: TownBuilding[] = [
   { kind: "gondola", x: 18, z: -53, ry: Math.atan2(-18, 53), w: 7, d: 6, seed: 62 },
   // A little dye shop on Main Street, next to the flower shop.
   { kind: "dyeshop", x: -66, z: 7.5, ry: S, w: 6, d: 6, seed: 63 },
+  // The Word Lodge, up Library Lane behind the library. Its front faces back down the lane.
+  { kind: "wordlodge", x: -86, z: -30, ry: N, w: 12, d: 10, seed: 64 },
 ];
 
 /** Open areas kept clear of trees and long grass (paved, frozen or trampled). */
@@ -141,6 +144,7 @@ export const TOWN_PLACES = {
   garden: { x: 56, z: 11 },
   dyeshop: { x: -66, z: 3 },
   cottageLane: { x: -43.5, z: -12 },
+  wordlodge: { x: -86, z: -23.5 },
 } as const;
 
 /** Collision circles that cover a building's footprint. */

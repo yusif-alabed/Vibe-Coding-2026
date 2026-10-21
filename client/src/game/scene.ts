@@ -1,4 +1,4 @@
-import type { FriendView, LeaderRow, LifeWire, Look, MiniGame, QuestsWire, ServerMsg } from "@beaver/shared";
+import type { FriendView, LeaderGame, LeaderRow, LifeWire, Look, MiniGame, QuestsWire, ServerMsg } from "@beaver/shared";
 import type { Sound } from "../audio/sound";
 import type { Renderer } from "../engine/renderer";
 import type { Prefs } from "../prefs";
@@ -19,7 +19,7 @@ export interface PlayerState {
   life: LifeWire | null;
   club: { code: string; name: string; tag: string; color: string; members: string[] } | null;
   neighbours: { list: { id: string; name: string; likes: number; online: boolean; you?: boolean }[]; coziest: { name: string; likes: number }[] } | null;
-  leaderboard: { game: MiniGame | "golf"; week: string; rows: LeaderRow[] } | null;
+  leaderboard: { game: LeaderGame; week: string; rows: LeaderRow[] } | null;
 }
 
 export interface Ctx {

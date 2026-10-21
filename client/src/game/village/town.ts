@@ -3,6 +3,7 @@ import { compose, hash2, hexToRgb, mixRgb, type Vec3 } from "../../engine/math";
 import { MeshBuilder } from "../../engine/mesh";
 import { bench, box, chimney, flowerBox, Frame, gableRoofX, gableRoofZ, log, panel, windowPane } from "./architecture";
 import { stoneBlock } from "./nature";
+import { glyphRects } from "./letters";
 
 /**
  * The town around the village: shops on Main Street, a clock-tower town hall, cottages, and a few
@@ -844,6 +845,65 @@ const SHOPS: Partial<Record<TownBuilding["kind"], ShopOpts>> = {
 };
 
 /** Builds every town building. `heightAt` places each on the terrain. */
+/**
+ * The Word Lodge: a timber reading-house up Library Lane, with a stack of oversized book
+ * spines on the roof and its name spelled out on letter tiles over the door — the same green
+ * and amber the Wordle board inside uses, so you can tell from the lane what's in there.
+ */
+function wordLodge(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const w = b.w, d = b.d, base = 0.6, eave = 4.6;
+  const wall = C("#e8dcc0"), trim = C("#2f6f6a"), GREEN = C("#6aaa64"), AMBER = C("#c9b458");
+  plinth(m, f, w, d, base, b.seed);
+  box(m, f, 0, (base + eave) / 2, 0, w, eave - base, d, wall);
+  // Corner posts and a mid-height band.
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    box(m, f, sx * (w / 2 - 0.12), (base + eave) / 2, sz * (d / 2 - 0.12), 0.34, eave - base, 0.34, TIMBER);
+  }
+  box(m, f, 0, base + 2.5, 0, w + 0.12, 0.2, d + 0.12, TIMBER_LIGHT);
+
+  // Tall arched windows down both sides and either side of the door.
+  for (const s of [-1, 1]) {
+    windowPane(m, glow, f, s * 3.6, base + 1.5, d / 2 + 0.02, 1.5, 2.3, 0, true);
+    for (const z of [-2.6, 0, 2.6]) windowPane(m, glow, f, s * (w / 2 + 0.02), base + 1.6, z, 1.3, 2.4, (s * Math.PI) / 2, true);
+  }
+  door(m, glow, f, 0, base, d / 2 + 0.02, trim);
+
+  // A small porch roof on two posts over the step.
+  for (const s of [-1, 1]) m.cylinder(f.m(s * 1.6, base + 1.3, d / 2 + 1.5, 0.22, 2.6, 0.22), TIMBER, 8);
+  box(m, f, 0, base + 2.7, d / 2 + 1.5, 4.4, 0.22, 2.4, trim);
+
+  // The name over the door, on flipped letter tiles.
+  const name = "WORDS";
+  for (let i = 0; i < name.length; i++) {
+    const x = (i - (name.length - 1) / 2) * 1.12;
+    const col = i === 1 || i === 3 ? AMBER : GREEN;
+    box(m, f, x, base + 3.5, d / 2 + 0.16, 1.0, 1.0, 0.18, col);
+    // The glyph stands slightly proud of its tile, built in the building's own frame.
+    const g = 0.6;
+    for (const q of glyphRects(name[i])) {
+      box(m, f, x + q.x * g, base + 3.5 + q.y * g, d / 2 + 0.3, q.w * g, q.h * g, 0.1, WHITE);
+    }
+  }
+
+  // Shingled gable roof, and a stack of giant book spines along the ridge.
+  const ridge = gableRoofX(m, f, 0, eave, d / 2 + 0.05, w + 0.8, 0.46, 0.55);
+  const spines = [C("#2f6f8a"), C("#c8473a"), C("#e7b13d"), C("#6aa84f"), C("#8a6bb5")];
+  for (let i = 0; i < 5; i++) {
+    const lean = (hash2(b.seed, i) - 0.5) * 0.3;
+    box(m, f, -2.4 + i * 1.2, ridge + 0.55 + (i % 2) * 0.1, 0, 0.5, 1.5, 1.9, spines[i], lean);
+    box(m, f, -2.4 + i * 1.2, ridge + 0.55 + (i % 2) * 0.1, 0, 0.54, 0.16, 1.7, GOLD, lean);
+  }
+  chimney(m, f, w / 2 - 1.4, -d / 2 + 1.4, eave - 1.0, ridge + 1.3, 0.9, b.seed);
+  t.chimneys.push(f.p(w / 2 - 1.4, ridge + 1.5, -d / 2 + 1.4));
+
+  // A bench and a book return box by the path.
+  const seat = f.p(-4.2, 0, d / 2 + 2.6);
+  bench(m, seat[0], f.y, seat[2], f.ry, b.seed + 3);
+  box(m, f, 4.0, base + 0.5, d / 2 + 2.2, 1.0, 1.0, 0.8, trim);
+  box(m, f, 4.0, base + 1.02, d / 2 + 2.2, 0.6, 0.08, 0.5, IRON);
+}
+
 export function buildTown(heightAt: (x: number, z: number) => number): TownMeshes {
   const t: TownMeshes = { body: new MeshBuilder(), glow: new MeshBuilder(), glass: new MeshBuilder(), ice: new MeshBuilder(), spins: [], gondola: gondolaMesh(), ferris: null, fires: [], chimneys: [] };
   for (const b of TOWN_BUILDINGS) {
@@ -887,6 +947,7 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
       case "clubhouse": clubhouse(t, f, b); break;
       case "station": station(t, f, b); break;
       case "gondola": gondolaBase(t, f, b); break;
+      case "wordlodge": wordLodge(t, f, b); break;
     }
   }
   // Cottage Lane noticeboard (who lives on the lane, and the week's coziest cabins).

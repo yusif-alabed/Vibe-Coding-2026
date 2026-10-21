@@ -12,6 +12,8 @@ export class Client {
   input: PlayerInput = { steer: 0, fwd: 0, press: false };
   /** Golf round this player is in, if any. */
   golfId: string | null = null;
+  /** Word Lodge round this player is in, if any. */
+  wordId: string | null = null;
   /** Up the gondola at the summit. */
   summit = false;
   /** What they're doing right now (dance, sing, skate…) and since when. */

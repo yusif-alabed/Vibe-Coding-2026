@@ -12,11 +12,16 @@ import {
   JOURNAL_PLACES,
   SEED_PRICE,
   SEEDS,
+  WORD_INFO,
+  leaderInfo,
+  lowerIsBetter,
+  type LeaderGame,
   type LeaderRow,
   type LifeWire,
   type MiniGame,
   type PageId,
   type SeedId,
+  type WordGame,
 } from "@beaver/shared";
 import type { Ctx } from "../game/scene";
 import { h, toast } from "./dom";
@@ -24,7 +29,7 @@ import { h, toast } from "./dom";
 /**
  * Village-life panels: 📖 collections journal & badges, 🧺 bag (sell / gift), 🥕 garden plots,
  * townsfolk dialogue, 🎣 the fishing bite minigame, 🏅 clubs, 🏡 Cottage Lane neighbours,
- * 🏆 weekly leaderboards and ⛳ the golf tee-off screen.
+ * 🏆 weekly leaderboards, ⛳ the golf tee-off screen and 📚 the Word Lodge door.
  */
 
 export interface Panel { el: HTMLElement; refresh: () => void }
@@ -334,19 +339,19 @@ export function openNeighbours(ctx: Ctx, root: HTMLElement): Panel {
 
 // ------------------------------------------------------------------ Leaderboards
 
-const BOARD_GAMES: (MiniGame | "golf")[] = ["hunt", "logroll", "snowball", "dam", "toboggan", "canoe", "golf"];
+const BOARD_GAMES: LeaderGame[] = ["hunt", "logroll", "snowball", "dam", "toboggan", "canoe", "golf", "word:wordle", "word:connections", "word:crossword", "word:bee"];
 
-export function openLeaderboard(ctx: Ctx, root: HTMLElement, first: MiniGame | "golf"): Panel {
+export function openLeaderboard(ctx: Ctx, root: HTMLElement, first: LeaderGame): Panel {
   let game = first;
   const body = h("div.settings-body");
   const ask = () => ctx.net.send({ t: "leaderboard", game });
   const refresh = () => {
     const lb = ctx.state.leaderboard;
     const rows: LeaderRow[] = lb && lb.game === game ? lb.rows : [];
-    const label = game === "golf" ? "strokes vs par (full rounds)" : ARCADE_INFO[game].scoreLabel;
-    const fmt = (v: number) => (game === "golf" ? (v === 0 ? "E" : v > 0 ? `+${v}` : String(v)) : ARCADE_INFO[game as MiniGame].lowerIsBetter ? `${v.toFixed(1)}s` : String(v));
+    const label = leaderInfo(game).scoreLabel;
+    const fmt = (v: number) => (game === "golf" ? (v === 0 ? "E" : v > 0 ? `+${v}` : String(v)) : lowerIsBetter(game) ? `${v.toFixed(1)}s` : String(v));
     body.replaceChildren(
-      h("div.tabs", { style: "padding:0 0 8px;flex-wrap:wrap" }, BOARD_GAMES.map((g) => h("button.tab" + (g === game ? ".on" : ""), { onclick: () => { game = g; ask(); refresh(); } }, g === "golf" ? "⛳ Golf" : `${ARCADE_INFO[g].icon} ${ARCADE_INFO[g].name}`))),
+      h("div.tabs", { style: "padding:0 0 8px;flex-wrap:wrap" }, BOARD_GAMES.map((g) => { const i = leaderInfo(g); return h("button.tab" + (g === game ? ".on" : ""), { onclick: () => { game = g; ask(); refresh(); } }, `${i.icon} ${i.name}`); })),
       h("div.hint", { style: "margin:0 0 6px" }, `This week's best · ${label} · resets every Monday`),
       rows.length
         ? h("div", {}, rows.map((r, i) => h("div.friend" + (r.me ? ".me" : ""), {}, [h("span", { style: "width:28px" }, ["🥇", "🥈", "🥉"][i] ?? `${i + 1}.`), h("b", { style: "flex:1" }, r.me ? `${r.name} (you)` : r.name), h("span", {}, fmt(r.score))])))
@@ -380,6 +385,33 @@ export function openGolf(ctx: Ctx, root: HTMLElement) {
   };
   draw();
   const el = overlay(root, "⛳ Bow Valley Golf", body);
+  return el;
+}
+
+/** The door of the Word Lodge: pick which word game you're here for. */
+export function openWordLodge(ctx: Ctx, root: HTMLElement) {
+  const games: WordGame[] = ["wordle", "connections", "crossword", "bee"];
+  const blurb: Record<WordGame, string> = {
+    wordle: "Six goes at a five-letter word. Your rivals' boards show their colours — no letters — so you can watch them close in.",
+    connections: "Sixteen cards, four hidden groups of four. Four mistakes and you're out.",
+    crossword: "A five-by-five grid on an easel. Fastest clean fill wins.",
+    bee: "Seven letters, one of them compulsory. Make as many words as you can before the clock runs out.",
+  };
+  const body = h("div.settings-body", {}, [
+    h("div.hint", { style: "margin:0 0 10px" }, "Warm lamps, a wall of books and a board at the far end. Pick a game — bot beavers take the other lecterns until your friends can join you."),
+    ...games.map((g) => {
+      const info = WORD_INFO[g];
+      return h("div.friend", { style: "align-items:flex-start;gap:10px" }, [
+        h("div", { style: "font-size:26px;line-height:1.1" }, info.icon),
+        h("div", { style: "flex:1" }, [
+          h("b", {}, info.name),
+          h("div.hint", { style: "margin:2px 0 0" }, blurb[g]),
+        ]),
+        h("button.btn.small.orange", { onclick: () => { ctx.net.send({ t: "queueWord", game: g }); el.remove(); } }, "Play"),
+      ]);
+    }),
+  ]);
+  const el = overlay(root, "📚 The Word Lodge", body);
   return el;
 }
 

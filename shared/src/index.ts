@@ -16,3 +16,4 @@ export * from "./life";
 export * from "./minigames";
 export * from "./golf";
 export * from "./services";
+export * from "./words/index";

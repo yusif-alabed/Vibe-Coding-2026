@@ -11,6 +11,8 @@ import {
   leaderRows,
   lifeWire,
   recordBest,
+  isLeaderGame,
+  WORD_INFO,
   recordEvent,
   recordVisit,
   takeItem,
@@ -18,7 +20,9 @@ import {
   TOWN_PLACES,
   weekKey,
   type LifeEvent,
+  type LeaderGame,
   type MiniGame,
+  type WordGame,
   type Club,
   type CabinSocial,
   buyFurniture,
@@ -47,12 +51,17 @@ import { Client } from "./client";
 import { HubRoom } from "./rooms/HubRoom";
 import { RaceRoom } from "./rooms/RaceRoom";
 import { GolfRoom } from "./rooms/GolfRoom";
+import { WordRoom } from "./rooms/WordRoom";
 import { PlayerStore, type PlayerRecord } from "./store";
 
 const CLUB_COLORS = ["#e2483d", "#2fa7a2", "#f5c242", "#a77bff", "#ff7eb3", "#4c8cff", "#6fbf4a", "#ff9a3c"];
 const GOLF_WAIT_MS = 8000;
+/** How long players at the Lodge door wait for each other before the bots fill in. */
+const WORD_WAIT_MS = 6000;
 
 interface GolfQueue { key: string; hubId: string; holes: number; players: Client[]; timer: NodeJS.Timeout; startsAt: number }
+
+interface WordQueue { key: string; hubId: string; game: WordGame; players: Client[]; timer: NodeJS.Timeout; startsAt: number }
 
 interface Queue {
   hubId: string;
@@ -81,6 +90,8 @@ export class GameServer {
   readonly races = new Map<string, RaceRoom>();
   readonly golfs = new Map<string, GolfRoom>();
   private golfQueues = new Map<string, GolfQueue>();
+  readonly words = new Map<string, WordRoom>();
+  private wordQueues = new Map<string, WordQueue>();
   private queues = new Map<string, Queue>();
   private clients = new Map<WebSocket, Client>();
   private wss: WebSocketServer;
@@ -224,6 +235,20 @@ export class GameServer {
       case "golfQueue":
         if (hub) this.golfQueue(c, hub, Number(msg.holes));
         break;
+      case "queueWord":
+        if (hub) this.wordQueue(c, hub, msg.game);
+        break;
+      case "wordAct": {
+        const w = c.wordId ? this.words.get(c.wordId) : undefined;
+        w?.act(c, msg.a);
+        break;
+      }
+      case "wordQuit": {
+        const w = c.wordId ? this.words.get(c.wordId) : undefined;
+        if (w) w.quit(c);
+        else this.dequeueWord(c);
+        break;
+      }
       case "golfShot": {
         const g = c.golfId ? this.golfs.get(c.golfId) : undefined;
         g?.shot(c, Number(msg.aim), Number(msg.power), msg.club as Club);
@@ -687,8 +712,8 @@ export class GameServer {
 
   // ------------------------------------------------------------------ Leaderboards & golf
 
-  private sendLeaderboard(c: Client, game: MiniGame | "golf"): void {
-    if (game !== "golf" && !(game in ARCADE_INFO)) return;
+  private sendLeaderboard(c: Client, game: LeaderGame): void {
+    if (!isLeaderGame(game)) return;
     const rows = leaderRows([...this.store.all()].map((r) => ({ name: r.name, best: r.bests?.[game], me: r === c.record })), game);
     c.send({ t: "leaderboard", game, week: weekKey(), rows });
   }
@@ -748,6 +773,76 @@ export class GameServer {
     this.golfs.set(id, room);
     // Count a golf quest as soon as you finish your first hole.
     room.onHole = (pid) => { const cl = q.players.find((p) => p.id === pid); if (cl) this.progress(cl, { kind: "golf" }); };
+  }
+
+
+  // ---------------------------------------------------------------- The Word Lodge
+
+  /**
+   * Queues for a round at the Lodge. Players who ask for the same game in the same village
+   * wait together for a few seconds, so friends standing at the door end up in one room; the
+   * round then fills the remaining lecterns with bots.
+   */
+  private wordQueue(c: Client, hub: HubRoom, game: WordGame): void {
+    if (c.queued || c.raceId || c.golfId || c.wordId) return;
+    if (!(game in WORD_INFO)) return;
+    if (Math.hypot(c.x - TOWN_PLACES.wordlodge.x, c.z - TOWN_PLACES.wordlodge.z) > 9) {
+      c.send({ t: "error", text: "Walk up Library Lane to the Word Lodge first!" });
+      return;
+    }
+    const key = `${hub.info.id}:word:${game}`;
+    let q = this.wordQueues.get(key);
+    if (!q) {
+      q = { key, hubId: hub.info.id, game, players: [], startsAt: Date.now() + WORD_WAIT_MS, timer: setTimeout(() => this.startWord(key), WORD_WAIT_MS) };
+      this.wordQueues.set(key, q);
+    }
+    const group = [c, ...this.partyMates(c).filter((m) => m.hubId === hub.info.id && !m.queued && !m.raceId && !m.golfId && !m.wordId)];
+    for (const m of group) {
+      if (q.players.length >= 4) break;
+      q.players.push(m);
+      m.queued = true;
+    }
+    for (const p of q.players) p.send({ t: "queue", count: q.players.length, size: 4, startsInMs: Math.max(0, q.startsAt - Date.now()) });
+    if (q.players.length >= 4) this.startWord(key);
+  }
+
+  private dequeueWord(c: Client): void {
+    for (const q of this.wordQueues.values()) {
+      const i = q.players.indexOf(c);
+      if (i < 0) continue;
+      q.players.splice(i, 1);
+      c.queued = false;
+      if (q.players.length === 0) { clearTimeout(q.timer); this.wordQueues.delete(q.key); }
+    }
+  }
+
+  private startWord(key: string): void {
+    const q = this.wordQueues.get(key);
+    if (!q) return;
+    clearTimeout(q.timer);
+    this.wordQueues.delete(key);
+    if (q.players.length === 0) return;
+    const hub = this.hubs.get(q.hubId);
+    for (const p of q.players) { p.queued = false; hub?.remove(p); }
+    const id = `word-${randomBytes(4).toString("hex")}`;
+    const room = new WordRoom(id, [...q.players], q.game, randomInt(1, 2 ** 31), (r, results) => {
+      this.words.delete(r.id);
+      for (const res of results) {
+        if (res.isBot) continue;
+        const cl = [...this.clients.values()].find((p) => p.id === res.id);
+        if (cl) recordBest(cl.record, `word:${q.game}`, res.score);
+      }
+      for (const p of q.players) setTimeout(() => this.backToLodge(p, q.hubId), 7000);
+    });
+    room.hubId = q.hubId;
+    this.words.set(id, room);
+    room.onSolve = (pid) => { const cl = q.players.find((p) => p.id === pid); if (cl) this.progress(cl, { kind: "arcade" }); };
+  }
+
+  private backToLodge(c: Client, hubId: string): void {
+    if (!this.isConnected(c) || c.hubId || c.raceId || c.golfId || c.wordId) return;
+    const hub = this.hubs.get(hubId) ?? this.publicHub();
+    this.joinHub(c, hub.full ? this.publicHub() : hub, { x: TOWN_PLACES.wordlodge.x + (Math.random() - 0.5) * 3, z: TOWN_PLACES.wordlodge.z + 2 });
   }
 
   private backToVillage(c: Client, hubId: string): void {
@@ -902,6 +997,8 @@ export class GameServer {
     if (c.raceId) this.races.get(c.raceId)?.drop(c);
     this.dequeueGolf(c);
     if (c.golfId) this.golfs.get(c.golfId)?.quit(c);
+    this.dequeueWord(c);
+    if (c.wordId) this.words.get(c.wordId)?.drop(c);
     this.notifyFriends(c);
     const party = this.partyOf(c.record.pid);
     if (party) this.sendParty(party);
@@ -913,7 +1010,9 @@ export class GameServer {
     for (const h of this.hubs.values()) h.dispose();
     for (const r of this.races.values()) r.dispose();
     for (const g of this.golfs.values()) g.dispose();
+    for (const w of this.words.values()) w.dispose();
     for (const q of this.golfQueues.values()) clearTimeout(q.timer);
+    for (const q of this.wordQueues.values()) clearTimeout(q.timer);
     for (const q of this.queues.values()) clearTimeout(q.timer);
     this.wss.close();
   }

@@ -14,6 +14,10 @@ import { TobogganRace, type Entrant, type RaceResult } from "./race";
 
 export type ArcadeGame = "hunt" | "logroll" | "snowball" | "dam";
 export type MiniGame = "toboggan" | "canoe" | ArcadeGame;
+/** Word Lodge games are keyed apart from the arcade ones on the leaderboards. */
+export type WordLeaderKey = `word:${"wordle" | "connections" | "crossword" | "bee"}`;
+/** Anything that keeps a weekly best. */
+export type LeaderGame = MiniGame | "golf" | WordLeaderKey;
 
 export interface PlayerInput { steer: number; fwd: number; press: boolean }
 

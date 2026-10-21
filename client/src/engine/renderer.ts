@@ -305,6 +305,14 @@ export interface DrawOpts {
   cut?: boolean;
   /** Extra brightness for unlit glowing things (windows, lanterns). */
   emissive?: number;
+  /**
+   * World-space bounding sphere `[x, y, z, radius]` for this draw.
+   *
+   * Supplying it lets the renderer drop the call when neither the camera nor the sun's shadow
+   * map can see it. Without it a draw is always submitted, which is the right default for
+   * characters and small props but ruinous for the chunks the village is split into.
+   */
+  bound?: [number, number, number, number];
 }
 
 export interface Environment {
@@ -336,6 +344,10 @@ export interface Environment {
 }
 
 interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts }
+
+const NO_TINT: readonly [number, number, number, number] = [0, 0, 0, 0];
+/** Scratch for the per-draw uniform comparison, so `drawNow` allocates nothing. */
+const SCRATCH_UNIFORMS = new Float32Array(15);
 
 const SHADOW_SIZE = 2048;
 const SHADOW_EXTENT = 42; // half-width in metres covered around the focus point
@@ -386,7 +398,14 @@ export class Renderer {
     sky: true,
   };
   private queue: Item[] = [];
+  /** Reused every frame so a full draw list costs no allocation. */
+  private opaque: Item[] = [];
+  private clear: Item[] = [];
   private shadowMat: Mat4 = new Float32Array(16);
+  /** The six view-frustum planes, as (a, b, c, d) with the normals pointing inward. */
+  private planes = new Float32Array(24);
+  /** Draw calls submitted and culled last frame — `__bb.stats` in the console. */
+  readonly stats = { queued: 0, drawn: 0, shadowDrawn: 0, culled: 0 };
 
   constructor(readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { antialias: true, alpha: false, powerPreference: "high-performance" });
@@ -513,11 +532,75 @@ export class Renderer {
   begin(view: Mat4, proj: Mat4, camPos: Vec3): void {
     this.viewProj = multiply(proj, view);
     this.camPos = camPos;
-    this.queue = [];
+    this.queue.length = 0;
+    this.stats.queued = 0;
+    this.stats.culled = 0;
+    this.extractPlanes();
+  }
+
+  /**
+   * Pulls the six frustum planes out of the view-projection matrix (Gribb–Hartmann), so callers
+   * can ask whether a lump of the world is worth submitting at all.
+   */
+  private extractPlanes(): void {
+    const m = this.viewProj;
+    const p = this.planes;
+    // left, right, bottom, top, near, far — each the sum or difference of a row with row 3.
+    const rows: [number, number][] = [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1], [2, -1]];
+    for (let i = 0; i < 6; i++) {
+      const [axis, sign] = rows[i];
+      const a = m[3] + sign * m[axis];
+      const b = m[7] + sign * m[axis + 4];
+      const c = m[11] + sign * m[axis + 8];
+      const d = m[15] + sign * m[axis + 12];
+      const len = Math.hypot(a, b, c) || 1;
+      p[i * 4] = a / len;
+      p[i * 4 + 1] = b / len;
+      p[i * 4 + 2] = c / len;
+      p[i * 4 + 3] = d / len;
+    }
+  }
+
+  /** True when a sphere in world space might be on screen. */
+  inView(x: number, y: number, z: number, radius: number): boolean {
+    const p = this.planes;
+    for (let i = 0; i < 6; i++) {
+      if (p[i * 4] * x + p[i * 4 + 1] * y + p[i * 4 + 2] * z + p[i * 4 + 3] < -radius) return false;
+    }
+    return true;
+  }
+
+  /**
+   * True when a sphere could cast a shadow the camera will see. The sun's shadow map only
+   * covers a box around `shadowFocus`, so anything outside it is wasted work in that pass —
+   * and a chunk can be out of view yet still need to cast into it, which is why this is a
+   * separate question from `inView`.
+   */
+  inShadowRange(x: number, y: number, z: number, radius: number): boolean {
+    const f = this.shadowFocus;
+    if (!f) return false;
+    const reach = SHADOW_EXTENT + radius;
+    return Math.abs(x - f[0]) < reach && Math.abs(z - f[2]) < reach;
+  }
+
+  /**
+   * Whether a chunk of the world is worth queueing at all: visible, or able to cast into the
+   * shadow map. Returns false only when neither pass would touch it.
+   */
+  needed(x: number, y: number, z: number, radius: number): boolean {
+    if (this.inView(x, y, z, radius)) return true;
+    if (!this.shadowsEnabled || this.quality === "low" || !this.shadowSupported) return false;
+    return this.inShadowRange(x, y, z, radius);
   }
 
   draw(mesh: GpuMesh, model: Mat4, opts: DrawOpts = {}): void {
+    const b = opts.bound;
+    if (b && !this.needed(b[0], b[1], b[2], b[3])) {
+      this.stats.culled++;
+      return;
+    }
     this.queue.push({ mesh, model, opts });
+    this.stats.queued++;
   }
 
   private casts(o: DrawOpts): boolean {
@@ -551,8 +634,13 @@ export class Renderer {
     gl.uniform1f(this.us.uTime, this.time);
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(1.6, 3);
+    this.stats.shadowDrawn = 0;
     for (const it of this.queue) {
       if (!this.casts(it.opts)) continue;
+      // Only what falls inside the shadow map's box can end up in it.
+      const b = it.opts.bound;
+      if (b && !this.inShadowRange(b[0], b[1], b[2], b[3])) continue;
+      this.stats.shadowDrawn++;
       gl.bindVertexArray(it.mesh.vao);
       gl.uniformMatrix4fv(this.us.uModel, false, it.model);
       gl.uniform1f(this.us.uSway, it.opts.sway ?? 0);
@@ -626,8 +714,13 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
     gl.uniform1i(this.u.uShadowMap, 1);
 
-    const opaque = this.queue.filter((it) => (it.opts.alpha ?? 1) >= 1);
-    const clear = this.queue.filter((it) => (it.opts.alpha ?? 1) < 1);
+    // Split into opaque and translucent in one pass, into arrays that live across frames.
+    const opaque = this.opaque, clear = this.clear;
+    opaque.length = 0;
+    clear.length = 0;
+    for (const it of this.queue) ((it.opts.alpha ?? 1) >= 1 ? opaque : clear).push(it);
+
+    this.stats.drawn = 0;
     for (const it of opaque) this.drawNow(it);
     if (clear.length) {
       // Far to near, so overlapping translucent things blend correctly.
@@ -642,29 +735,72 @@ export class Renderer {
       gl.disable(gl.BLEND);
     }
     gl.bindVertexArray(null);
-    this.queue = [];
+    this.queue.length = 0;
     this.cutFocus = null;
+    this.lastUniforms = null;
+    this.lastTexture = null;
   }
+
+  /**
+   * The per-draw uniforms last sent to the GPU.
+   *
+   * Nearly every draw in a frame shares the same handful of flags, and `uniform1f` is not free
+   * when it happens sixteen times per call across hundreds of calls. Only what actually
+   * changed is re-sent; `end()` clears this so a new frame starts from a known state.
+   */
+  private lastUniforms: Float32Array | null = null;
+  private lastTexture: WebGLTexture | null = null;
 
   private drawNow({ mesh, model, opts }: Item): void {
     const gl = this.gl;
+    this.stats.drawn++;
     gl.bindVertexArray(mesh.vao);
     gl.uniformMatrix4fv(this.u.uModel, false, model);
-    gl.uniform4fv(this.u.uTint, opts.tint ?? [0, 0, 0, 0]);
-    gl.uniform1f(this.u.uUnlit, opts.unlit ? 1 : 0);
-    gl.uniform1f(this.u.uWave, opts.wave === true ? 1 : typeof opts.wave === "number" ? opts.wave : 0);
-    gl.uniform1f(this.u.uSway, opts.sway ?? 0);
-    gl.uniform1f(this.u.uAlpha, opts.alpha ?? 1);
-    gl.uniform1f(this.u.uNoFog, opts.noFog ? 1 : 0);
-    gl.uniform1f(this.u.uEmissive, opts.emissive ?? 0);
-    gl.uniform1f(this.u.uSeasonOn, opts.season ? 1 : 0);
-    gl.uniform1f(this.u.uCutOn, opts.cut ? 1 : 0);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, opts.texture ?? this.whiteTexture);
-    gl.uniform1i(this.u.uTexture, 0);
-    gl.uniform1f(this.u.uUseTexture, opts.texture ? 1 : 0);
-    gl.uniform1f(this.u.uTextureScale, opts.textureScale ?? 1);
-    gl.uniform1f(this.u.uTextureStrength, opts.textureStrength ?? 1);
+
+    const tint = opts.tint ?? NO_TINT;
+    const next = SCRATCH_UNIFORMS;
+    next[0] = opts.unlit ? 1 : 0;
+    next[1] = opts.wave === true ? 1 : typeof opts.wave === "number" ? opts.wave : 0;
+    next[2] = opts.sway ?? 0;
+    next[3] = opts.alpha ?? 1;
+    next[4] = opts.noFog ? 1 : 0;
+    next[5] = opts.emissive ?? 0;
+    next[6] = opts.season ? 1 : 0;
+    next[7] = opts.cut ? 1 : 0;
+    next[8] = opts.texture ? 1 : 0;
+    next[9] = opts.textureScale ?? 1;
+    next[10] = opts.textureStrength ?? 1;
+    next[11] = tint[0]; next[12] = tint[1]; next[13] = tint[2]; next[14] = tint[3];
+
+    const prev = this.lastUniforms;
+    const set = (i: number, loc: WebGLUniformLocation | null) => {
+      if (prev && prev[i] === next[i]) return;
+      gl.uniform1f(loc, next[i]);
+    };
+    set(0, this.u.uUnlit);
+    set(1, this.u.uWave);
+    set(2, this.u.uSway);
+    set(3, this.u.uAlpha);
+    set(4, this.u.uNoFog);
+    set(5, this.u.uEmissive);
+    set(6, this.u.uSeasonOn);
+    set(7, this.u.uCutOn);
+    set(8, this.u.uUseTexture);
+    set(9, this.u.uTextureScale);
+    set(10, this.u.uTextureStrength);
+    if (!prev || prev[11] !== next[11] || prev[12] !== next[12] || prev[13] !== next[13] || prev[14] !== next[14]) {
+      gl.uniform4f(this.u.uTint, next[11], next[12], next[13], next[14]);
+    }
+    const tex = opts.texture ?? this.whiteTexture;
+    if (tex !== this.lastTexture) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.uniform1i(this.u.uTexture, 0);
+      this.lastTexture = tex;
+    }
+    if (!this.lastUniforms) this.lastUniforms = new Float32Array(15);
+    this.lastUniforms.set(next);
+
     gl.uniform1f(this.u.uOutline, 0);
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     if (opts.outline) {
