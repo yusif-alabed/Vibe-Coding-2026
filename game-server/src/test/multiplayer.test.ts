@@ -176,4 +176,19 @@ describe("shared spaces", () => {
     owner.ws.close();
     guest.ws.close();
   });
+
+  it("a blocked beaver is shown out of your cabin and can't come back", async () => {
+    const owner = await connect("Private");
+    const pest = await connect("Pest");
+    owner.send({ t: "enterCabin" });
+    await owner.waitFor("cabin");
+    pest.send({ t: "visitCabin", id: owner.welcome.you });
+    await pest.waitFor("cabin");
+    owner.send({ t: "block", id: pest.welcome.you });
+    await pest.waitFor("welcome", (m) => m !== pest.welcome);
+    pest.send({ t: "visitCabin", id: owner.welcome.you });
+    await pest.waitFor("error", (m) => /can't visit/.test(m.text));
+    owner.ws.close();
+    pest.ws.close();
+  });
 });

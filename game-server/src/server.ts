@@ -359,10 +359,16 @@ export class GameServer {
       case "steer":
         race?.steer(c, Number(msg.v));
         break;
-      case "block":
-        c.record.blocked.add(String(msg.id));
-        this.store.log({ type: "block", actor: c.id, target: String(msg.id) });
+      case "block": {
+        const target = String(msg.id);
+        c.record.blocked.add(target);
+        this.store.log({ type: "block", actor: c.id, target });
+        // Whoever you block is shown out of your cabin, and you out of theirs.
+        const other = [...this.clients.values()].find((o) => o.id === target);
+        if (other?.cabinOf === c.id) this.handle(other, { t: "leaveCabin" });
+        if (other && c.cabinOf === other.id) this.handle(c, { t: "leaveCabin" });
         break;
+      }
       case "report":
         this.store.log({ type: "report", actor: c.id, target: String(msg.id), detail: String(msg.reason ?? "").slice(0, 200) });
         c.send({ t: "system", text: "Thanks — a moderator will take a look." });
@@ -442,6 +448,11 @@ export class GameServer {
         const owner = msg.t === "enterCabin" ? c : [...this.clients.values()].find((o) => o.id === String(msg.id));
         if (!owner) {
           c.send({ t: "error", text: "That beaver isn't online right now." });
+          break;
+        }
+        // Cabins are live rooms now, so blocking keeps people out of each other's.
+        if (owner !== c && (owner.record.blocked.has(c.id) || c.record.blocked.has(owner.id))) {
+          c.send({ t: "error", text: "You can't visit that cabin." });
           break;
         }
         this.leaveLobby(c);
