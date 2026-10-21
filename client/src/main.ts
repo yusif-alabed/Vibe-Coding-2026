@@ -4,6 +4,7 @@ import { compose, lookAt, perspective, type Vec3 } from "./engine/math";
 import { Renderer } from "./engine/renderer";
 import { drawBeaver, getBeaverMeshes, type Expression } from "./game/beaver";
 import { CabinScene } from "./game/cabinScene";
+import { applyTimeOfDay, dayPhase } from "./game/daylight";
 import { HubScene } from "./game/hubScene";
 import { applyVillageLight, buildHub, drawHub, heightAt, type HubWorld } from "./game/hubWorld";
 import { Input } from "./game/input";
@@ -211,10 +212,10 @@ function renderTitleBackdrop(dt: number) {
   const a = Math.sin(titleT * 0.06) * 0.3 - 0.08;
   const cam: Vec3 = [Math.sin(a) * 25, 4.6, Math.cos(a) * 25];
   const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
-  applyVillageLight(r);
+  const night = applyTimeOfDay(r, dayPhase(prefs.time));
   r.shadowFocus = [0, 0, 6];
   r.begin(lookAt(cam, [0, 6.5, -4]), perspective(aspect < 0.8 ? 1.15 : 0.86, aspect, 0.4, 2400), cam);
-  drawHub(r, hub, titleT);
+  drawHub(r, hub, titleT, night);
   drawBeaver(r, getBeaverMeshes(r, titleLook), compose(3.2, heightAt(3.2, 15.5), 15.5, a + 0.35, 0, 0, 1.15), {
     walk: 0, moving: 0, swim: 0, jump: 0, wave: (Math.sin(titleT * 0.9) > 0.6 ? 1 : 0), sled: 0, time: titleT,
     expr: Math.sin(titleT * 0.9) > 0.6 ? "happy" : "neutral", talk: 0, seed: 1,

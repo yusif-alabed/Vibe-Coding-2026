@@ -90,7 +90,7 @@ export const TOWN_BUILDINGS: TownBuilding[] = [
 /** Open areas kept clear of trees and long grass (paved, frozen or trampled). */
 export const TOWN_AREAS: { kind: "square" | "rink" | "camp" | "fair"; x: number; z: number; r: number; clear?: number }[] = [
   { kind: "square", x: -74, z: 0, r: 10 },
-  { kind: "rink", x: -24, z: -52, r: 7, clear: 13 },
+  { kind: "rink", x: -24, z: -52, r: 7, clear: 16 },
   { kind: "camp", x: -19, z: 62, r: 9 },
   { kind: "fair", x: 20, z: 66, r: 10 },
 ];

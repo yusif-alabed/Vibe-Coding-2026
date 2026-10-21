@@ -24,10 +24,12 @@ import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
 import { furnitureGrid } from "../ui/furnitureShop";
 import { Joystick } from "../ui/joystick";
+import { Minimap } from "../ui/minimap";
 import { openFriends, openSettings } from "../ui/panels";
 import { wantsJoystick } from "../prefs";
 import { Ambient } from "./ambient";
-import { applyTimeOfDay, dayPhase } from "./daylight";
+import { cameraZoneAt, type CamZone } from "./cameraZones";
+import { applyTimeOfDay, dayPhase, timeLabel } from "./daylight";
 import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
@@ -223,6 +225,13 @@ export class HubScene implements Scene {
   private friendsPanel: { el: HTMLElement; refresh: () => void } | null = null;
   private joystick: Joystick | null = null;
   private ambient: Ambient;
+  private minimap: Minimap;
+  private clockEl: HTMLElement;
+  private clockKey = "";
+  /** Fixed street/grandstand camera: which zone, and how far we've glided into it (0..1). */
+  private camZone: CamZone | null = null;
+  private zoneBlend = 0;
+  private lastRender = performance.now();
   private night = 0;
   private lastCoins = 0;
   private stepPhase = 0;
@@ -307,6 +316,9 @@ export class HubScene implements Scene {
       onShot: () => ctx.net.send({ t: "photo" }),
     });
     this.ambient = new Ambient(world);
+    this.minimap = new Minimap(this.root, world);
+    this.clockEl = h("div.pill.clock", { title: "Time of day — one full day lasts 25 minutes" });
+    this.root.querySelector(".minimap-wrap")!.append(this.clockEl);
     this.lastCoins = ctx.state.coins;
     this.setupJoystick();
     // A busker strumming by the fountain and a few skaters out on the pond.
@@ -350,7 +362,7 @@ export class HubScene implements Scene {
     }
     if (e.key === " ") this.ctx.net.send({ t: "emote", i: 1 });
     if (e.key.toLowerCase() === "f") this.runAction();
-    if (e.key === "Escape") this.closeOverlays();
+    if (e.key === "Escape" && !this.minimap.isBig) this.closeOverlays();
     if (e.key.toLowerCase() === "p") this.openPhoto();
   };
 
@@ -757,6 +769,16 @@ export class HubScene implements Scene {
       this.animate(dt);
       return;
     }
+    // In a fixed-camera zone the view is set for you (dragging does nothing), and controls follow it.
+    const fz0 = this.drawPos(this.me);
+    const zoneHere = cameraZoneAt(fz0.x, fz0.z);
+    if (zoneHere.zone && zoneHere.weight > 0.05) {
+      inp.consumeDrag();
+      inp.consumeDragY();
+      inp.consumeZoom();
+      this.yaw = lerpAngle(this.yaw, zoneHere.zone.yaw([fz0.x, fz0.y, fz0.z]), Math.min(1, dt * 2.5 * zoneHere.weight));
+      this.lookOffset = lerp(this.lookOffset, 0, Math.min(1, dt * 3));
+    }
     this.yaw -= inp.consumeDrag() * 0.006;
     // Drag up to look upward and drag down to look toward the ground. The cap
     // still permits a deliberate skyward look, but prevents a full inversion.
@@ -1052,6 +1074,17 @@ export class HubScene implements Scene {
         cz = solid.z + (d < 0.001 ? 0 : dz * k);
       }
     }
+    // Trees and posts are solid to the camera too: slide it out of any trunk or canopy it would sit in.
+    for (const c of HUB_COLLIDERS) {
+      if (c.r >= 2.6) continue;
+      const reach = c.r < 0.9 ? 0.9 : c.r * 1.7;
+      const dx = cx - c.x, dz = cz - c.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= reach || d < 1e-4) continue;
+      cx = c.x + (dx / d) * reach;
+      cz = c.z + (dz / d) * reach;
+      lift = Math.max(lift, (reach - d) * 0.8);
+    }
     // Past the edge of the world the land rises into forest: keep the camera on our side of it.
     const edge = HUB.radius + 1.5, cr = Math.hypot(cx, cz);
     if (cr > edge) {
@@ -1071,6 +1104,21 @@ export class HubScene implements Scene {
     cy = Math.max(cy, heightAt(cx, cz) + 1.5, focusY + 1.05);
     let cam: Vec3 = [cx, cy, cz];
     let look: Vec3 = [focus.x, focusY + this.lookOffset, focus.z];
+    // Glide into (or out of) a fixed street/grandstand camera.
+    {
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - this.lastRender) / 1000);
+      this.lastRender = now;
+      const z = this.photo.active ? { zone: null, weight: 0 } : cameraZoneAt(focus.x, focus.z);
+      if (z.zone && z.weight > 0.01) this.camZone = z.zone;
+      this.zoneBlend += (z.weight - this.zoneBlend) * Math.min(1, dt * 2.2);
+      if (this.camZone && this.zoneBlend > 0.002) {
+        const zc = this.camZone.camera([focus.x, py, focus.z]);
+        const b = this.zoneBlend * this.zoneBlend * (3 - 2 * this.zoneBlend);
+        cam = [lerp(cam[0], zc.eye[0], b), lerp(cam[1], zc.eye[1], b), lerp(cam[2], zc.eye[2], b)];
+        look = [lerp(look[0], zc.target[0], b), lerp(look[1], zc.target[1], b), lerp(look[2], zc.target[2], b)];
+      } else this.camZone = null;
+    }
     if (this.photo.active) {
       const pc = this.photo.camera([focus.x, py + 1.2, focus.z]);
       pc.eye[1] = Math.max(pc.eye[1], heightAt(pc.eye[0], pc.eye[2]) + 0.4, WATER_Y + 0.3);
@@ -1140,6 +1188,25 @@ export class HubScene implements Scene {
     this.photo.afterRender();
     this.labels.style.visibility = this.photo.active ? "hidden" : "";
     this.updateLabels();
+    this.updateMinimap();
+  }
+
+  private updateMinimap() {
+    const dots: { x: number; z: number; kind: "player" | "friend" | "cone" }[] = [];
+    for (const c of this.cones) if (!this.conesGot.has(c.id)) dots.push({ x: c.x, z: c.z, kind: "cone" });
+    const friends = new Set(this.ctx.state.friends.map((f) => f.pid));
+    for (const a of this.avatars.values()) {
+      if (a === this.me) continue;
+      dots.push({ x: a.x, z: a.z, kind: a.info.pid && friends.has(a.info.pid) ? "friend" : "player" });
+    }
+    this.minimap.update(performance.now(), { x: this.me.x, z: this.me.z, ry: this.me.ry }, this.yaw, dots);
+    const t = timeLabel(dayPhase(this.ctx.prefs.time));
+    const key = `${t.icon}${t.name}${t.clock}`;
+    if (key !== this.clockKey) {
+      this.clockKey = key;
+      this.clockEl.textContent = `${t.icon} ${t.clock}`;
+      this.clockEl.title = `${t.name} · one full day lasts 25 minutes`;
+    }
   }
 
   private updateLabels() {
@@ -1151,10 +1218,19 @@ export class HubScene implements Scene {
       el.style.left = `${s.x}px`;
       el.style.top = `${s.y}px`;
     };
-    this.world.labels.forEach((l, i) => place(this.placeEls[i], l.x, heightAt(l.x, l.z) + l.y, l.z, 110));
+    // Place names only pop up when you're nearby (the minimap shows the rest).
+    const me = this.drawPos(this.me);
+    this.world.labels.forEach((l, i) => {
+      const el = this.placeEls[i];
+      const d = Math.hypot(l.x - me.x, l.z - me.z);
+      const near = 22, fade = 6;
+      if (d > near + fade) { el.style.display = "none"; return; }
+      el.style.opacity = String(Math.min(1, (near + fade - d) / fade));
+      place(el, l.x, heightAt(l.x, l.z) + l.y, l.z, 110);
+    });
     for (const a of this.avatars.values()) {
       const d = this.drawPos(a);
-      place(a.tag, d.x, d.y + 2.75, d.z, 70);
+      place(a.tag, d.x, d.y + 2.75, d.z, 45);
       if (a.bubble) place(a.bubble, d.x, d.y + 3.5, d.z, 90);
     }
     for (const el of this.labels.querySelectorAll<HTMLElement & { _follow?: Avatar; _at?: Vec3 }>(".emote")) {
@@ -1200,6 +1276,7 @@ export class HubScene implements Scene {
   }
 
   dispose() {
+    this.minimap.dispose();
     this.joystick?.dispose();
     this.photo.dispose();
     window.removeEventListener("keydown", this.onKey);

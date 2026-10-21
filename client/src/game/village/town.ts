@@ -799,7 +799,7 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
       }
       for (let i = 0; i < 8; i++) {
         const ang = (i / 8) * Math.PI * 2;
-        const x = a.x + Math.cos(ang) * (a.r + 1.4), z = a.z + Math.sin(ang) * (a.r + 1.4);
+        const x = a.x + Math.cos(ang) * (a.r + 3.4), z = a.z + Math.sin(ang) * (a.r + 3.4);
         t.body.cylinder(compose(x, y + 1.3, z, 0, 0, 0, 0.12, 2.6, 0.12), TIMBER, 6);
         t.glow.sphere(compose(x, y + 2.7, z, 0, 0, 0, 0.18), C("#ffe9a8"), 3, 5);
       }

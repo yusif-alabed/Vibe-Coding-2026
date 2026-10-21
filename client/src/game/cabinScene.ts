@@ -16,6 +16,7 @@ import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
 import { furnitureGrid } from "../ui/furnitureShop";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
+import { applyTimeOfDay, dayPhase } from "./daylight";
 import { PhotoMode } from "./photo";
 import type { Ctx, Scene } from "./scene";
 import { CELL, furnitureMesh } from "./village/furniture";
@@ -26,7 +27,7 @@ const HALF_W = (CABIN_W * CELL) / 2;
 const HALF_D = (CABIN_D * CELL) / 2;
 const WALL_H = 4.3;
 
-interface Shell { body: GpuMesh; glow: GpuMesh; fire: GpuMesh; grid: GpuMesh; shadow: GpuMesh }
+interface Shell { body: GpuMesh; glow: GpuMesh; view: GpuMesh; fire: GpuMesh; grid: GpuMesh; shadow: GpuMesh }
 const shells = new WeakMap<Renderer, Shell>();
 const furnitureGpu = new WeakMap<Renderer, Map<string, { body: GpuMesh; glow: GpuMesh | null }>>();
 
@@ -45,7 +46,7 @@ function gpuFurniture(r: Renderer, id: string) {
 function buildShell(r: Renderer): Shell {
   const hit = shells.get(r);
   if (hit) return hit;
-  const m = new MeshBuilder(), g = new MeshBuilder(), fire = new MeshBuilder(), grid = new MeshBuilder(), shadow = new MeshBuilder();
+  const m = new MeshBuilder(), g = new MeshBuilder(), view = new MeshBuilder(), fire = new MeshBuilder(), grid = new MeshBuilder(), shadow = new MeshBuilder();
   const plankA = hexToRgb("#c98e58"), plankB = hexToRgb("#b47a47"), plankC = hexToRgb("#d9a26b");
   // Plank floor, slightly wider than the play grid.
   const planks = 26;
@@ -101,13 +102,13 @@ function buildShell(r: Renderer): Shell {
     m.box(compose(x - s * 0.42, 1.0, wz, 0, 0, 0, 0.3, 0.08, 3.0), hexToRgb("#8a5531"));
     // The view: sky, mountains, snow and pines, drawn unlit so it glows like daylight.
     const px = x + s * 0.12;
-    g.box(compose(px, 2.13, wz, 0, 0, 0, 0.02, 2.0, 2.6), hexToRgb("#a9d6f2"));
+    view.box(compose(px, 2.13, wz, 0, 0, 0, 0.02, 2.0, 2.6), hexToRgb("#a9d6f2"));
     for (let i = 0; i < 3; i++) {
       const mz = wz - 0.9 + i * 0.9;
-      g.cone(compose(px - s * 0.02, 1.85, mz, 0, 0, Math.PI / 2 * 0, 0.02, 1.0, 1.1), hexToRgb(i === 1 ? "#ffffff" : "#e7f3fb"), 3);
+      view.cone(compose(px - s * 0.02, 1.85, mz, 0, 0, Math.PI / 2 * 0, 0.02, 1.0, 1.1), hexToRgb(i === 1 ? "#ffffff" : "#e7f3fb"), 3);
     }
-    g.box(compose(px - s * 0.03, 1.32, wz, 0, 0, 0, 0.02, 0.4, 2.6), hexToRgb("#f4fbff"));
-    for (let i = 0; i < 4; i++) g.cone(compose(px - s * 0.04, 1.6, wz - 1.0 + i * 0.66, 0, 0, 0, 0.02, 0.6, 0.3), hexToRgb("#2f7d5a"), 4);
+    view.box(compose(px - s * 0.03, 1.32, wz, 0, 0, 0, 0.02, 0.4, 2.6), hexToRgb("#f4fbff"));
+    for (let i = 0; i < 4; i++) view.cone(compose(px - s * 0.04, 1.6, wz - 1.0 + i * 0.66, 0, 0, 0, 0.02, 0.6, 0.3), hexToRgb("#2f7d5a"), 4);
   }
   // Top plates along the walls (the roof is left off, dollhouse style, so you can see in).
   m.box(compose(0, WALL_H + 0.12, -HALF_D - 0.3, 0, 0, 0, HALF_W * 2 + 1.5, 0.24, 0.7), hexToRgb("#6e4024"));
@@ -154,10 +155,16 @@ function buildShell(r: Renderer): Shell {
   for (let i = 0; i <= CABIN_W; i++) grid.box(compose(-HALF_W + i * CELL, 0.012, 0, 0, 0, 0, 0.035, 0.01, HALF_D * 2), [1, 1, 1]);
   for (let j = 0; j <= CABIN_D; j++) grid.box(compose(0, 0.012, -HALF_D + j * CELL, 0, 0, 0, HALF_W * 2, 0.01, 0.035), [1, 1, 1]);
   shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 1.2, 0.01, 1.2), [0, 0, 0], 16);
-  const out = { body: r.upload(m.build()), glow: r.upload(g.build()), fire: r.upload(fire.build()), grid: r.upload(grid.build()), shadow: r.upload(shadow.build()) };
+  const out = { body: r.upload(m.build()), glow: r.upload(g.build()), view: r.upload(view.build()), fire: r.upload(fire.build()), grid: r.upload(grid.build()), shadow: r.upload(shadow.build()) };
   shells.set(r, out);
   return out;
 }
+
+const mixDir = (a: Vec3, b: Vec3, t: number): Vec3 => {
+  const v: Vec3 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return [v[0] / l, v[1] / l, v[2] / l];
+};
 
 const cellCenter = (x: number, z: number, w: number, d: number) => ({ x: -HALF_W + (x + w / 2) * CELL, z: -HALF_D + (z + d / 2) * CELL });
 
@@ -188,6 +195,8 @@ export class CabinScene implements Scene {
   private meTag: HTMLElement;
   private ownerTag: HTMLElement | null = null;
   private photo: PhotoMode;
+  private night = 0;
+  private windowTint: [number, number, number, number] = [0, 0, 0, 0];
 
   constructor(private ctx: Ctx, private msg: Extract<ServerMsg, { t: "cabin" }>) {
     this.shell = buildShell(ctx.r);
@@ -545,11 +554,18 @@ export class CabinScene implements Scene {
     const { r } = this.ctx;
     const e = r.env;
     r.time = this.time;
-    e.lightDir = [0.42, 0.78, 0.46];
-    e.sunColor = [1.0, 0.84, 0.62];
-    e.sunIntensity = 1.0;
-    e.ambient = 0.8;
-    e.exposure = 1.0;
+    // The same 25-minute day as the village: sunlight through the open front by day,
+    // cool moonlight and a cosy fire-lit glow by night.
+    const night = applyTimeOfDay(r, dayPhase(this.ctx.prefs.time));
+    const outside = { sky: e.skyHorizon, top: e.skyTop, sun: e.sunColor };
+    this.night = night;
+    e.lightDir = mixDir([0.42, 0.78, 0.46], [0.3, 0.85, 0.42], night);
+    e.sunColor = mixRgb(mixRgb([1.0, 0.84, 0.62], outside.sun, 0.45), [0.62, 0.68, 1.0], night);
+    e.sunIntensity = lerp(1.0, 0.45, night);
+    e.ambient = lerp(0.8, 0.62, night);
+    e.exposure = lerp(1.0, 1.08, night);
+    this.windowTint = [...mixRgb(outside.sky, outside.top, 0.5), night > 0.05 ? 0.25 + night * 0.65 : 0.35] as [number, number, number, number];
+    e.stars = 0;
     e.skyTop = [0.55, 0.42, 0.32];
     e.skyHorizon = [0.2, 0.13, 0.1];
     e.ground = [0.42, 0.3, 0.2];
@@ -576,9 +592,10 @@ export class CabinScene implements Scene {
 
     const I = compose(0, 0, 0);
     r.draw(this.shell.body, I);
-    r.draw(this.shell.glow, I, { unlit: true, emissive: 0.15 });
+    r.draw(this.shell.glow, I, { unlit: true, emissive: 0.15 + this.night * 0.5 });
+    r.draw(this.shell.view, I, { unlit: true, emissive: 0.05, tint: this.windowTint });
     const fl = 1 + Math.sin(this.time * 13) * 0.06 + Math.sin(this.time * 7.3) * 0.05;
-    r.draw(this.shell.fire, compose(0, 0.42, -HALF_D + 0.35, 0, 0, 0, 1, fl, 1), { unlit: true, emissive: 0.5 });
+    r.draw(this.shell.fire, compose(0, 0.42, -HALF_D + 0.35, 0, 0, 0, 1, fl, 1), { unlit: true, emissive: 0.5 + this.night * 0.6 });
     if (this.editing) r.draw(this.shell.grid, I, { unlit: true, alpha: 0.28 });
 
     for (const it of this.items) this.drawItem(it, it === this.hoverItem ? { tint: [1, 0.85, 0.3, 0.35] } : {});

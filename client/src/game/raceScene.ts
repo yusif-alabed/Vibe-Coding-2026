@@ -4,6 +4,7 @@ import { h } from "../ui/dom";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
 import { buildMountains, buildSky } from "./hubWorld";
 import { buildRaceWorld, courseTilt, setRaceTheme, trackToWorld, waterY, type RaceWorld } from "./raceWorld";
+import { applyTimeOfDay, dayPhase } from "./daylight";
 import type { Ctx, Scene } from "./scene";
 import type { GpuMesh } from "../engine/renderer";
 
@@ -47,6 +48,7 @@ export class RaceScene implements Scene {
   private raceTime = 0;
 
   private game: RaceGame;
+  private night = 0;
   private paddleAcc = 0;
 
   constructor(private ctx: Ctx, start: Extract<ServerMsg, { t: "raceStart" }>) {
@@ -204,26 +206,23 @@ export class RaceScene implements Scene {
     const { r } = this.ctx;
     r.time = this.time;
     // Crisp snowy afternoon on the run (or a warm summer afternoon on the river).
-    r.env.lightDir = [0.5, 0.55, -0.67];
-    r.env.stars = 0;
-    r.env.sunColor = [1.0, 0.9, 0.76];
-    r.env.sunIntensity = 1.25;
-    r.env.skyTop = [0.25, 0.52, 0.85];
-    r.env.skyHorizon = [0.82, 0.88, 0.94];
-    r.env.ground = [0.7, 0.72, 0.78];
-    r.env.ambient = 0.6;
-    r.env.exposure = 1.0;
+    // Races follow the shared day/night cycle too: sunset toboggan runs and moonlit canoe races.
+    const night = applyTimeOfDay(r, dayPhase(this.ctx.prefs.time));
+    const sun = r.env.lightDir;
+    // The course heads toward -z, so turn the light to come from in front and to the side.
+    r.env.lightDir = [sun[0] * 0.6, sun[1], -Math.abs(sun[2]) - 0.5];
+    const l = Math.hypot(...r.env.lightDir);
+    r.env.lightDir = [r.env.lightDir[0] / l, r.env.lightDir[1] / l, r.env.lightDir[2] / l];
     r.env.fogNear = 60;
-    r.env.fogFar = 700;
     r.env.fogHeight = 0.006;
-    r.env.clouds = 0.8;
-    r.env.sky = true;
     if (this.game === "canoe") {
-      r.env.sunColor = [1.0, 0.86, 0.64];
-      r.env.sunIntensity = 1.35;
-      r.env.ground = [0.42, 0.48, 0.3];
-      r.env.ambient = 0.7;
+      r.env.ground = [r.env.ground[0] * 0.9, r.env.ground[1] * 1.05, r.env.ground[2] * 0.7];
+    } else {
+      // Snow bounces light around: brighter ambient from below.
+      r.env.ground = [Math.min(1, r.env.ground[0] * 1.4 + 0.12), Math.min(1, r.env.ground[1] * 1.4 + 0.14), Math.min(1, r.env.ground[2] * 1.4 + 0.2)];
+      r.env.ambient = Math.min(0.9, r.env.ambient + 0.08);
     }
+    this.night = night;
     const focus = this.me ?? this.racers[0];
     const p = trackToWorld(focus.x * 0.5, focus.z);
     const ahead = trackToWorld(focus.x * 0.5, focus.z + 10);
@@ -240,7 +239,7 @@ export class RaceScene implements Scene {
     r.draw(this.mtn, compose(0, -TRACK.length * TRACK.slope * 0.5 - 40, 0), { noCast: true });
     r.draw(this.world.ground, I, { noCast: true });
     r.draw(this.world.props, I, { sway: 0.15 });
-    r.draw(this.world.glow, I, { unlit: true });
+    r.draw(this.world.glow, I, { unlit: true, emissive: this.night * 0.8 });
     if (this.world.water) r.draw(this.world.water, I, { wave: 1, alpha: 0.86 });
 
     for (const g of this.layout.gates) {
