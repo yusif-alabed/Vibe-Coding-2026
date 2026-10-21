@@ -236,7 +236,7 @@ export class GameServer {
       }
       case "golfQuit": {
         const g = c.golfId ? this.golfs.get(c.golfId) : undefined;
-        if (g) { g.quit(c); setTimeout(() => this.backToVillage(c, g.hubId), 2500); }
+        if (g) { g.quit(c); this.later(() => this.backToVillage(c, g.hubId), 2500); }
         else this.dequeueGolf(c);
         break;
       }
@@ -742,7 +742,7 @@ export class GameServer {
         if (!cl || t.isBot || t.holes === 0) continue;
         if (t.holes === r.match.holes.length && !t.quit) recordBest(cl.record, "golf", t.toPar);
       }
-      for (const p of r.players) setTimeout(() => this.backToVillage(p, q.hubId), 6000);
+      for (const p of r.players) this.later(() => this.backToVillage(p, q.hubId), 6000);
     });
     room.hubId = q.hubId;
     this.golfs.set(id, room);
@@ -869,7 +869,7 @@ export class GameServer {
       if (mine.place <= 2) this.progress(c, { kind: "podium" });
     }
     // Give players a few seconds on the results screen, then return them to the village by the trailhead.
-    setTimeout(() => {
+    this.later(() => {
       const hub = this.hubs.get(hubId) ?? this.publicHub();
       for (const c of room.players) {
         if (!this.isConnected(c)) continue;
@@ -908,7 +908,17 @@ export class GameServer {
     this.store.markDirty();
   }
 
+  private timers = new Set<NodeJS.Timeout>();
+  private closed = false;
+  /** A one-off timer that's cancelled if the server shuts down. */
+  private later(fn: () => void, ms: number): void {
+    const t = setTimeout(() => { this.timers.delete(t); if (!this.closed) fn(); }, ms);
+    this.timers.add(t);
+  }
+
   close(): void {
+    this.closed = true;
+    for (const t of this.timers) clearTimeout(t);
     this.store.flush();
     for (const h of this.hubs.values()) h.dispose();
     for (const r of this.races.values()) r.dispose();
