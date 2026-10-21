@@ -1,5 +1,6 @@
 import { mulberry32 } from "./rng";
 import { TobogganRace, type Entrant, type RaceResult } from "./race";
+import { BoxSim, HoopSim, PenaltySim, SpleefSim, TowerSim, VolleySim } from "./arcade2";
 
 /**
  * The arcade minigames. Like Toboggan Rush they are deterministic simulations that the game server
@@ -12,7 +13,7 @@ import { TobogganRace, type Entrant, type RaceResult } from "./race";
  *  - 🦫 Dam Builder: co-op! Catch floating logs to build the dam before the river overflows.
  */
 
-export type ArcadeGame = "hunt" | "logroll" | "snowball" | "dam";
+export type ArcadeGame = "hunt" | "logroll" | "snowball" | "dam" | "spleef" | "td" | "volley" | "hoops" | "penalty" | "shadowbox";
 export type MiniGame = "toboggan" | "canoe" | ArcadeGame;
 /** Word Lodge games are keyed apart from the arcade ones on the leaderboards. */
 export type WordLeaderKey = `word:${"wordle" | "connections" | "crossword" | "bee"}`;
@@ -38,6 +39,12 @@ export const ARCADE_INFO: Record<MiniGame, { name: string; icon: string; how: st
   logroll: { name: "Log Rolling", icon: "🪵", how: "Keep your balance on the spinning log: lean against the wobble (A/D), press to hop when it lurches.", seconds: 60, scoreLabel: "seconds" },
   snowball: { name: "Snowball Fight", icon: "⛄", how: "Move along your side (A/D) and press Space to throw. Dodge the snowballs!", seconds: 60, scoreLabel: "hits" },
   dam: { name: "Dam Builder", icon: "🦫", how: "Team up! Slide along the dam (A/D) to catch logs before the water spills over.", seconds: 75, scoreLabel: "logs" },
+  spleef: { name: "Spleef", icon: "⛏️", how: "Move with W A S D and press Space to dig the snow in front of you. Make the others fall through, and don't fall yourself!", seconds: 90, scoreLabel: "seconds" },
+  td: { name: "Fort Timber", icon: "🏰", how: "Team up! Walk (W A S D) to a spot beside the trail and press Space to build a pinecone launcher (🪙30 of team coins). Shoo every raccoon before they reach the dam!", seconds: 170, scoreLabel: "points" },
+  volley: { name: "Beach Volleyball", icon: "🏐", how: "Two-a-side: move with A/D, jump with Space or W. Bump the ball over the net, first to 7 points!", seconds: 150, scoreLabel: "points" },
+  hoops: { name: "Hoop Shoot", icon: "🏀", how: "Press Space when the meter is at the very top or bottom to sink it. Three in a row and you're on fire; the last 20 seconds are worth 3!", seconds: 60, scoreLabel: "points" },
+  penalty: { name: "Penalty Shootout", icon: "⚽", how: "Aim with A/D (side) and W/S (height), then press Space when the power meter is in the green. Five kicks each!", seconds: 45, scoreLabel: "goals" },
+  shadowbox: { name: "Shadow Boxing", icon: "🥊", how: "Follow the coach: ⬅️ A = left jab, ➡️ D = right hook, ⬆️ W = uppercut, ⬇️ S = duck. Hit them right on the beat!", seconds: 60, scoreLabel: "points" },
 };
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
@@ -349,6 +356,12 @@ export function makeSim(game: MiniGame, seed: number, entrants: Entrant[]): Game
     case "logroll": return new LogSim(seed, entrants);
     case "snowball": return new SnowSim(seed, entrants);
     case "dam": return new DamSim(seed, entrants);
+    case "spleef": return new SpleefSim(seed, entrants);
+    case "td": return new TowerSim(seed, entrants);
+    case "volley": return new VolleySim(seed, entrants);
+    case "hoops": return new HoopSim(seed, entrants);
+    case "penalty": return new PenaltySim(seed, entrants);
+    case "shadowbox": return new BoxSim(seed, entrants);
     default: return new RaceSim(seed, entrants);
   }
 }
@@ -359,8 +372,13 @@ export function coinsForGame(game: MiniGame, r: ScoreResult, players: number): n
   if (game === "dam") return r.finished ? 35 + r.score * 2 : 10 + r.score;
   if (game === "hunt") return 8 + r.score * 2 + (r.place === 1 && players > 1 ? 10 : 0);
   if (game === "snowball") return (r.finished ? 25 : 10) + r.score * 2;
-  // Last beaver standing on your own log is a lot easier than against three others.
-  if (game === "logroll") return players > 1 ? base : 15;
+  // Last beaver standing on your own log (or snow stage) is a lot easier than against three others.
+  if (game === "logroll" || game === "spleef") return players > 1 ? base : 15;
+  if (game === "td") return r.finished ? 30 + r.score * 2 : 8 + r.score;
+  if (game === "volley") return (r.finished ? 30 : 12) + r.score;
+  if (game === "hoops") return 6 + Math.round(r.score / 2) + (r.place === 1 && players > 1 ? 10 : 0);
+  if (game === "penalty") return 8 + r.score * 5;
+  if (game === "shadowbox") return 6 + Math.round(r.score / 3);
   return base;
 }
 
@@ -374,9 +392,9 @@ export function weekKey(now = Date.now()): string {
   return `${monday.getUTCFullYear()}-W${String(wk).padStart(2, "0")}`;
 }
 
-/** Fewest real players a round can start with: a snowball fight needs someone to throw at. */
+/** Fewest real players a round can start with: a snowball fight or a volleyball match needs someone on the other side. */
 export function minPlayers(game: MiniGame): number {
-  return game === "snowball" ? 2 : 1;
+  return game === "snowball" || game === "volley" ? 2 : 1;
 }
 
 /** Where each minigame is joined from in the village. */
@@ -387,4 +405,10 @@ export const GAME_SPOTS: Record<MiniGame, string> = {
   logroll: "lighthouse",
   snowball: "rink",
   dam: "watermill",
+  spleef: "spleef",
+  td: "fort",
+  volley: "sports",
+  hoops: "sports",
+  penalty: "sports",
+  shadowbox: "gym",
 };

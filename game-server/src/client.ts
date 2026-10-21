@@ -14,6 +14,10 @@ export class Client {
   golfId: string | null = null;
   /** Word Lodge round this player is in, if any. */
   wordId: string | null = null;
+  /** Board Game Estate table this player is sitting at, if any. */
+  boardId: string | null = null;
+  /** Through the gate at the Board Game Estate. */
+  estate = false;
   /** Up the gondola at the summit. */
   summit = false;
   /** What they're doing right now (dance, sing, skate…) and since when. */

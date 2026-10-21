@@ -124,6 +124,31 @@ All run on the server as deterministic simulations (solo mode runs the same code
 - **Dam Builder** (watermill): co-op, catch floating logs to build the dam before the river spills over.
 - **Bow Valley Golf** (clubhouse): 9 holes inspired by the Banff Springs course; choose 1–9 holes; everyone plays their own ball at the same time; quit any time. Physics: projectile flight with drag and wind, bounces and roll by surface (fairway, rough, green, sand, water, out-of-bounds), green slopes, trees that knock the ball down, cup capture under a speed limit, stroke penalties for water/OB, max 10 strokes a hole.
 
+## Downtown
+
+A new quarter on the east side of town (south of the watermill), each building modelled on a game people play in real life. All the minigames are `GameSim`s in `shared/src/arcade2.ts`, joined through the same village-wide lobbies as the other games (real players online, bots in solo mode). Volleyball needs two beavers; the rest can be played alone.
+
+- **Club Beaver** — *"Have a dam good time!"* Light-up dance floor, DJ booth and karaoke (the existing dance and sing group activities).
+- **Sports Centre** — **Beach Volleyball** (2v2, side view, first to 7; landing out of bounds scores for the other side), **Hoop Shoot** (60 s, a shot meter, streak bonus, deep 3s in the last 20 s) and **Penalty Shootout** (five kicks: aim side and height, set power; the keeper guesses a side).
+- **Boxing Gym** — **Shadow Boxing**: a rhythm game; the coach's calls come from a seed shared by every player, perfect timing scores double and combos add bonus points.
+- **Fort Timber** — co-op **tower defence**: one shared acorn pot, launchers cost 30, eight waves of raccoons, ten lives.
+- **Spleef Stage** — a 12×12 floor of snow blocks; digging a block makes it crack for 0.7 s before it drops, the edges crumble after 35 s, last beaver standing wins.
+- **Lucky Lodge** — slots, European roulette and blackjack (dealer stands on 17, 3:2 naturals). In-game coins only; coins can't be bought or cashed out. Bets 1–25, a daily loss cap of 150 and a cap of 200 plays a day, all enforced on the server.
+
+## The Board Game Estate
+
+A shared space of its own behind gates at the north end of Downtown (like the summit: one per village, and you see the other beavers on the lawn). Five giant real-world board games; walk up to one to open a table, and everyone on the lawn sees it and can join. Online, a table needs two real players (the countdown starts when the second sits down; four-seat games can start early). In solo mode bots take the other chairs.
+
+| Game | Real-world model | Seats | Bot |
+|---|---|---|---|
+| Giant Chess | Chess (full rules: castling, en passant, promotion, mate/stalemate, 50-move rule) | 2 | alpha-beta, depth 2 |
+| Giant Checkers | American checkers (forced captures, multi-jumps, kings) | 2 | alpha-beta over whole turns, depth 4 |
+| Who's That Beaver? | Guess Who | 2 | asks the question that splits the remaining faces best |
+| Mansion Mystery | Clue/Cluedo, gentled for all ages (who hid the Golden Acorn) | 3–4 | tracks what it has seen, accuses when only one of each is left |
+| Tycoon City | Monopoly-style property game on a board of town places | 2–4 | buys what it can afford, builds on full sets |
+
+Rules live in `shared/src/board/`; `BoardMatch` wraps a table and `view(seat)` is the only thing sent to a player, so secret beavers, other hands and the envelope never leave the server. Names were chosen to avoid using trademarks as game titles.
+
 ## Getting around
 
 A steam train loops the valley on a timetable (two trains, about a minute a lap) from the station on the east edge; hot-air balloons fly a loop over town from the balloon meadow; the gondola rides up to the summit (glacier lake, ice cave, viewpoint).

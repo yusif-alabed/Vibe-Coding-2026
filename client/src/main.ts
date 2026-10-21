@@ -13,6 +13,8 @@ import { RaceScene } from "./game/raceScene";
 import { ArcadeScene } from "./game/arcadeScene";
 import { GolfScene } from "./game/golfScene";
 import { SummitScene } from "./game/summitScene";
+import { EstateScene } from "./game/estateScene";
+import { DOWNTOWN_GAMES, DowntownScene } from "./game/downtownScene";
 import { WordScene } from "./game/wordScene";
 import { giftToast } from "./ui/life";
 import type { Ctx, Scene } from "./game/scene";
@@ -181,7 +183,7 @@ function start(rawName: string, room?: string, recovery?: string) {
     if (m.t === "gift") giftToast(ui, m.name, m.item);
     if (m.t === "gameStart") {
       scene?.dispose();
-      scene = new ArcadeScene(ctx, m);
+      scene = DOWNTOWN_GAMES.includes(m.game as never) ? new DowntownScene(ctx, m) : new ArcadeScene(ctx, m);
       sound.setMode("race");
       return;
     }
@@ -195,6 +197,12 @@ function start(rawName: string, room?: string, recovery?: string) {
       scene?.dispose();
       scene = new WordScene(ctx, m);
       sound.setMode("cabin");
+      return;
+    }
+    if (m.t === "estate") {
+      scene?.dispose();
+      scene = new EstateScene(ctx, m);
+      sound.setMode("village");
       return;
     }
     if (m.t === "summit") {

@@ -6,6 +6,8 @@ import type { LifeWire } from "./life";
 import type { LeaderGame, MiniGame } from "./minigames";
 import type { Club } from "./golf";
 import type { WordAction, WordGame, WordRivalWire, WordSelfWire, WordSetup } from "./words/types";
+import type { BoardAction, BoardGame, BoardView } from "./board/match";
+import type { CasinoGame, RouletteBet } from "./casino";
 
 /** Wire protocol between the browser client and the game server (JSON over WebSocket). */
 
@@ -58,7 +60,7 @@ export const ACT_QUEST: Partial<Record<HubAct, "ride" | "skate" | "treat" | "mus
  */
 export interface LobbyWire {
   key: string;
-  kind: "mini" | "golf" | "word";
+  kind: "mini" | "golf" | "word" | "board";
   /** The minigame, "golf" or the word game. */
   game: string;
   title: string;
@@ -147,7 +149,14 @@ export type ClientMsg =
   // The Word Lodge
   | { t: "queueWord"; game: WordGame }
   | { t: "wordAct"; a: WordAction }
-  | { t: "wordQuit" };
+  | { t: "wordQuit" }
+  // The Board Game Estate
+  | { t: "estate"; enter: boolean }
+  | { t: "boardQueue"; game: BoardGame }
+  | { t: "boardAct"; a: BoardAction }
+  | { t: "boardQuit" }
+  // The Lucky Lodge
+  | { t: "casino"; game: CasinoGame; bet: number; choice?: RouletteBet; action?: "deal" | "hit" | "stand" | "double" };
 
 export interface RaceResultWire {
   id: string;
@@ -225,4 +234,10 @@ export type ServerMsg =
   /** The board after a move: your own letters plus what everyone is allowed to see of the rest. */
   | { t: "wordState"; you: WordSelfWire | null; rivals: WordRivalWire[] }
   | { t: "wordEnd"; game: WordGame; results: RaceResultWire[]; answer: string; best?: number }
+  /** You walked through the gate into the Board Game Estate. */
+  | { t: "estate"; players: PlayerInfo[] }
+  /** Your seat's view of the table (never anyone else's secrets). */
+  | { t: "board"; v: BoardView; waiting?: number }
+  | { t: "boardEnd"; v: BoardView; coins: number }
+  | { t: "casino"; game: CasinoGame; ok: boolean; note?: string; data?: unknown; delta?: number }
   | { t: "golfEnd"; totals: { id: string; name: string; isBot: boolean; total: number; toPar: number; quit: boolean; holes: number; coins: number }[] };

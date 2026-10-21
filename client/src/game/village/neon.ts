@@ -121,6 +121,45 @@ const SIGNS: Partial<Record<TownBuilding["kind"], (k: NeonKit, f: Frame, y: numb
   },
 };
 
+/** A tiny stroke font for neon lettering (each letter 0.6 wide, 1 tall, strokes as polylines). */
+const FONT: Record<string, [number, number][][]> = {
+  A: [[[0, 0], [0.3, 1], [0.6, 0]], [[0.12, 0.4], [0.48, 0.4]]],
+  B: [[[0, 0], [0, 1], [0.45, 1], [0.55, 0.85], [0.45, 0.52], [0, 0.52]], [[0.45, 0.52], [0.6, 0.35], [0.5, 0], [0, 0]]],
+  C: [[[0.6, 0.9], [0.45, 1], [0.15, 1], [0, 0.8], [0, 0.2], [0.15, 0], [0.45, 0], [0.6, 0.1]]],
+  D: [[[0, 0], [0, 1], [0.35, 1], [0.6, 0.75], [0.6, 0.25], [0.35, 0], [0, 0]]],
+  E: [[[0.6, 1], [0, 1], [0, 0], [0.6, 0]], [[0, 0.5], [0.45, 0.5]]],
+  F: [[[0.6, 1], [0, 1], [0, 0]], [[0, 0.5], [0.45, 0.5]]],
+  G: [[[0.6, 0.9], [0.45, 1], [0.15, 1], [0, 0.8], [0, 0.2], [0.15, 0], [0.45, 0], [0.6, 0.2], [0.6, 0.45], [0.35, 0.45]]],
+  H: [[[0, 0], [0, 1]], [[0.6, 0], [0.6, 1]], [[0, 0.5], [0.6, 0.5]]],
+  I: [[[0.3, 0], [0.3, 1]], [[0.1, 1], [0.5, 1]], [[0.1, 0], [0.5, 0]]],
+  J: [[[0.6, 1], [0.6, 0.2], [0.45, 0], [0.15, 0], [0, 0.2]]],
+  K: [[[0, 0], [0, 1]], [[0.6, 1], [0, 0.45], [0.6, 0]]],
+  L: [[[0, 1], [0, 0], [0.55, 0]]],
+  M: [[[0, 0], [0, 1], [0.3, 0.5], [0.6, 1], [0.6, 0]]],
+  N: [[[0, 0], [0, 1], [0.6, 0], [0.6, 1]]],
+  O: [[[0.15, 0], [0, 0.2], [0, 0.8], [0.15, 1], [0.45, 1], [0.6, 0.8], [0.6, 0.2], [0.45, 0], [0.15, 0]]],
+  P: [[[0, 0], [0, 1], [0.45, 1], [0.6, 0.85], [0.6, 0.6], [0.45, 0.45], [0, 0.45]]],
+  R: [[[0, 0], [0, 1], [0.45, 1], [0.6, 0.85], [0.6, 0.6], [0.45, 0.45], [0, 0.45]], [[0.25, 0.45], [0.6, 0]]],
+  S: [[[0.6, 0.85], [0.45, 1], [0.15, 1], [0, 0.82], [0.12, 0.55], [0.48, 0.45], [0.6, 0.2], [0.45, 0], [0.15, 0], [0, 0.15]]],
+  T: [[[0, 1], [0.6, 1]], [[0.3, 1], [0.3, 0]]],
+  U: [[[0, 1], [0, 0.2], [0.15, 0], [0.45, 0], [0.6, 0.2], [0.6, 1]]],
+  V: [[[0, 1], [0.3, 0], [0.6, 1]]],
+  W: [[[0, 1], [0.12, 0], [0.3, 0.6], [0.48, 0], [0.6, 1]]],
+  Y: [[[0, 1], [0.3, 0.5], [0.6, 1]], [[0.3, 0.5], [0.3, 0]]],
+  "!": [[[0.3, 1], [0.3, 0.3]], [[0.3, 0.12], [0.3, 0.02]]],
+};
+
+/** Writes neon letters centred at (0, y) on a wall frame. size = letter height in metres. */
+export function neonText(k: NeonKit, f: Frame, text: string, y: number, z: number, size: number, col: Vec3) {
+  const adv = size * 0.82;
+  const x0 = -((text.length - 1) * adv) / 2 - size * 0.3;
+  [...text].forEach((ch, i) => {
+    const strokes = FONT[ch.toUpperCase()];
+    if (!strokes) return;
+    for (const st of strokes) k.path(f, st.map(([sx, sy]) => [x0 + i * adv + sx * size, y + (sy - 0.5) * size] as [number, number]), z, col);
+  });
+}
+
 const SHOPS = new Set(["bakery", "post", "store", "flowers", "icecream", "toys", "maple", "library"]);
 
 /** Builds all the night lights. `heightAt` places things on the ground; `bridges` gives rail points. */
@@ -188,6 +227,42 @@ export function buildNeon(heightAt: (x: number, z: number) => number, wire: Mesh
     k.arc(f, -0.9, 5.95, 0.05, 0.22, NEON.gold);
     k.arc(f, 0, 5.95, 0.05, 0.22, NEON.teal);
     k.arc(f, 0.9, 5.95, 0.05, 0.22, NEON.violet);
+  }
+  // Downtown lettering: every venue gets its name in neon.
+  const DOWNTOWN: Partial<Record<TownBuilding["kind"], { lines: [string, number, Vec3][]; y: number; z: number }>> = {
+    club: { lines: [["CLUB BEAVER", 0.75, NEON.pink], ["HAVE A DAM GOOD TIME!", 0.32, NEON.teal]], y: 6.0, z: 0.8 },
+    casino: { lines: [["LUCKY LODGE", 0.7, NEON.gold]], y: 6.4, z: 0.6 },
+    sports: { lines: [["SPORTS", 0.8, NEON.sky]], y: 5.4, z: 0.5 },
+    gym: { lines: [["BOXING", 0.65, NEON.red]], y: 5.4, z: 0.4 },
+    fort: { lines: [["FORT TIMBER", 0.45, NEON.lime]], y: 3.6, z: 0.4 },
+    estategate: { lines: [["BOARD GAMES", 0.42, NEON.violet]], y: 6.1, z: 0.2 },
+  };
+  for (const b of TOWN_BUILDINGS) {
+    const sign = DOWNTOWN[b.kind];
+    if (!sign) continue;
+    const f = new Frame(b.x, heightAt(b.x, b.z), b.z, b.ry);
+    let yy = sign.y;
+    for (const [text, size, col] of sign.lines) {
+      neonText(k, f, text, yy, b.d / 2 + sign.z, size, col);
+      yy -= size + 0.3;
+    }
+  }
+  // Club Beaver's dance floor: strings of bulbs from the roof out to poles.
+  const club = TOWN_BUILDINGS.find((b) => b.kind === "club");
+  if (club) {
+    const f = new Frame(club.x, heightAt(club.x, club.z), club.z, club.ry);
+    for (const s of [-1, 0, 1]) {
+      const p = f.p(s * 3.4, 0, club.d / 2 + 7.4);
+      wire.cylinder(compose(p[0], p[1] + 1.8, p[2], 0, 0, 0, 0.12, 3.6, 0.12), [0.2, 0.16, 0.14], 6);
+      k.festoon(f.p(s * 2.5, 4.9, club.d / 2 + 0.3), [p[0], p[1] + 3.5, p[2]], 8, 0.4, wire, s + 3);
+    }
+  }
+  // Lights around the Downtown plaza.
+  for (let i = 0; i < 6; i++) {
+    const a0 = (i / 6) * Math.PI * 2, a1 = ((i + 1) / 6) * Math.PI * 2;
+    const p0: Vec3 = [58 + Math.cos(a0) * 8.1, heightAt(58, 48) + 3.1, 48 + Math.sin(a0) * 8.1];
+    const p1: Vec3 = [58 + Math.cos(a1) * 8.1, heightAt(58, 48) + 3.1, 48 + Math.sin(a1) * 8.1];
+    k.festoon(p0, p1, 7, 0.4, wire, i);
   }
   return { core: k.core, halo: k.halo };
 }

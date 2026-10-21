@@ -51,6 +51,11 @@ import {
   type ClientMsg,
   type LobbyWire,
   type RaceGame,
+  handleCasino,
+  isBoardGame,
+  parseBoardAction,
+  BOARD_INFO,
+  type BoardGame,
 } from "@beaver/shared";
 import { Client } from "./client";
 import { HubRoom } from "./rooms/HubRoom";
@@ -58,6 +63,7 @@ import { RaceRoom } from "./rooms/RaceRoom";
 import { GolfRoom } from "./rooms/GolfRoom";
 import { WordRoom } from "./rooms/WordRoom";
 import { Space } from "./rooms/Space";
+import { BoardRoom } from "./rooms/BoardRoom";
 import { PlayerStore, type PlayerRecord } from "./store";
 
 const CLUB_COLORS = ["#e2483d", "#2fa7a2", "#f5c242", "#a77bff", "#ff7eb3", "#4c8cff", "#6fbf4a", "#ff9a3c"];
@@ -67,6 +73,9 @@ const SUMMIT_RADIUS = 34;
 /** Cabins are small: anything further than this from the middle is outside the walls. */
 const CABIN_RADIUS = 12;
 const CABIN_DOOR = { x: 0, z: 4.6 };
+/** Just inside the Board Game Estate's gates, and how far its lawn reaches (matches the client's estate scene). */
+const ESTATE_ARRIVAL = { x: 0, z: 32, ry: Math.PI };
+const ESTATE_RADIUS = 44;
 
 /**
  * Real players waiting for a round. There are no bots online, so a lobby waits for company:
@@ -81,7 +90,7 @@ type Lobby = {
   min: number;
   timer: NodeJS.Timeout | null;
   startsAt: number | null;
-} & ({ kind: "mini"; game: MiniGame } | { kind: "golf"; holes: number } | { kind: "word"; game: WordGame });
+} & ({ kind: "mini"; game: MiniGame } | { kind: "golf"; holes: number } | { kind: "word"; game: WordGame } | { kind: "board"; game: BoardGame });
 
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -104,6 +113,7 @@ export class GameServer {
   readonly lobbies = new Map<string, Lobby>();
   /** The summits and the cabins with someone in them. */
   readonly spaces = new Map<string, Space>();
+  readonly boards = new Map<string, BoardRoom>();
   private clients = new Map<WebSocket, Client>();
   private wss: WebSocketServer;
   private publicCount = 0;
@@ -245,9 +255,13 @@ export class GameServer {
       case "lobbyStart":
         this.startLobbyNow(c);
         break;
-      case "lobbyJoin":
-        if (hub) this.joinOpenLobby(c, hub, String(msg.key));
+      case "lobbyJoin": {
+        if (hub) { this.joinOpenLobby(c, hub, String(msg.key)); break; }
+        // On the estate lawn: sit down at a table someone else is waiting at.
+        const l = this.lobbies.get(String(msg.key));
+        if (c.estate && l?.kind === "board" && l.hubId === c.spaceId) this.queueBoard(c, l.game);
         break;
+      }
       case "lobbyLeave":
         this.leaveLobby(c);
         break;
@@ -278,6 +292,27 @@ export class GameServer {
         else this.leaveLobby(c);
         break;
       }
+      case "estate":
+        this.estate(c, !!msg.enter);
+        break;
+      case "boardQueue":
+        if (c.estate && isBoardGame(msg.game)) this.queueBoard(c, msg.game);
+        break;
+      case "boardAct": {
+        const b = c.boardId ? this.boards.get(c.boardId) : undefined;
+        const a = b ? parseBoardAction(msg.a, b.game) : null;
+        if (b && a) b.act(c, a);
+        break;
+      }
+      case "boardQuit": {
+        const b = c.boardId ? this.boards.get(c.boardId) : undefined;
+        if (b) b.quit(c);
+        else this.leaveLobby(c);
+        break;
+      }
+      case "casino":
+        if (hub) this.sendAll(c, handleCasino(c.record, msg, c.x, c.z, Math.random));
+        break;
       case "golfShot": {
         const g = c.golfId ? this.golfs.get(c.golfId) : undefined;
         g?.shot(c, Number(msg.aim), Number(msg.power), msg.club as Club);
@@ -460,6 +495,8 @@ export class GameServer {
     if (c.raceId) return { where: "Playing a minigame 🎮", joinable: false };
     if (c.golfId) return { where: "Playing golf ⛳", joinable: false };
     if (c.summit) return { where: "At the summit 🏔️", joinable: false };
+    if (c.boardId) return { where: "Playing a board game 🎲", joinable: false };
+    if (c.estate) return { where: "At the Board Game Estate 🎲", joinable: false };
     if (c.cabinOf) return { where: "In a cabin 🏡", joinable: false };
     const hub = c.hubId ? this.hubs.get(c.hubId) : undefined;
     if (!hub) return { where: "Online", joinable: false };
@@ -536,6 +573,7 @@ export class GameServer {
     if (hub.full) { c.send({ t: "error", text: "That village is full." }); return; }
     if (c.raceId || c.golfId || c.wordId) return;
     this.leaveLobby(c);
+    if (c.boardId) this.boards.get(c.boardId)?.quit(c);
     this.leaveSpace(c);
     const cur = c.hubId ? this.hubs.get(c.hubId) : undefined;
     if (cur === hub) return;
@@ -753,6 +791,69 @@ export class GameServer {
     }
   }
 
+  // ------------------------------------------------------------------ The Board Game Estate
+
+  /**
+   * Walk through the gates into the estate grounds: a shared space like the summit (one per village,
+   * so you meet the beavers you came with), or back out to Downtown.
+   */
+  private estate(c: Client, enter: boolean): void {
+    if (enter) {
+      const hub = c.hubId ? this.hubs.get(c.hubId) : undefined;
+      const g = TOWN_PLACES.estategate;
+      if (!hub || Math.hypot(c.x - g.x, c.z - g.z) > 9) return;
+      c.returnHubId = hub.info.id;
+      this.leaveLobby(c);
+      hub.remove(c);
+      const grounds = this.space(`estate:${hub.info.id}`, ESTATE_RADIUS);
+      grounds.enter(c, ESTATE_ARRIVAL);
+      c.spaceId = grounds.id;
+      c.estate = true;
+      c.send({ t: "estate", players: grounds.others(c) });
+      c.send({ t: "lobbies", list: this.lobbiesIn(grounds.id) });
+      this.sendAll(c, recordVisit(c.record, c.record.token, "estategate"));
+      this.notifyFriends(c);
+    } else if (c.estate) {
+      this.leaveLobby(c);
+      if (c.boardId) this.boards.get(c.boardId)?.quit(c);
+      this.leaveSpace(c);
+      const back = (c.returnHubId && this.hubs.get(c.returnHubId)) || this.publicHub();
+      const g = TOWN_PLACES.estategate;
+      this.joinHub(c, back.full ? this.publicHub() : back, { x: g.x + 2, z: g.z + (Math.random() - 0.5) * 3 });
+      this.notifyFriends(c);
+    }
+  }
+
+  /**
+   * Sit down at a table: opens (or joins) the estate's lobby for that game. Like every game online
+   * it's real players only, so a table waits for a second beaver; everyone on the lawn can see it.
+   */
+  private queueBoard(c: Client, game: BoardGame): void {
+    const grounds = c.estate && c.spaceId ? this.spaces.get(c.spaceId) : undefined;
+    if (!grounds || c.boardId) return;
+    const key = `${grounds.id}:board:${game}`;
+    if (c.lobbyKey === key) return;
+    this.leaveLobby(c);
+    let l = this.lobbies.get(key);
+    if (!l) {
+      l = { kind: "board", game, key, hubId: grounds.id, players: [], size: BOARD_INFO[game].seats[1], min: 2, timer: null, startsAt: null };
+      this.lobbies.set(key, l);
+    }
+    if (l.players.length >= l.size) { c.send({ t: "error", text: "That table is full — the next one opens as soon as it starts." }); return; }
+    l.players.push(c);
+    c.lobbyKey = key;
+    this.lobbyChanged(l);
+  }
+
+  private startBoard(players: Client[], game: BoardGame, seed: number): void {
+    const id = `board-${randomBytes(4).toString("hex")}`;
+    const room = new BoardRoom(id, players, game, seed, (r) => {
+      this.boards.delete(r.id);
+      for (const p of players) if (r.match.over && r.match.winner !== null) this.progress(p, { kind: "arcade" });
+    });
+    this.boards.set(id, room);
+  }
+
   // ------------------------------------------------------------------ Leaderboards & golf
 
   private sendLeaderboard(c: Client, game: LeaderGame): void {
@@ -803,7 +904,7 @@ export class GameServer {
   /** Hop into a lobby someone else opened, from anywhere in the village. */
   private joinOpenLobby(c: Client, hub: HubRoom, key: string): void {
     const l = this.lobbies.get(key);
-    if (!l || l.hubId !== hub.info.id) { c.send({ t: "error", text: "That game has already started." }); return; }
+    if (!l || l.hubId !== hub.info.id || l.kind === "board") { c.send({ t: "error", text: "That game has already started." }); return; }
     this.joinLobby(c, hub, key, () => l);
   }
 
@@ -869,7 +970,7 @@ export class GameServer {
   }
 
   private lobbyWire(l: Lobby): LobbyWire {
-    const info = l.kind === "mini" ? ARCADE_INFO[l.game] : l.kind === "word" ? WORD_INFO[l.game] : null;
+    const info = l.kind === "mini" ? ARCADE_INFO[l.game] : l.kind === "word" ? WORD_INFO[l.game] : l.kind === "board" ? BOARD_INFO[l.game] : null;
     return {
       key: l.key,
       kind: l.kind,
@@ -889,7 +990,8 @@ export class GameServer {
   }
 
   private announceLobbies(hubId: string): void {
-    this.hubs.get(hubId)?.broadcast({ t: "lobbies", list: this.lobbiesIn(hubId) });
+    // A lobby lives in a village, or on the estate lawn (a shared space).
+    (this.hubs.get(hubId) ?? this.spaces.get(hubId))?.broadcast({ t: "lobbies", list: this.lobbiesIn(hubId) });
   }
 
   /** Moves everyone in the lobby out of the village and into their round. */
@@ -897,8 +999,16 @@ export class GameServer {
     if (this.lobbies.get(l.key) !== l) return;
     if (l.timer) clearTimeout(l.timer);
     this.lobbies.delete(l.key);
-    const players = l.players.filter((p) => this.isConnected(p) && p.hubId === l.hubId);
+    const here = (p: Client) => (l.kind === "board" ? p.spaceId === l.hubId && !p.boardId : p.hubId === l.hubId);
+    const players = l.players.filter((p) => this.isConnected(p) && here(p));
     for (const p of l.players) p.lobbyKey = null;
+    if (l.kind === "board") {
+      // Board games are played right there on the lawn: nobody leaves the estate.
+      this.announceLobbies(l.hubId);
+      for (const p of players) p.send({ t: "queue", lobby: null });
+      if (players.length >= 2) this.startBoard(players, l.game, randomInt(1, 2 ** 31));
+      return;
+    }
     const hub = this.hubs.get(l.hubId);
     for (const p of players) hub?.remove(p);
     this.announceLobbies(l.hubId);
@@ -963,6 +1073,7 @@ export class GameServer {
   /** Steps out of the summit or a cabin; an empty space is put away. */
   private leaveSpace(c: Client): void {
     c.summit = false;
+    c.estate = false;
     c.cabinOf = null;
     const s = c.spaceId ? this.spaces.get(c.spaceId) : undefined;
     c.spaceId = null;
@@ -1071,6 +1182,7 @@ export class GameServer {
     if (c.raceId) this.races.get(c.raceId)?.drop(c);
     if (c.golfId) this.golfs.get(c.golfId)?.quit(c);
     if (c.wordId) this.words.get(c.wordId)?.drop(c);
+    if (c.boardId) this.boards.get(c.boardId)?.quit(c);
     this.notifyFriends(c);
     const party = this.partyOf(c.record.pid);
     if (party) this.sendParty(party);
@@ -1094,6 +1206,7 @@ export class GameServer {
     for (const g of this.golfs.values()) g.dispose();
     for (const w of this.words.values()) w.dispose();
     for (const s of this.spaces.values()) s.dispose();
+    for (const b of this.boards.values()) b.dispose();
     for (const l of this.lobbies.values()) if (l.timer) clearTimeout(l.timer);
     this.wss.close();
   }

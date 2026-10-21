@@ -5,6 +5,8 @@ import { visitedPlace, type QuestEvent, type VisitPlace } from "./quests";
 import { TOWN_PLACES } from "./constants";
 import { weekKey, type LeaderGame, type MiniGame, ARCADE_INFO } from "./minigames";
 import { WORD_INFO, isWordGame, type WordGame } from "./words/types";
+import { blackjackView, casinoPlay, type BlackjackState, type CasinoGame, type RouletteBet } from "./casino";
+import type { BoardAction, BoardGame } from "./board/match";
 
 /**
  * Per-player rules shared by the game server and solo mode, so both behave exactly the same:
@@ -18,6 +20,9 @@ export interface PlayerRecordLike extends ProgressRecord, LifeRecord {
   owned: string[];
   /** Weekly personal bests per game ("hunt", "golf", …). */
   bests?: Record<string, { week: string; score: number }>;
+  /** Lucky Lodge daily limits and the blackjack hand in progress. */
+  casino?: { day: string; net: number; plays: number };
+  blackjack?: BlackjackState | null;
 }
 
 /** Sends the result of a life action (dialogue/toast, updated bag & journal, coins). */
@@ -164,3 +169,57 @@ export function leaderRows(entries: { name: string; best?: { week: string; score
     .sort((a, b) => (lower ? a.score - b.score : b.score - a.score))
     .slice(0, 10);
 }
+
+
+// ------------------------------------------------------------------ The Lucky Lodge
+
+/** A spin, a wheel or a hand at the Lucky Lodge. Only works standing inside it. */
+export function handleCasino(rec: PlayerRecordLike, msg: Extract<ClientMsg, { t: "casino" }>, x: number, z: number, rand: () => number, now = Date.now()): ServerMsg[] {
+  const game = String(msg.game) as CasinoGame;
+  if (game !== "slots" && game !== "roulette" && game !== "blackjack") return [];
+  if (Math.hypot(x - TOWN_PLACES.casino.x, z - TOWN_PLACES.casino.z) > 9) return [{ t: "casino", game, ok: false, note: "Step inside the Lucky Lodge to play!" }];
+  const choice = typeof msg.choice === "number" ? Math.floor(msg.choice) : (String(msg.choice) as RouletteBet);
+  const action = (["deal", "hit", "stand", "double"] as const).find((a) => a === msg.action) ?? "deal";
+  const out = casinoPlay(rec as Parameters<typeof casinoPlay>[0], game, Number(msg.bet), { choice, action }, rand, now);
+  const data = game === "blackjack" ? (rec.blackjack ? blackjackView(rec.blackjack) : null) : out.data;
+  return [{ t: "casino", game, ok: out.ok, note: out.note, data, delta: out.delta }, { t: "wallet", coins: rec.coins, owned: rec.owned }];
+}
+
+// ------------------------------------------------------------------ The Board Game Estate
+
+const int = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : null);
+
+/** Turns whatever came off the wire into a well-formed board action for this game, or null. */
+export function parseBoardAction(a: unknown, game: BoardGame): BoardAction | null {
+  if (!a || typeof a !== "object") return null;
+  const o = a as Record<string, unknown>;
+  if (o.kind === "resign") return { kind: "resign" };
+  if (game === "chess" || game === "checkers") {
+    const from = int(o.from, 0, 63), to = int(o.to, 0, 63);
+    if (from === null || to === null) return null;
+    if (game === "checkers") return { kind: "checkers", from, to };
+    const promo = (["q", "r", "b", "n"] as const).find((p) => p === o.promo);
+    return { kind: "chess", from, to, promo };
+  }
+  if (game === "guesswho") {
+    if (o.kind === "ask" && typeof o.q === "string") return { g: "guesswho", kind: "ask", q: o.q.slice(0, 20) };
+    const id = int(o.id, 0, 23);
+    if (o.kind === "guess" && id !== null) return { g: "guesswho", kind: "guess", id };
+    return null;
+  }
+  if (game === "mystery") {
+    if (o.kind === "roll" || o.kind === "end") return { g: "mystery", kind: o.kind };
+    if (o.kind === "move") { const room = int(o.room, 0, 8); return room === null ? null : { g: "mystery", kind: "move", room }; }
+    const suspect = int(o.suspect, 0, 5), item = int(o.item, 6, 11);
+    if (suspect === null || item === null) return null;
+    if (o.kind === "suggest") return { g: "mystery", kind: "suggest", suspect, item };
+    const room = int(o.room, 12, 20);
+    if (o.kind === "accuse" && room !== null) return { g: "mystery", kind: "accuse", suspect, item, room };
+    return null;
+  }
+  if (o.kind === "roll" || o.kind === "buy" || o.kind === "pass" || o.kind === "end" || o.kind === "bail") return { g: "tycoon", kind: o.kind };
+  if (o.kind === "build") { const space = int(o.space, 0, 23); return space === null ? null : { g: "tycoon", kind: "build", space }; }
+  return null;
+}
+
+export type { BlackjackState };

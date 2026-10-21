@@ -11,7 +11,8 @@ export type BuildingKind =
   | "bakery" | "post" | "store" | "flowers" | "icecream" | "toys" | "library" | "maple" | "townhall"
   | "cottage" | "windmill" | "watermill" | "lookout" | "observatory" | "greenhouse" | "ranger"
   | "lighthouse" | "bandstand" | "stall" | "ferris" | "tent"
-  | "clubhouse" | "station" | "gondola" | "dyeshop" | "wordlodge";
+  | "clubhouse" | "station" | "gondola" | "dyeshop" | "wordlodge"
+  | "sports" | "club" | "casino" | "gym" | "fort" | "estategate";
 
 export interface TownBuilding {
   kind: BuildingKind;
@@ -45,6 +46,11 @@ export const STREETS: [number, number, number, number][] = [
   [30, -34, 48, -46], // past the hot springs to the balloon meadow
   [10, -40, 16, -48], // to the summit gondola
   [52, -8, 56, 6], // to the community garden
+  [47, -8, 49, 40], // Downtown Avenue
+  [49, 40, 53, 44], // into the Downtown plaza
+  [42, 30, 48, 30], // to the Board Game Estate gate
+  [52, 54, 40, 70], // Downtown to the fairground
+  [40, 70, 24, 70],
   [-86, -8.5, -86, -26], // Library Lane, north from the library to the Word Lodge
 ];
 
@@ -102,10 +108,22 @@ export const TOWN_BUILDINGS: TownBuilding[] = [
   { kind: "dyeshop", x: -66, z: 7.5, ry: S, w: 6, d: 6, seed: 63 },
   // The Word Lodge, up Library Lane behind the library. Its front faces back down the lane.
   { kind: "wordlodge", x: -86, z: -30, ry: N, w: 12, d: 10, seed: 64 },
+  // Downtown: a fun district across the east road, round a plaza at (58, 48).
+  { kind: "sports", x: 74, z: 48, ry: W, w: 12, d: 10, seed: 70 },
+  { kind: "club", x: 40, z: 46, ry: E, w: 11, d: 9, seed: 71 },
+  { kind: "casino", x: 58, z: 32, ry: N, w: 11, d: 8, seed: 72 },
+  { kind: "gym", x: 58, z: 64, ry: S, w: 9, d: 8, seed: 73 },
+  { kind: "fort", x: 70, z: 33, ry: Math.atan2(-12, 15), w: 8, d: 8, seed: 74 },
+  // The carriage gate to the Board Game Estate (a separate zone).
+  { kind: "estategate", x: 41, z: 30, ry: E, w: 6, d: 2, seed: 75 },
 ];
 
 /** Open areas kept clear of trees and long grass (paved, frozen or trampled). */
-export const TOWN_AREAS: { kind: "square" | "rink" | "camp" | "fair" | "garden" | "balloons" | "golf"; x: number; z: number; r: number; clear?: number }[] = [
+export const TOWN_AREAS: { kind: "square" | "rink" | "camp" | "fair" | "garden" | "balloons" | "golf" | "downtown" | "dance" | "courts" | "spleef"; x: number; z: number; r: number; clear?: number }[] = [
+  { kind: "downtown", x: 58, z: 48, r: 7.5 },
+  { kind: "dance", x: 48, z: 46, r: 3.6 },
+  { kind: "courts", x: 68, z: 62, r: 5 },
+  { kind: "spleef", x: 45, z: 62, r: 5 },
   { kind: "garden", x: 56, z: 11, r: 6.5 },
   { kind: "balloons", x: 52, z: -52, r: 9 },
   { kind: "golf", x: -21, z: 90, r: 5 },
@@ -145,6 +163,14 @@ export const TOWN_PLACES = {
   dyeshop: { x: -66, z: 3 },
   cottageLane: { x: -43.5, z: -12 },
   wordlodge: { x: -86, z: -23.5 },
+  downtown: { x: 58, z: 48 },
+  club: { x: 47.5, z: 46 },
+  casino: { x: 58, z: 38.5 },
+  sports: { x: 66.5, z: 48 },
+  gym: { x: 58, z: 57.5 },
+  fort: { x: 65.5, z: 38.5 },
+  spleef: { x: 50.5, z: 58.5 },
+  estategate: { x: 45, z: 30 },
 } as const;
 
 /** Collision circles that cover a building's footprint. */

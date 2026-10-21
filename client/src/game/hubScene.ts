@@ -54,6 +54,7 @@ import { applyMood, currentMood, drawWeather, umbrellaMesh, umbrellaWeather, typ
 import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
+import { openCasino, type CasinoPanel } from "../ui/casino";
 import { gondolaPoint, nextBoarding, railPoint, trainUnit } from "./village/transport";
 import { isFlyingPet, PetFollower, petMesh } from "./pets";
 import { buzz, Fishing, npcSay, openBag, openClubs, openGarden, openGolf, openJournal, openLeaderboard, openNeighbours, openWordLodge, PLACE_TITLES, type Panel } from "../ui/life";
@@ -176,6 +177,7 @@ const BALLOON_S = 75;
 
 /** What the action button offers at each place, and what happens. */
 const PLACE_ACTS: Record<string, { act?: HubAct; label: string; done?: string; toast?: string }> = {
+  club: { act: "dance", label: "🪩 Hit the dance floor at Club Beaver", done: "🪩 Take a breather", toast: "🪩 Club Beaver: have a dam good time!" },
   lodge: { act: "cocoa", label: "☕ Grab a hot cocoa", done: "☕ Finish your cocoa", toast: "☕ Mmm… maple hot cocoa. Cozy!" },
   hotSpring: { act: "soak", label: "♨️ Soak in the hot spring", done: "♨️ Hop out", toast: "♨️ Ahh, toasty warm." },
   bakery: { act: "croissant", label: "🥐 Buy a maple croissant", done: "🥐 All gone!", toast: "🥐 Still warm from the oven!" },
@@ -291,6 +293,7 @@ export class HubScene implements Scene {
   private npcs: { look: Look; x: number; z: number; ry: number; kind: "busker" | "skater"; seed: number }[] = [];
   private lifePanel: Panel | null = null;
   private lifePanelKind = "";
+  private casino: CasinoPanel | null = null;
   private fishing: Fishing | null = null;
   private npcMarks = new Map<string, HTMLElement>();
   private townsfolk = NPCS.map((n) => ({ ...n, look: { fur: n.fur, hat: n.hat, scarf: n.scarf, backpack: null, trail: null } as Look, face: n.ry, talkT: 0 }));
@@ -639,6 +642,10 @@ export class HubScene implements Scene {
         this.ctx.state.life = m;
         if (this.panelEl === this.lifePanel?.el && this.panelEl?.isConnected) this.lifePanel.refresh();
         break;
+      case "casino":
+        this.casino?.result(m);
+        if (!this.casino && m.note) toast(this.root, m.note);
+        break;
       case "lifeSay": {
         if (m.npc) {
           const npc = NPCS.find((n) => n.name === m.npc);
@@ -741,6 +748,37 @@ export class HubScene implements Scene {
     this.panelEl = p.el;
   }
 
+  /** The Sports Centre: pick a game, then queue for it like any other minigame. */
+  private openSports() {
+    this.closeOverlays();
+    const games: MiniGame[] = ["volley", "hoops", "penalty"];
+    const body = h("div.settings-body", {}, [
+      h("div.hint", { style: "margin:0 0 10px" }, "Courts, hoops and a full-size goal. Pick a game: bot beavers fill the other spots until your friends join."),
+      ...games.map((g) => {
+        const info = ARCADE_INFO[g];
+        return h("div.friend", { style: "align-items:flex-start;gap:10px" }, [
+          h("div", { style: "font-size:26px;line-height:1.1" }, info.icon),
+          h("div", { style: "flex:1" }, [h("b", {}, info.name), h("div.hint", { style: "margin:2px 0 0" }, info.how)]),
+          h("button.btn.small.orange", { onclick: () => { this.ctx.net.send({ t: "queueGame", game: g }); el.remove(); } }, "Play"),
+        ]);
+      }),
+    ]);
+    const el = h("div.overlay.pe", { onclick: (e: Event) => { if (e.target === el) el.remove(); } }, h("div.card.panel.settings", {}, [
+      h("header", {}, [h("h2", {}, "🏟️ Sports Centre"), h("button.btn.cream.small", { onclick: () => el.remove() }, "✕")]),
+      body,
+    ]));
+    el.dataset.panel = "other";
+    this.root.append(el);
+    this.panelEl = el;
+  }
+
+  private openCasino() {
+    this.closeOverlays();
+    this.casino = openCasino(this.ctx, this.root, () => { this.casino = null; });
+    this.casino.el.dataset.panel = "other";
+    this.panelEl = this.casino.el;
+  }
+
   private copyInvite() {
     const st = this.ctx.state;
     const base = `${location.origin}${location.pathname}`;
@@ -784,7 +822,8 @@ export class HubScene implements Scene {
   }
 
   private refreshShop() {
-    if (!this.panelEl || this.lifePanel?.el === this.panelEl) return;
+    // Only the Outfitter redraws here (the Lucky Lodge and Sports Centre panels are their own thing).
+    if (!this.panelEl || this.lifePanel?.el === this.panelEl || this.panelEl.dataset.panel === "other") return;
     const st = this.ctx.state;
     const tabs: [Slot | "fur" | "cabin", string][] = [["hat", "Hats"], ["scarf", "Scarves"], ["backpack", "Packs"], ["trail", "Trails"], ["tail", "Tails"], ["eyes", "Eyes"], ["pet", "🐾 Pets"], ["dye", "🎨 Dyes"], ["fur", "Fur"], ["cabin", "🏡 Cabin"]];
     const setLook = (look: Look) => this.ctx.net.send({ t: "look", look });
@@ -911,6 +950,14 @@ export class HubScene implements Scene {
     if (d(TOWN_PLACES.clubhouse) < 8) return "golf";
     if (d(TOWN_PLACES.wordlodge) < 7) return "wordlodge";
     if (d(TOWN_PLACES.gondola) < 7) return "gondola";
+    if (d(TOWN_PLACES.estategate) < 5.5) return "estate";
+    if (d(TOWN_PLACES.casino) < 5) return "casino";
+    if (d(TOWN_PLACES.sports) < 5.5) return "sports";
+    if (d(TOWN_PLACES.club) < 5) return "club";
+    for (const g of ["spleef", "td", "shadowbox"] as MiniGame[]) {
+      const sp = (TOWN_PLACES as Record<string, { x: number; z: number }>)[GAME_SPOTS[g]];
+      if (sp && d(sp) < 5.5) return `game:${g}`;
+    }
     if (d(TOWN_PLACES.dyeshop) < 5) return "dyeshop";
     if (d(TOWN_PLACES.cottageLane) < 4.5) return "lane";
     if (inGarden(this.me.x, this.me.z)) return "garden";
@@ -936,6 +983,8 @@ export class HubScene implements Scene {
     if (k === "game:hunt") return { label: "🔥 Toast a marshmallow", run: () => this.ctx.net.send({ t: "act", a: "marshmallow" }) };
     if (k.startsWith("game:")) return { label: "🏆 Leaderboard", run: () => this.openLife("leaderboard", k.slice(5) as MiniGame) };
     if (k === "golf") return { label: "🏆 Golf leaderboard", run: () => this.openLife("leaderboard", "golf") };
+    if (k === "club") return { label: this.me.act === "sing" ? "🎤 Stop singing" : "🎤 Karaoke", run: () => this.ctx.net.send({ t: "act", a: this.me.act === "sing" ? "stop" : "sing" }) };
+    if (k === "sports") return { label: "🏆 Leaderboards", run: () => this.openLife("leaderboard", "volley") };
     if (k === "garden") return { label: "🧺 Bag", run: () => this.openLife("bag") };
     if (k === "library") return { label: "📖 Journal", run: () => this.openLife("journal") };
     return null;
@@ -953,6 +1002,11 @@ export class HubScene implements Scene {
     if (k === "dyeshop") this.openShop("dye");
     if (k === "arcade") this.openLife("leaderboard", "hunt");
     if (k === "wordlodge") this.openLife("wordlodge");
+    if (k === "estate") { this.target = null; this.ctx.net.send({ t: "estate", enter: true }); }
+    if (k === "casino") this.openCasino();
+    if (k === "sports") {
+      if (!this.spotGame(k)) this.openSports();
+    }
     if (k === "garden") this.openLife("garden");
     if (k === "lane") this.openLife("neighbours");
     if (k === "library") this.ctx.net.send({ t: "read" });
@@ -1011,6 +1065,9 @@ export class HubScene implements Scene {
     if (k === "dyeshop") label = "🎨 Open the dye station";
     if (k === "arcade") label = "🕹️ Arcade high scores";
     if (k === "wordlodge") label = "📚 Go into the Word Lodge";
+    if (k === "estate") label = "🎲 Walk through the gates to the Board Game Estate";
+    if (k === "casino") label = "🍀 Try your luck at the Lucky Lodge";
+    if (k === "sports" && !label) label = "🏟️ Play at the Sports Centre";
     if (k === "garden") label = "🥕 Tend your garden";
     if (k === "lane") label = "🏡 Cottage Lane noticeboard";
     if (k === "library") label = "📚 Read a Banff fact";
@@ -1044,6 +1101,8 @@ export class HubScene implements Scene {
     if (k === "canoe") return "canoe";
     if (k.startsWith("game:")) return k.slice(5);
     if (k === "golf") return "golf";
+    // The Sports Centre door: whichever of its games you're waiting for.
+    if (k === "sports" && this.lobby && ["volley", "hoops", "penalty"].includes(this.lobby.game)) return this.lobby.game;
     return null;
   }
 

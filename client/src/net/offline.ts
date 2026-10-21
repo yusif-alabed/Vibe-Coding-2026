@@ -71,6 +71,12 @@ import {
   type PlayerRecordLike,
   type RaceSnapshot,
   type WordGame,
+  BoardMatch,
+  BOARD_INFO,
+  handleCasino,
+  isBoardGame,
+  parseBoardAction,
+  type BoardGame,
 } from "@beaver/shared";
 import type { Net } from "./net";
 
@@ -143,6 +149,10 @@ export class OfflineNet implements Net {
   private word: WordMatch | null = null;
   private wordTimer = 0;
   private summit = false;
+  private estate = false;
+  private board: BoardMatch | null = null;
+  private boardPending: BoardGame | null = null;
+  private boardTimer = 0;
   private myAct: string | null = null;
   private inHub = false;
   private queued = false;
@@ -444,8 +454,81 @@ export class OfflineNet implements Net {
     }, quit ? 500 : 7000);
   }
 
+  // ---------------------------------------------------------------- The Board Game Estate
+  //
+  // Same shape as the server's BoardRoom: one BoardMatch, a clock for the bots, and your seat's view.
+
+  private startBoard(game: BoardGame) {
+    if (!this.estate || this.board) return;
+    const [min, max] = BOARD_INFO[game].seats;
+    const n = game === "mystery" || game === "tycoon" ? Math.min(max, Math.max(min, 3)) : min;
+    const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
+    const seats = [{ id: this.me.id, name: this.me.name, isBot: false }, ...Array.from({ length: n - 1 }, (_, i) => ({ id: `bbot-${i}`, name: names[i], isBot: true }))];
+    const b = (this.board = new BoardMatch(game, Math.floor(Math.random() * 2 ** 31), seats, Date.now()));
+    this.emit({ t: "board", v: b.view(0) });
+    this.boardTimer = window.setInterval(() => {
+      if (this.board !== b) return;
+      if (b.botTurns(Date.now())) this.emit({ t: "board", v: b.view(0) });
+      if (b.over) this.endBoard();
+    }, 250);
+    this.timers.push(this.boardTimer);
+  }
+
+  private endBoard() {
+    const b = this.board;
+    if (!b) return;
+    clearInterval(this.boardTimer);
+    this.board = null;
+    const coins = b.over ? b.payouts()[0] : 0;
+    this.save.coins += coins;
+    if (b.over && b.winner !== null) this.progress({ kind: "arcade" });
+    store(this.save);
+    this.emit({ t: "boardEnd", v: b.view(0), coins });
+    this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
+  }
+
   send(msg: ClientMsg): void {
     switch (msg.t) {
+      case "estate":
+        if (msg.enter) {
+          const g = TOWN_PLACES.estategate;
+          if (!this.inHub || Math.hypot(this.me.x - g.x, this.me.z - g.z) > 9) break;
+          this.inHub = false;
+          this.estate = true;
+          this.emit({ t: "estate", players: [] });
+          this.out(recordVisit(this.save, "solo", "estategate"));
+        } else if (this.estate) {
+          if (this.board) { this.board.act(0, { kind: "resign" }, Date.now()); this.endBoard(); }
+          this.estate = false;
+          this.me.x = TOWN_PLACES.estategate.x + 2;
+          this.me.z = TOWN_PLACES.estategate.z;
+          this.welcome();
+        }
+        break;
+      case "boardQueue":
+        if (isBoardGame(msg.game) && this.estate && !this.board) {
+          const g = msg.game, info = BOARD_INFO[g];
+          this.boardPending = g;
+          this.emit({ t: "queue", lobby: { key: "solo-board", kind: "board", game: g, title: info.name, icon: info.icon, count: 1, size: info.seats[1], min: 1, names: [this.me.name], startsInMs: 1200 } });
+          window.setTimeout(() => { if (this.boardPending === g) { this.boardPending = null; this.emit({ t: "queue", lobby: null }); this.startBoard(g); } }, 1200);
+        }
+        break;
+      case "boardAct": {
+        const b = this.board;
+        const a = b ? parseBoardAction(msg.a, b.game) : null;
+        if (!b || !a) break;
+        const r = b.act(0, a, Date.now());
+        if (r.ok) this.emit({ t: "board", v: b.view(0) });
+        else if (r.note) this.emit({ t: "error", text: r.note });
+        if (b.over) this.endBoard();
+        break;
+      }
+      case "boardQuit":
+        if (this.board) { this.board.act(0, { kind: "resign" }, Date.now()); this.endBoard(); }
+        break;
+      case "casino":
+        if (this.inHub) { this.out(handleCasino(this.save, msg, this.me.x, this.me.z, Math.random)); store(this.save); }
+        break;
       case "join": {
         this.me.name = String(msg.name || "Beaver").slice(0, 16);
         this.me.look = sanitizeLook(msg.look, this.save.owned, msg.look?.fur ?? DEFAULT_LOOK.fur);
@@ -552,12 +635,14 @@ export class OfflineNet implements Net {
         break;
       }
       case "lobbyStart":
+        if (this.boardPending) { const g = this.boardPending; this.boardPending = null; this.emit({ t: "queue", lobby: null }); this.startBoard(g); break; }
         if (this.queued && this.queuedGame) this.startRace(this.queuedGame);
         break;
       case "lobbyJoin":
         break;
       case "leaveQueue":
       case "lobbyLeave":
+        this.boardPending = null;
         this.queued = false;
         this.queuedGame = null;
         this.emit({ t: "queue", lobby: null });

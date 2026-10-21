@@ -11,6 +11,14 @@ items up to **Done** as they land.
   [the design](superpowers/specs/2026-10-21-word-lodge-design.md).
 - [x] **Frame-rate work** — chunked world geometry, frustum culling, a render-distance slider,
   distant-beaver LOD and a cheaper draw queue.
+- [x] **🏙️ Downtown** — Club Beaver, the Sports Centre (volleyball, hoop shoot, penalties), the
+  Boxing Gym (shadow boxing), Fort Timber (co-op tower defence), the Spleef Stage and the Lucky
+  Lodge (coins-only slots, roulette, blackjack with a daily loss cap). The arcade games are
+  `GameSim`s in `shared/src/arcade2.ts`; the casino rules are `shared/src/casino.ts`.
+- [x] **🎲 The Board Game Estate** — built as a zone behind gates (like the summit) rather than a
+  manor interior: giant chess and checkers, a guess-who lawn, the mansion whodunnit laid out as a
+  floor plan, and a property-trading city board. Rules in `shared/src/board/`, one table is a
+  `BoardMatch` (server: `BoardRoom`); each seat only ever receives its own `view()`.
 
 ## Themed game buildings
 
@@ -20,15 +28,16 @@ seeded-sim shape the Word Lodge establishes.
 | Building | Where | Games inside |
 |---|---|---|
 | 📚 **Word Lodge** | Library Lane, off the west end of Main Street | Wordle, Connections, Mini Crossword, Spelling Bee |
-| 🎲 **Board Game Manor** | A new estate on the north edge of town | A **mansion whodunnit** (rooms, suspects, deduction), **giant Guess Who** (a wall of hinged portraits), **giant chess & checkers** (walk between the squares), **Monopoly City** (a board you walk around as your own token) |
+| 🎲 **Board Game Estate** *(built)* | Through the gates at the north end of Downtown | A **mansion whodunnit** (rooms, suspects, deduction), **giant Guess Who** (a wall of hinged portraits), **giant chess & checkers** (walk between the squares), **Monopoly City** (a board you walk around as your own token) |
 | 🧠 **Puzzle Observatory** | The existing observatory, east quarter | Nonograms, sudoku and logic grids as 3D light-tiles under the dome |
 | 🎵 **Music Hall** | Grows out of the town-square bandstand | Rhythm games, a note-matching duet mode |
 | 🏛️ **Trivia Museum** | New, beside the town hall | Buzzer rounds drawing on the Banff facts already in the journal |
 | 🕹️ **Riverside Arcade** | Exists; currently only shows leaderboards | Walk-up cabinets, each a micro-game |
 
-### Board Game Manor — detail
+### Board Game Estate — detail
 
-The four games the manor holds, in build order:
+Built (see Now). Next steps: save/resume for long Tycoon City games, walking on the boards
+between turns, and seeing other players walking the estate lawn. The original plan, for reference:
 
 1. **Giant chess / checkers** — simplest: a board, pieces, a turn sim, a minimax bot. Proves the
    turn-based-with-bot shape for the manor the way Wordle proves it for the Lodge.

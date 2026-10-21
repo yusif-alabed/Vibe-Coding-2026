@@ -828,6 +828,158 @@ function gondolaBase(t: TownMeshes, f: Frame, b: TownBuilding) {
   box(m, f, 0, eave + 0.3, d / 2 + 0.27, 2.7, 0.35, 0.04, WHITE);
 }
 
+
+// ------------------------------------------------------------------ Downtown
+
+/** A flat-roofed brick-and-timber block with a parapet: the base for the Downtown buildings. */
+function block(t: TownMeshes, f: Frame, b: TownBuilding, wall: Vec3, trim: Vec3, h: number) {
+  const { body: m } = t;
+  plinth(m, f, b.w, b.d, 0.5, b.seed);
+  box(m, f, 0, 0.5 + h / 2, 0, b.w, h, b.d, wall);
+  for (const s of [-1, 1]) {
+    box(m, f, s * (b.w / 2 - 0.15), 0.5 + h / 2, b.d / 2 + 0.05, 0.4, h, 0.2, trim);
+    box(m, f, s * (b.w / 2 - 0.15), 0.5 + h / 2, -b.d / 2 - 0.05, 0.4, h, 0.2, trim);
+  }
+  box(m, f, 0, 0.5 + h + 0.25, 0, b.w + 0.4, 0.5, b.d + 0.4, trim);
+  box(m, f, 0, 0.5 + h + 0.6, b.d / 2 + 0.05, b.w + 0.4, 0.3, 0.2, trim);
+  box(m, f, 0, 0.5 + h + 0.6, -b.d / 2 - 0.05, b.w + 0.4, 0.3, 0.2, trim);
+}
+
+/** Sports centre: tall gym hall with a curved roof, big windows and a scoreboard. */
+function sportsCentre(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const h = 6;
+  block(t, f, b, C("#e9e1d2"), C("#2f6fb0"), h);
+  // Curved roof.
+  for (let i = 0; i < 10; i++) {
+    const a0 = (i / 10) * Math.PI, a1 = ((i + 1) / 10) * Math.PI;
+    const x0 = Math.cos(a0) * b.w / 2, y0 = Math.sin(a0) * 2.2, x1 = Math.cos(a1) * b.w / 2, y1 = Math.sin(a1) * 2.2;
+    box(m, f, (x0 + x1) / 2, h + 0.9 + (y0 + y1) / 2, 0, Math.hypot(x1 - x0, y1 - y0) + 0.1, 0.25, b.d + 0.5, C("#3f7fc0"), 0, 0, Math.atan2(y1 - y0, x1 - x0));
+  }
+  for (const x of [-3.5, 0, 3.5]) windowPane(m, glow, f, x, 3.6, b.d / 2 + 0.05, 2.4, 2.6);
+  door(m, glow, f, 0, 0.5, b.d / 2 + 0.06, C("#2f6fb0"));
+  // Scoreboard over the door: orange and white digits glowing.
+  box(m, f, 0, h - 0.3, b.d / 2 + 0.25, 3.4, 1.0, 0.2, C("#1d1d24"));
+  for (let i = 0; i < 4; i++) glow.box(f.m(-1.2 + i * 0.8, h - 0.3, b.d / 2 + 0.37, 0.5, 0.7, 0.03), i < 2 ? C("#ff8a3d") : C("#fff6d8"));
+  // A giant basketball and a football on the roof edge.
+  const p = f.p(-b.w / 2 + 1.4, h + 2.2, b.d / 2 - 0.2);
+  m.sphere(compose(p[0], p[1], p[2], 0, 0, 0, 0.9), (x, y) => (Math.abs(Math.sin((x + y) * 3)) < 0.12 ? C("#2a1a10") : C("#e9762f")), 6, 10);
+  const q = f.p(b.w / 2 - 1.4, h + 2.0, b.d / 2 - 0.2);
+  m.sphere(compose(q[0], q[1], q[2], 0, 0, 0, 0.75), (x, y, z) => (Math.floor((Math.atan2(z, x) + 3.2) * 2) % 2 && y > 0 ? C("#1d1d24") : C("#ffffff")), 6, 10);
+}
+
+/** Club Beaver: a dance hall with a log facade, round porthole windows and a disco ball on the roof. */
+function clubBeaver(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const h = 4.6;
+  block(t, f, b, C("#2a2440"), C("#7a4b2c"), h);
+  // Log facade stripes and a big arched entrance.
+  for (let i = 0; i < 12; i++) log(m, f, 0, 0.75 + i * 0.36, b.d / 2 + 0.12, b.w, 0.17, "x", i % 2 ? C("#8a5a34") : C("#9b6338"));
+  box(m, f, 0, 1.6, b.d / 2 + 0.3, 2.6, 3.0, 0.2, C("#1a1626"));
+  glow.box(f.m(0, 1.6, b.d / 2 + 0.42, 2.2, 2.6, 0.03), C("#ff4fa3"));
+  for (const x of [-3.6, 3.6]) glow.cylinder(f.m(x, 3.2, b.d / 2 + 0.3, 1.2, 0.1, 1.2, 0, Math.PI / 2, 0), C("#3ff0e0"), 14);
+  // Velvet rope posts and a little red carpet.
+  box(m, f, 0, 0.53, b.d / 2 + 1.6, 2.4, 0.04, 2.8, C("#c8323a"));
+  for (const s of [-1, 1]) {
+    m.cylinder(f.m(s * 1.5, 1.0, b.d / 2 + 2.6, 0.12, 1.0, 0.12), GOLD, 6);
+    m.sphere(f.m(s * 1.5, 1.55, b.d / 2 + 2.6, 0.12, 0.12, 0.12), GOLD, 3, 5);
+  }
+  // Rooftop disco ball on a pole and two speakers.
+  const top = f.p(0, h + 2.7, 0);
+  m.cylinder(compose(top[0], top[1] - 1, top[2], 0, 0, 0, 0.08, 2, 0.08), IRON, 5);
+  glow.sphere(compose(top[0], top[1] + 0.4, top[2], 0, 0, 0, 0.75), (x, y, z) => (Math.floor(x * 9 + y * 7 + z * 5) % 2 ? C("#d8e6f2") : C("#8fa3b8")), 6, 10);
+  for (const s of [-1, 1]) {
+    box(m, f, s * (b.w / 2 + 0.6), 1.2, b.d / 2 - 0.5, 1.0, 1.6, 0.9, C("#1d1d24"));
+    for (const y of [0.8, 1.6]) m.cylinder(f.m(s * (b.w / 2 + 0.6), y, b.d / 2 - 0.02, 0.6, 0.06, 0.6, 0, Math.PI / 2, 0), C("#3a3a42"), 10);
+  }
+}
+
+/** The Lucky Lodge: a grand timber hall with gold trim, a marquee of bulbs and a giant playing card. */
+function casino(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  const h = 5;
+  block(t, f, b, C("#6b1f2a"), GOLD, h);
+  timberFrame(m, f, b.w, 0.5, h + 0.5, b.d / 2 + 0.07, b.seed);
+  door(m, glow, f, -1, 0.5, b.d / 2 + 0.1, C("#3a0f16"));
+  door(m, glow, f, 1, 0.5, b.d / 2 + 0.1, C("#3a0f16"));
+  for (const x of [-3.8, 3.8]) windowPane(m, glow, f, x, 2.8, b.d / 2 + 0.08, 1.6, 1.8, 0, true);
+  // Marquee canopy with a row of bulbs.
+  box(m, f, 0, 3.4, b.d / 2 + 1.2, 6, 0.3, 2.2, C("#1a1626"));
+  for (let i = 0; i < 16; i++) glow.sphere(f.m(-2.8 + (i * 5.6) / 15, 3.25, b.d / 2 + 2.3, 0.1, 0.1, 0.1), C("#ffe2a0"), 3, 4);
+  // A giant playing card and a pair of dice on the roof.
+  const c = f.p(0, h + 2.2, 0);
+  box(m, new Frame(c[0], c[1], c[2], f.ry + 0.15), 0, 0, 0, 2.2, 3.0, 0.12, WHITE);
+  box(m, new Frame(c[0], c[1], c[2], f.ry + 0.15), 0, 0, 0.08, 0.6, 0.6, 0.04, C("#d33b2c"));
+  for (const [dx, dr] of [[-3.5, 0.3], [-2.4, 1.1]] as const) {
+    const d = f.p(dx, h + 1.4, 1);
+    m.box(compose(d[0], d[1], d[2], f.ry + dr, 0.2, 0.1, 0.9, 0.9, 0.9), WHITE);
+  }
+}
+
+/** The boxing gym: red brick, a ring visible through the window, and a punching-bag sign. */
+function boxingGym(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m, glow } = t;
+  block(t, f, b, C("#a34a32"), C("#e9e1d2"), 4.2);
+  door(m, glow, f, 2.4, 0.5, b.d / 2 + 0.06, C("#2a2a30"));
+  windowPane(m, glow, f, -1.4, 2.4, b.d / 2 + 0.06, 3.6, 2.0);
+  // Hanging punching bag sign.
+  hangingSign(m, f, -b.w / 2 + 0.6, 4.4, b.d / 2, C("#d33b2c"), (fr) => {
+    m.cylinder(fr.m(0, 0.6, 0, 0.35, 0.7, 0.35), C("#c8323a"), 8);
+    m.cylinder(fr.m(0, 1.05, 0, 0.04, 0.3, 0.04), IRON, 4);
+  });
+  // Big boxing gloves above the door.
+  for (const s of [-1, 1]) m.sphere(f.m(2.4 + s * 0.45, 3.4, b.d / 2 + 0.4, 0.4, 0.45, 0.35), C("#d33b2c"), 6, 8);
+}
+
+/** Fort Timber: a stockade of sharpened logs with corner towers and a flag. */
+function fort(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m } = t;
+  const half = b.w / 2;
+  for (const [sx, sz, along] of [[0, -1, "x"], [0, 1, "x"], [-1, 0, "z"], [1, 0, "z"]] as const) {
+    for (let i = -half; i <= half; i += 0.55) {
+      const lx = along === "x" ? i : sx * half, lz = along === "x" ? sz * half : i;
+      if (sz === 1 && Math.abs(i) < 1.2) continue; // the gate
+      const hh = 2.8 + hash2(i, sz + sx * 3) * 0.5;
+      m.cylinder(f.m(lx, hh / 2, lz, 0.5, hh, 0.5), vary(LOG, Math.round(i * 10)), 6);
+      m.cone(f.m(lx, hh + 0.25, lz, 0.5, 0.5, 0.5), LOG_LIGHT, 6);
+    }
+  }
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    m.cylinder(f.m(sx * half, 2.2, sz * half, 1.6, 4.4, 1.6), LOG, 8);
+    m.cone(f.m(sx * half, 5.0, sz * half, 2.2, 1.4, 2.2), C("#2f6b3a"), 8);
+  }
+  // Gate beams and a flag over it.
+  box(m, f, 0, 3.0, half, 3.0, 0.4, 0.5, TIMBER);
+  m.cylinder(f.m(0, 4.6, half, 0.1, 3.0, 0.1), IRON, 5);
+  box(m, f, 0.5, 5.6, half, 1.0, 0.6, 0.04, C("#e2483d"));
+  // A launcher on the wall walk.
+  m.cylinder(f.m(-half, 4.8, -half, 0.3, 1.0, 0.3, 0, 0.6, 0), C("#3a3a42"), 6);
+}
+
+/** A grand carriage gate: two stone pillars topped with chess pieces, and an iron arch. */
+function estateGate(t: TownMeshes, f: Frame, b: TownBuilding) {
+  const { body: m } = t;
+  for (const s of [-1, 1]) {
+    box(m, f, s * (b.w / 2), 1.8, 0, 1.2, 3.6, 1.2, STONE_LIGHT);
+    box(m, f, s * (b.w / 2), 3.7, 0, 1.4, 0.25, 1.4, STONE);
+    // A rook on one pillar, a knight-ish horse head on the other.
+    if (s < 0) {
+      m.cylinder(f.m(-b.w / 2, 4.4, 0, 0.8, 1.1, 0.8), WHITE, 8);
+      for (let k = 0; k < 4; k++) box(m, f, -b.w / 2 + Math.cos(k * Math.PI / 2) * 0.32, 5.05, Math.sin(k * Math.PI / 2) * 0.32, 0.25, 0.25, 0.25, WHITE);
+    } else {
+      m.cylinder(f.m(b.w / 2, 4.2, 0, 0.8, 0.6, 0.8), C("#2a2a30"), 8);
+      box(m, f, b.w / 2, 4.9, 0.1, 0.45, 1.0, 0.6, C("#2a2a30"), 0, -0.3, 0);
+      box(m, f, b.w / 2, 5.25, 0.45, 0.4, 0.35, 0.6, C("#2a2a30"));
+    }
+  }
+  for (let i = 0; i <= 12; i++) {
+    const a = (i / 12) * Math.PI;
+    m.sphere(f.m(Math.cos(a) * (b.w / 2 - 0.3), 3.6 + Math.sin(a) * 1.4, 0, 0.12, 0.12, 0.12), IRON, 3, 4);
+  }
+  // A signboard with a red-and-white checkerboard.
+  for (let i = 0; i < 8; i++) box(m, f, -0.7 + (i % 4) * 0.47, 4.55 + Math.floor(i / 4) * 0.47, 0.1, 0.47, 0.47, 0.06, (i + Math.floor(i / 4)) % 2 ? C("#d33b2c") : WHITE);
+}
+
 /** Shops get their look from their kind. */
 const SHOPS: Partial<Record<TownBuilding["kind"], ShopOpts>> = {
   bakery: { wall: C("#f2d9b0"), awning: [C("#c8473a"), WHITE], sign: C("#c8473a"), icon: icons.bread, storeys: 2, doorCol: C("#8a3b2e") },
@@ -948,6 +1100,12 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
       case "station": station(t, f, b); break;
       case "gondola": gondolaBase(t, f, b); break;
       case "wordlodge": wordLodge(t, f, b); break;
+      case "sports": sportsCentre(t, f, b); break;
+      case "club": clubBeaver(t, f, b); break;
+      case "casino": casino(t, f, b); break;
+      case "gym": boxingGym(t, f, b); break;
+      case "fort": fort(t, f, b); break;
+      case "estategate": estateGate(t, f, b); break;
     }
   }
   // Cottage Lane noticeboard (who lives on the lane, and the week's coziest cabins).
@@ -1029,6 +1187,61 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
       t.body.cylinder(compose(a.x, y + 0.05, a.z, 0, 0, 0, a.r * 2, 0.06, a.r * 1.6), C("#7fd27a"), 28);
       t.body.cylinder(compose(a.x + 1.5, y + 1.2, a.z, 0, 0, 0, 0.05, 2.4, 0.05), WHITE, 5);
       box(t.body, new Frame(a.x + 1.5, y, a.z, 0), 0.35, 2.2, 0, 0.7, 0.45, 0.03, C("#e2483d"));
+    }
+    if (a.kind === "downtown") {
+      // A round paved plaza with a beaver-and-ball statue on a plinth.
+      for (let ring = 0; ring < 5; ring++) {
+        const rr = 1.5 + ring * 1.4, n = 10 + ring * 8;
+        for (let i = 0; i < n; i++) {
+          const ang = (i / n) * Math.PI * 2 + ring;
+          stoneBlock(t.body, compose(a.x + Math.cos(ang) * rr, y + 0.02, a.z + Math.sin(ang) * rr, -ang, 0, 0, 0.62, 0.08, 0.5), ring * 100 + i, ring % 2 ? C("#d8cfc0") : C("#c4b8a6"));
+        }
+      }
+      t.body.cylinder(compose(a.x, y + 0.45, a.z, 0, 0, 0, 2.2, 0.9, 2.2), STONE_LIGHT, 12);
+      t.body.sphere(compose(a.x, y + 1.6, a.z, 0, 0, 0, 0.7), (x, yy) => (Math.abs(Math.sin((x + yy) * 3)) < 0.12 ? C("#2a1a10") : C("#e9762f")), 6, 10);
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2;
+        const lx = a.x + Math.cos(ang) * (a.r + 0.6), lz = a.z + Math.sin(ang) * (a.r + 0.6);
+        t.body.cylinder(compose(lx, y + 1.5, lz, 0, 0, 0, 0.14, 3, 0.14), IRON, 6);
+        t.glow.sphere(compose(lx, y + 3.1, lz, 0, 0, 0, 0.22), C("#ffe9a8"), 3, 5);
+      }
+    }
+    if (a.kind === "dance") {
+      // A light-up dance floor (the tiles glow in colours; brighter at night).
+      const n = 5, cs = (a.r * 2) / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const col = [C("#ff4fa3"), C("#3ff0e0"), C("#ffcf3f"), C("#b07bff"), C("#9bff5a")][(i * 2 + j * 3) % 5];
+        t.glow.box(compose(a.x - a.r + cs * (i + 0.5), y + 0.08, a.z - a.r + cs * (j + 0.5), 0, 0, 0, cs - 0.08, 0.06, cs - 0.08), col);
+      }
+      t.body.box(compose(a.x, y + 0.03, a.z, 0, 0, 0, a.r * 2 + 0.3, 0.06, a.r * 2 + 0.3), C("#1d1d24"));
+      // DJ booth at the back corner.
+      const dx = a.x + a.r - 0.4, dz = a.z - a.r - 0.8;
+      t.body.box(compose(dx, y + 0.55, dz, 0, 0, 0, 2.0, 1.1, 0.8), C("#2a2440"));
+      for (const s of [-0.45, 0.45]) t.body.cylinder(compose(dx + s, y + 1.13, dz, 0, 0, 0, 0.55, 0.05, 0.55), C("#1d1d24"), 12);
+    }
+    if (a.kind === "courts") {
+      // Outdoor courts: a basketball hoop, a small goal and a beach-volley net in the sand.
+      t.body.box(compose(a.x, y + 0.04, a.z, 0, 0, 0, a.r * 2, 0.06, a.r * 2), C("#c86b45"));
+      for (const s of [-1, 1]) t.body.box(compose(a.x, y + 0.08, a.z + s * (a.r - 0.15), 0, 0, 0, a.r * 2, 0.02, 0.08), WHITE);
+      t.body.box(compose(a.x, y + 0.08, a.z, 0, 0, 0, a.r * 2, 0.02, 0.08), WHITE);
+      t.body.cylinder(compose(a.x - a.r + 0.4, y + 1.6, a.z - 2, 0, 0, 0, 0.12, 3.2, 0.12), IRON, 6);
+      t.body.box(compose(a.x - a.r + 0.6, y + 3.1, a.z - 2, 0, 0, 0, 0.08, 1.0, 1.4), WHITE);
+      t.body.torus(compose(a.x - a.r + 1.0, y + 2.75, a.z - 2, 0, 0, 0, 0.32, 0.32, 0.32), C("#ff6a1a"), 1, 0.08, 12, 4);
+      for (const s of [-1, 1]) t.body.cylinder(compose(a.x + a.r - 0.5, y + 0.6, a.z + 2 + s * 1.1, 0, 0, 0, 0.08, 1.2, 0.08), WHITE, 5);
+      t.body.box(compose(a.x + a.r - 0.5, y + 1.2, a.z + 2, 0, 0, 0, 0.08, 0.08, 2.3), WHITE);
+    }
+    if (a.kind === "spleef") {
+      // A raised platform of snow blocks with a little fence.
+      const n = 6, cs = (a.r * 2) / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        t.body.box(compose(a.x - a.r + cs * (i + 0.5), y + 0.45, a.z - a.r + cs * (j + 0.5), 0, 0, 0, cs - 0.05, 0.9, cs - 0.05), (i + j) % 2 ? C("#f4f8fb") : C("#e2edf5"));
+      }
+      for (let i = 0; i < 24; i++) {
+        const ang = (i / 24) * Math.PI * 2;
+        t.body.box(compose(a.x + Math.cos(ang) * (a.r + 0.7), y + 0.6, a.z + Math.sin(ang) * (a.r + 0.7), -ang, 0, 0, 0.12, 1.2, 0.12), TIMBER);
+      }
+      t.body.box(compose(a.x - a.r - 0.8, y + 1.0, a.z, 0, 0, 0, 0.12, 2.0, 0.12), TIMBER);
+      t.body.box(compose(a.x - a.r - 0.8, y + 1.8, a.z, 0, 0, 0.3, 0.06, 0.8, 0.6), C("#8a8f96"));
     }
     if (a.kind === "fair") {
       const poles: Vec3[] = [];
