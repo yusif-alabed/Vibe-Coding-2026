@@ -361,12 +361,14 @@ export class GameServer {
         break;
       case "block": {
         const target = String(msg.id);
-        c.record.blocked.add(target);
+        const other = [...this.clients.values()].find((o) => o.id === target);
+        if (!other || other === c) break;
+        // Blocks follow the player, not the connection: a reconnect gets a new session id.
+        c.record.blocked.add(other.record.pid);
         this.store.log({ type: "block", actor: c.id, target });
         // Whoever you block is shown out of your cabin, and you out of theirs.
-        const other = [...this.clients.values()].find((o) => o.id === target);
-        if (other?.cabinOf === c.id) this.handle(other, { t: "leaveCabin" });
-        if (other && c.cabinOf === other.id) this.handle(c, { t: "leaveCabin" });
+        if (other.cabinOf === c.id) this.handle(other, { t: "leaveCabin" });
+        if (c.cabinOf === other.id) this.handle(c, { t: "leaveCabin" });
         break;
       }
       case "report":
@@ -451,7 +453,7 @@ export class GameServer {
           break;
         }
         // Cabins are live rooms now, so blocking keeps people out of each other's.
-        if (owner !== c && (owner.record.blocked.has(c.id) || c.record.blocked.has(owner.id))) {
+        if (owner !== c && (owner.record.blocked.has(c.record.pid) || c.record.blocked.has(owner.record.pid))) {
           c.send({ t: "error", text: "You can't visit that cabin." });
           break;
         }
@@ -543,7 +545,7 @@ export class GameServer {
     }
     if (!target || target === c) return;
     if (c.record.friends.includes(target.record.pid)) { c.send({ t: "system", text: `You're already friends with ${target.name}! 🤝` }); return; }
-    if (target.record.blocked.has(c.id)) return;
+    if (target.record.blocked.has(c.record.pid)) return;
     // If they already asked us, this counts as accepting.
     if (this.pendingFriend.get(c.record.pid)?.has(target.record.pid)) { this.friendRespond(c, target.record.pid, true); return; }
     let set = this.pendingFriend.get(target.record.pid);

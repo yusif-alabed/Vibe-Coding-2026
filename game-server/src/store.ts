@@ -27,7 +27,7 @@ export interface PlayerRecord extends PlayerRecordLike {
   coins: number;
   owned: string[];
   friends: string[];
-  blocked: Set<string>; // player ids (session-scoped)
+  blocked: Set<string>; // public player ids (pid), so a block survives reconnecting
   club?: ClubInfo | null;
   /** Who liked your cabin this week. */
   cabinLikes?: { week: string; pids: string[] };

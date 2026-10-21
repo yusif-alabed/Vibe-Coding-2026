@@ -27,12 +27,12 @@ after(() => {
   http.close();
 });
 
-async function connect(name: string) {
+async function connect(name: string, token?: string) {
   const ws = new WebSocket(url);
   const inbox: ServerMsg[] = [];
   ws.on("message", (d) => inbox.push(JSON.parse(String(d))));
   await new Promise((r) => ws.on("open", r));
-  ws.send(JSON.stringify({ t: "join", name, look: DEFAULT_LOOK }));
+  ws.send(JSON.stringify({ t: "join", name, look: DEFAULT_LOOK, token }));
   const waitFor = async <T extends ServerMsg["t"]>(t: T, pred: (m: Extract<ServerMsg, { t: T }>) => boolean = () => true, ms = 2000) => {
     for (let i = 0; i < ms / 20; i++) {
       const m = inbox.find((x) => x.t === t && pred(x as Extract<ServerMsg, { t: T }>));
@@ -188,7 +188,13 @@ describe("shared spaces", () => {
     await pest.waitFor("welcome", (m) => m !== pest.welcome);
     pest.send({ t: "visitCabin", id: owner.welcome.you });
     await pest.waitFor("error", (m) => /can't visit/.test(m.text));
-    owner.ws.close();
+    // Reconnecting gets a new session id, but the block is on the player.
+    const token = pest.welcome.token;
     pest.ws.close();
+    const again = await connect("Pest", token);
+    again.send({ t: "visitCabin", id: owner.welcome.you });
+    await again.waitFor("error", (m) => /can't visit/.test(m.text));
+    owner.ws.close();
+    again.ws.close();
   });
 });

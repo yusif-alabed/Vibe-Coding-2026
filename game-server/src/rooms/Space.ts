@@ -106,7 +106,7 @@ export class Space {
     const msg: ServerMsg = { t: "chat", id: c.id, name: c.name, text };
     for (const o of this.clients.values()) {
       // Blocked players' messages never reach the person who blocked them.
-      if (o.record.blocked.has(c.id)) continue;
+      if (o.record.blocked.has(c.record.pid)) continue;
       o.send(msg);
     }
   }
