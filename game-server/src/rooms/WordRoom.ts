@@ -40,7 +40,7 @@ export class WordRoom {
     for (const c of players) c.wordId = id;
     const endsAt = now + this.match.setup.seconds * 1000;
     for (const c of players) {
-      c.send({ t: "wordStart", game, seed, setup: this.match.setup, you: this.match.self(c.id)!, rivals: this.match.rivals(), endsAt });
+      c.send({ t: "wordStart", game, setup: this.match.setup, you: this.match.self(c.id)!, rivals: this.match.rivals(), endsAt });
     }
     this.timer = setInterval(() => this.tick(), 500);
   }

@@ -400,7 +400,7 @@ export class OfflineNet implements Net {
     const w = (this.word = new WordMatch(game, seed, entrants, now));
     this.inHub = false;
     this.emit({
-      t: "wordStart", game, seed, setup: w.setup,
+      t: "wordStart", game, setup: w.setup,
       you: w.self(this.me.id)!, rivals: w.rivals(), endsAt: now + w.setup.seconds * 1000,
     });
     this.wordTimer = window.setInterval(() => {

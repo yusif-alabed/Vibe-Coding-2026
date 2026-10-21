@@ -67,9 +67,20 @@ Three things make a game in this building work over the network without rule cha
 1. **All rules live in `shared/`.** `WordMatch` is driven only by actions (`guess`, `pick`,
    `fill`, `word`) and a clock. It never touches the DOM, `Math.random` or `Date.now` except
    through arguments.
-2. **The wire separates you from them.** `WordSelfWire` has your letters; `WordPlayerWire` has
+2. **The wire separates you from them.** `WordSelfWire` has your letters; `WordRivalWire` has
    only what an opponent is allowed to see — colour patterns, counts, scores. This is what lets
    the same message go to a bot-filled solo game and a four-player race unchanged.
+
+   **The seed never leaves the server.** This is easy to get wrong and was wrong at first: the
+   existing `raceStart` and `gameStart` messages carry a seed, because the client has to
+   rebuild the race world and step the same simulation. A word game needs none of that, and the
+   client bundle contains the puzzle generators — so `makePuzzle(game, seed).reveal()` hands
+   over the answer the instant the round starts. `wordStart` carries `setup`, which holds
+   everything that gets drawn and nothing that gives the game away.
+
+   The test for this cannot simply search the payload for the answer; that passes while the
+   seed sits in plain sight. `wordRoom.test.ts` instead takes every integer in the message and
+   tries it as a seed, asserting that none of them rebuilds the puzzle.
 3. **Bots are players.** A bot is a `WordPlayer` with `isBot: true` whose actions come from
    `botTurns(now)` on a timer, exactly like `GolfMatch`. Replacing one with a real player is
    deleting a flag.

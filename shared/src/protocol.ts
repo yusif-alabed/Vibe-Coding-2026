@@ -186,7 +186,12 @@ export type ServerMsg =
   | { t: "golfShot"; id: string; club: Club; path: number[]; holed: boolean; penalty: boolean; lie: string; strokes: number }
   | { t: "golfAim"; id: string; aim: number; club: Club }
   | { t: "golfState"; idx: number; players: GolfPlayerWire[]; nextAt: number }
-  | { t: "wordStart"; game: WordGame; seed: number; setup: WordSetup; you: WordSelfWire; rivals: WordRivalWire[]; endsAt: number }
+  /**
+   * A round begins. Deliberately carries no seed: the client bundle contains the puzzle
+   * generators, so `makePuzzle(game, seed).reveal()` would hand over the answer the moment the
+   * round started. `setup` already holds everything that gets drawn.
+   */
+  | { t: "wordStart"; game: WordGame; setup: WordSetup; you: WordSelfWire; rivals: WordRivalWire[]; endsAt: number }
   /** The board after a move: your own letters plus what everyone is allowed to see of the rest. */
   | { t: "wordState"; you: WordSelfWire | null; rivals: WordRivalWire[] }
   | { t: "wordEnd"; game: WordGame; results: RaceResultWire[]; answer: string; best?: number }

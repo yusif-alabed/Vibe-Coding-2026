@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
-import { DEFAULT_LOOK, TOWN_PLACES, type ServerMsg } from "@beaver/shared";
+import { DEFAULT_LOOK, TOWN_PLACES, WORD_GAMES, makePuzzle, type ServerMsg } from "@beaver/shared";
 import { GameServer } from "../server";
 
 /**
@@ -88,7 +88,6 @@ describe("the Word Lodge", () => {
     const mine = st.rivals.find((r) => r.id === a.welcome.you)!;
     assert.deepEqual(mine.marks, st.you!.marks, "your colours do go out to rivals");
     assert.ok(!JSON.stringify(st.rivals).includes("crane"), "but never your letters");
-    // The answer must not be anywhere in what the server has said so far.
     assert.ok(!JSON.stringify([start, ...a.inbox]).includes('"answer"'), "the answer waits for the end");
     a.send({ t: "wordQuit" });
     await a.waitFor("wordEnd");
@@ -139,5 +138,36 @@ describe("the Word Lodge", () => {
     a.ws.close();
     for (let i = 0; i < 100 && game.words.size > 0; i++) await new Promise((r) => setTimeout(r, 20));
     assert.equal(game.words.size, 0, "a room with nobody in it must shut down");
+  });
+
+  it("a round gives the client nothing it could derive the answer from", async () => {
+    // This is the property the whole design rests on, and the obvious test for it — grepping
+    // the payload for the answer — is worthless, because a seed reconstructs it exactly. The
+    // client bundle ships the generators, so `makePuzzle(game, seed)` would be enough.
+    for (const game of WORD_GAMES) {
+      const a = await connect(`Prober-${game}`);
+      a.goToLodge();
+      a.send({ t: "queueWord", game });
+      const start = await a.waitFor("wordStart");
+
+      const payload = JSON.stringify(start);
+      assert.ok(!("seed" in start), `${game}: wordStart must not carry the seed`);
+      assert.ok(!/"seed"/.test(payload), `${game}: no seed anywhere in the payload`);
+
+      // Nothing in the message may reproduce the answer. Every number in it is tried as a
+      // seed: if any rebuilds this very puzzle, the client has been handed the solution.
+      const answer = await (async () => {
+        a.send({ t: "wordQuit" });
+        return (await a.waitFor("wordEnd", () => true, 5000)).answer;
+      })();
+      const numbers = [...payload.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]))
+        .filter((n) => Number.isFinite(n) && Number.isInteger(n) && n > 1000);
+      for (const n of numbers.slice(0, 40)) {
+        let built: string;
+        try { built = makePuzzle(game, n).reveal(); } catch { continue; }
+        assert.notEqual(built, answer, `${game}: the number ${n} in wordStart rebuilds the puzzle`);
+      }
+      a.ws.close();
+    }
   });
 });

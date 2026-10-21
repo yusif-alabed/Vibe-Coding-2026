@@ -77,3 +77,5 @@ The four games the manor holds, in build order:
   `style.left`/`top` each frame.
 - [ ] **Online multiplayer for the Word Lodge** — the sims and rooms are built for it; what's
   left is matchmaking across hubs and a lobby. See the design doc's "Scope for online play".
+- [x] **Keep the puzzle seed server-side** — `wordStart` used to carry it, and the client ships
+  the generators, so it was the answer in all but name.
