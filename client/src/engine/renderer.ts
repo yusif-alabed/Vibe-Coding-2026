@@ -55,6 +55,7 @@ uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureSca
 uniform float uWave; uniform float uTime; uniform float uEmissive;
 uniform float uSeasonOn; uniform vec4 uSeasonCol; uniform float uSnow; uniform float uWet;
 uniform float uCutOn; uniform vec3 uCutFocus; uniform float uCutRadius;
+uniform vec2 uFade;
 uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel;
 out vec4 outColor;
 
@@ -99,6 +100,13 @@ vec3 waterNormal(vec2 p, float t) {
 void main() {
   vec3 V = normalize(uCamPos - vWorld);
   vec3 L = normalize(uLightDir);
+  if (uFade.y > 0.0) {
+    // Things near the edge of the draw distance dissolve in (dithered) instead of popping.
+    float fd = length(vWorld.xz - uCamPos.xz);
+    float k = clamp((fd - uFade.x) / max(uFade.y - uFade.x, 1.0), 0.0, 1.0);
+    float dz = fract(sin(dot(floor(gl_FragCoord.xy), vec2(41.13, 289.71))) * 13758.5453);
+    if (k > dz) discard;
+  }
   if (uCutOn > 0.5 && uCutRadius > 0.0) {
     // See-through: anything between the camera and your beaver dissolves (dithered, so it fades softly),
     // so you can always see yourself when the camera passes through a tree or a wall.
@@ -279,9 +287,13 @@ void main() {
 }`;
 
 export interface GpuMesh {
-  vao: WebGLVertexArrayObject;
+  vao: WebGLVertexArrayObject | null;
   count: number;
   buffers: WebGLBuffer[];
+  /** Bounding sphere in model space (for culling). */
+  bounds?: { c: Vec3; r: number };
+  /** A chunked mesh: drawn as these spatial pieces so off-screen and far-away pieces are skipped. */
+  parts?: GpuMesh[];
 }
 
 export interface DrawOpts {
@@ -305,6 +317,10 @@ export interface DrawOpts {
   cut?: boolean;
   /** Extra brightness for unlit glowing things (windows, lanterns). */
   emissive?: number;
+  /** Always draw regardless of the draw distance (terrain, water, mountains). Still frustum culled. */
+  always?: boolean;
+  /** A shorter draw distance just for this (grass, flowers). */
+  maxDist?: number;
 }
 
 export interface Environment {
@@ -335,7 +351,20 @@ export interface Environment {
   sky: boolean;
 }
 
-interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts }
+interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number }
+
+function boundsOf(P: Float32Array): { c: Vec3; r: number } {
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < P.length; i += 3) {
+    const x = P[i], y = P[i + 1], z = P[i + 2];
+    if (x < x0) x0 = x; if (x > x1) x1 = x;
+    if (y < y0) y0 = y; if (y > y1) y1 = y;
+    if (z < z0) z0 = z; if (z > z1) z1 = z;
+  }
+  if (!Number.isFinite(x0)) return { c: [0, 0, 0], r: 0 };
+  const c: Vec3 = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2];
+  return { c, r: Math.hypot(x1 - c[0], y1 - c[1], z1 - c[2]) };
+}
 
 const SHADOW_SIZE = 2048;
 const SHADOW_EXTENT = 42; // half-width in metres covered around the focus point
@@ -363,6 +392,15 @@ export class Renderer {
   cutRadius = 1.8;
   /** Graphics setting: "low" renders at 1x resolution without sun shadows. */
   quality: "high" | "low" = "high";
+  /** How far (metres, from the camera) world detail is drawn; things fade in as you approach. */
+  drawDistance = Infinity;
+  /** Resolution scale picked automatically from the frame rate (0.55..1). */
+  autoScale = 1;
+  private frustum: Float32Array = new Float32Array(24);
+  /** Draw calls submitted last frame (for the debug overlay). */
+  debugQueue = false;
+  lastQueue: { mesh: GpuMesh; view: boolean; shadow: boolean }[] = [];
+  stats = { items: 0, culled: 0, verts: 0, shadowVerts: 0 };
   private shadowSupported = true;
   env: Environment = {
     skyTop: [0.24, 0.5, 0.82],
@@ -393,7 +431,7 @@ export class Renderer {
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
     this.prog = this.link(VS, FS, ["aPos", "aNrm", "aCol", "aSmooth"]);
-    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel"]) {
+    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel", "uFade"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
     this.shadowProg = this.link(SHADOW_VS, SHADOW_FS, ["aPos", "", "", "aSmooth"]);
@@ -490,18 +528,46 @@ export class Renderer {
       buffers.push(b);
     });
     gl.bindVertexArray(null);
-    return { vao, count: data.count, buffers };
+    return { vao, count: data.count, buffers, bounds: boundsOf(data.positions) };
+  }
+
+  /** Uploads a big static mesh as a grid of chunks (by triangle centre) so each can be culled. */
+  uploadChunked(data: MeshData, cell = 24): GpuMesh {
+    const P = data.positions;
+    const tris = data.count / 3;
+    const cells = new Map<number, number[]>();
+    for (let t = 0; t < tris; t++) {
+      const i = t * 9;
+      const cx = (P[i] + P[i + 3] + P[i + 6]) / 3, cz = (P[i + 2] + P[i + 5] + P[i + 8]) / 3;
+      const k = (Math.floor(cx / cell) + 512) * 1024 + Math.floor(cz / cell) + 512;
+      let l = cells.get(k);
+      if (!l) cells.set(k, (l = []));
+      l.push(t);
+    }
+    const parts: GpuMesh[] = [];
+    for (const list of cells.values()) {
+      const n = list.length * 9;
+      const pick = (src: Float32Array) => {
+        const out = new Float32Array(n);
+        let o = 0;
+        for (const t of list) { out.set(src.subarray(t * 9, t * 9 + 9), o); o += 9; }
+        return out;
+      };
+      parts.push(this.upload({ positions: pick(P), normals: pick(data.normals), colors: pick(data.colors), smooth: pick(data.smooth), count: list.length * 3 }));
+    }
+    return { vao: null, count: data.count, buffers: [], parts, bounds: boundsOf(P) };
   }
 
   dispose(m: GpuMesh) {
+    for (const p of m.parts ?? []) this.dispose(p);
     for (const b of m.buffers) this.gl.deleteBuffer(b);
-    this.gl.deleteVertexArray(m.vao);
+    if (m.vao) this.gl.deleteVertexArray(m.vao);
   }
 
   resize(): void {
     // Phones get a slightly lower render resolution to keep the frame rate smooth.
     const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-    const dpr = this.quality === "low" ? Math.min(1, window.devicePixelRatio || 1) : Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
+    const dpr = (this.quality === "low" ? Math.min(1, window.devicePixelRatio || 1) : Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 1.75)) * this.autoScale;
     const w = Math.floor(this.canvas.clientWidth * dpr), h = Math.floor(this.canvas.clientHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
@@ -514,10 +580,45 @@ export class Renderer {
     this.viewProj = multiply(proj, view);
     this.camPos = camPos;
     this.queue = [];
+    this.stats = { items: 0, culled: 0, verts: 0, shadowVerts: 0 };
+    // Frustum planes (Gribb–Hartmann), normalised: left, right, bottom, top, near, far.
+    const m = this.viewProj, f = this.frustum;
+    const rows = [[3, 0, 1], [3, 0, -1], [3, 1, 1], [3, 1, -1], [3, 2, 1], [3, 2, -1]] as const;
+    rows.forEach(([w, a, sgn], i) => {
+      const x = m[w] + sgn * m[a], y = m[4 + w] + sgn * m[4 + a], z = m[8 + w] + sgn * m[8 + a], d = m[12 + w] + sgn * m[12 + a];
+      const l = Math.hypot(x, y, z) || 1;
+      f[i * 4] = x / l; f[i * 4 + 1] = y / l; f[i * 4 + 2] = z / l; f[i * 4 + 3] = d / l;
+    });
   }
 
   draw(mesh: GpuMesh, model: Mat4, opts: DrawOpts = {}): void {
-    this.queue.push({ mesh, model, opts });
+    if (mesh.parts) {
+      for (const p of mesh.parts) this.draw(p, model, opts);
+      return;
+    }
+    let view = true, shadow = true, fade = 0;
+    const b = mesh.bounds;
+    if (b) {
+      // World-space bounding sphere (model matrices here are rotation/translation/scale).
+      const sc = Math.max(Math.hypot(model[0], model[1], model[2]), Math.hypot(model[4], model[5], model[6]), Math.hypot(model[8], model[9], model[10]));
+      const x = model[0] * b.c[0] + model[4] * b.c[1] + model[8] * b.c[2] + model[12];
+      const y = model[1] * b.c[0] + model[5] * b.c[1] + model[9] * b.c[2] + model[13];
+      const z = model[2] * b.c[0] + model[6] * b.c[1] + model[10] * b.c[2] + model[14];
+      const r = b.r * sc + (opts.sway ? 1 : 0);
+      const f = this.frustum;
+      for (let i = 0; i < 6 && view; i++) if (f[i * 4] * x + f[i * 4 + 1] * y + f[i * 4 + 2] * z + f[i * 4 + 3] < -r) view = false;
+      const dist = Math.hypot(x - this.camPos[0], z - this.camPos[2]) - r;
+      const limit = Math.min(opts.maxDist ?? Infinity, opts.always ? Infinity : this.drawDistance);
+      if (dist > limit) view = false;
+      else if (Number.isFinite(limit) && r < 60) fade = limit;
+      const sf = this.shadowFocus;
+      shadow = !!sf && Math.hypot(x - sf[0], z - sf[2]) - r < SHADOW_EXTENT * 1.15 && (!Number.isFinite(limit) || dist < limit + 20);
+    }
+    if (!view && !(shadow && this.casts(opts))) { this.stats.culled++; return; }
+    this.stats.items++;
+    if (view) this.stats.verts += mesh.count * (opts.outline ? 2 : 1);
+    if (shadow && this.casts(opts)) this.stats.shadowVerts += mesh.count;
+    this.queue.push({ mesh, model, opts, view, shadow, fade });
   }
 
   private casts(o: DrawOpts): boolean {
@@ -552,7 +653,7 @@ export class Renderer {
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(1.6, 3);
     for (const it of this.queue) {
-      if (!this.casts(it.opts)) continue;
+      if (!it.shadow || !this.casts(it.opts)) continue;
       gl.bindVertexArray(it.mesh.vao);
       gl.uniformMatrix4fv(this.us.uModel, false, it.model);
       gl.uniform1f(this.us.uSway, it.opts.sway ?? 0);
@@ -626,8 +727,8 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTex);
     gl.uniform1i(this.u.uShadowMap, 1);
 
-    const opaque = this.queue.filter((it) => (it.opts.alpha ?? 1) >= 1);
-    const clear = this.queue.filter((it) => (it.opts.alpha ?? 1) < 1);
+    const opaque = this.queue.filter((it) => it.view && (it.opts.alpha ?? 1) >= 1);
+    const clear = this.queue.filter((it) => it.view && (it.opts.alpha ?? 1) < 1);
     for (const it of opaque) this.drawNow(it);
     if (clear.length) {
       // Far to near, so overlapping translucent things blend correctly.
@@ -642,13 +743,16 @@ export class Renderer {
       gl.disable(gl.BLEND);
     }
     gl.bindVertexArray(null);
+    if (this.debugQueue) this.lastQueue = this.queue;
     this.queue = [];
     this.cutFocus = null;
+    this.drawDistance = Infinity; // scenes that want a draw distance set it every frame
   }
 
-  private drawNow({ mesh, model, opts }: Item): void {
+  private drawNow({ mesh, model, opts, fade }: Item): void {
     const gl = this.gl;
     gl.bindVertexArray(mesh.vao);
+    gl.uniform2f(this.u.uFade, fade ? fade * 0.82 : 0, fade);
     gl.uniformMatrix4fv(this.u.uModel, false, model);
     gl.uniform4fv(this.u.uTint, opts.tint ?? [0, 0, 0, 0]);
     gl.uniform1f(this.u.uUnlit, opts.unlit ? 1 : 0);

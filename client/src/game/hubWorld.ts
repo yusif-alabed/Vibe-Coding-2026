@@ -196,6 +196,7 @@ export interface HubWorld {
   grass: GpuMesh;
   flowers: GpuMesh;
   trees: GpuMesh;
+  farTrees: GpuMesh;
   props: GpuMesh[];
   glow: GpuMesh;
   water: GpuMesh;
@@ -400,7 +401,7 @@ export function buildHub(r: Renderer): HubWorld {
   const props: GpuMesh[] = [];
   let p = new MeshBuilder();
   const finish = () => {
-    if (p.vertexCount) props.push(r.upload(p.build()));
+    if (p.vertexCount) props.push(r.uploadChunked(p.build()));
     p = new MeshBuilder();
   };
   const glow = new MeshBuilder();
@@ -571,6 +572,8 @@ export function buildHub(r: Renderer): HubWorld {
 
   // ------------------------------------------------------------ Trees
   const trees = new MeshBuilder();
+  /** The dense forest on the foothills beyond the edge: low-detail, always drawn (it frames the valley). */
+  const farTrees = new MeshBuilder();
   const clear = CHALETS.map(([x, z]) => ({ x, z }));
   // Inside the walkable area: exactly the server's solid trees.
   for (let x = FOREST_GRID.from; x <= FOREST_GRID.to; x += FOREST_GRID.step) {
@@ -598,7 +601,7 @@ export function buildHub(r: Renderer): HubWorld {
       if (groundNormal(jx, jz)[1] < 0.55 || h > 70) continue;
       if (Math.hypot(jx - lakePoint(21)[0], jz - lakePoint(21)[1]) < 9) continue;
       const s = 1.2 + hash2(jx, jz * 3) * 0.7;
-      spruce(trees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: "far", snow: h > 30 });
+      spruce(farTrees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: "far", snow: h > 30 });
     }
   }
   for (const tr of MEADOW_TREES) spruce(trees, tr.x, heightAt(tr.x, tr.z) - 0.15, tr.z, tr.s, Math.floor(tr.x * 13 + tr.z));
@@ -763,8 +766,8 @@ export function buildHub(r: Renderer): HubWorld {
   shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.68, 0.018, 0.44), "#2d3a30", 32);
 
   return {
-    terrain: r.upload(t.build()),
-    townGlass: r.upload(town.glass.build()),
+    terrain: r.uploadChunked(t.build(), 40),
+    townGlass: r.uploadChunked(town.glass.build()),
     townIce: r.upload(town.ice.build()),
     spins: town.spins.map((sp) => ({ ...sp, mesh: r.upload(sp.mesh.build()) })),
     gondola: r.upload(town.gondola.build()),
@@ -774,14 +777,15 @@ export function buildHub(r: Renderer): HubWorld {
     balloons: BALLOON_COLORS.map(([a, b]) => r.upload(buildBalloon(a, b).build())),
     chimneys: town.chimneys,
     fires: town.fires,
-    ground: r.upload(ground.build()),
-    grass: r.upload(grass.build()),
-    flowers: r.upload(flowers.build()),
-    trees: r.upload(trees.build()),
-    props: [...props, r.upload(town.body.build()), r.upload(neonWire.build())],
-    neon: r.upload(neon.core.build()),
-    neonHalo: r.upload(neon.halo.build()),
-    glow: r.upload(glow.merge(town.glow).build()),
+    ground: r.uploadChunked(ground.build(), 32),
+    grass: r.uploadChunked(grass.build(), 16),
+    flowers: r.uploadChunked(flowers.build(), 16),
+    trees: r.uploadChunked(trees.build()),
+    farTrees: r.uploadChunked(farTrees.build(), 40),
+    props: [...props, r.uploadChunked(town.body.build()), r.uploadChunked(neonWire.build())],
+    neon: r.uploadChunked(neon.core.build()),
+    neonHalo: r.uploadChunked(neon.halo.build()),
+    glow: r.uploadChunked(glow.merge(town.glow).build()),
     water: r.upload(w.build()),
     falls: r.upload(falls.build()),
     foam: r.upload(foam.build()),
@@ -852,15 +856,17 @@ export function applyVillageLight(r: Renderer) {
 /** Draws the whole village (everything except characters and particles). */
 export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   const I = compose(0, 0, 0);
-  r.draw(w.mountains, I, { noCast: true });
-  r.draw(w.terrain, I, { noCast: true, season: true });
-  r.draw(w.ground, I, { noCast: true, season: true });
-  // The fast graphics setting skips the (very many) grass blades and flowers.
+  r.draw(w.mountains, I, { noCast: true, always: true });
+  r.draw(w.terrain, I, { noCast: true, season: true, always: true });
+  // Cobbles and path stones are detail: the terrain underneath already has the path colours.
+  r.draw(w.ground, I, { noCast: true, season: true, maxDist: 55 });
+  // Grass and flowers only near you (the fast setting skips them entirely).
   if (r.quality !== "low") {
-    r.draw(w.grass, I, { sway: 0.06, noCast: true, season: true, cut: true });
-    if (r.env.snow < 0.5) r.draw(w.flowers, I, { sway: 0.05, noCast: true, season: true, cut: true });
+    r.draw(w.grass, I, { sway: 0.06, noCast: true, season: true, cut: true, maxDist: 40 });
+    if (r.env.snow < 0.5) r.draw(w.flowers, I, { sway: 0.05, noCast: true, season: true, cut: true, maxDist: 32 });
   }
   r.draw(w.trees, I, { sway: 0.22, season: true, cut: true });
+  r.draw(w.farTrees, I, { sway: 0.15, season: true, always: true, noCast: true });
   for (const prop of w.props) r.draw(prop, I, { season: true, cut: true });
   // Windows and lanterns glow brighter as night falls.
   r.draw(w.glow, I, { unlit: true, emissive: 0.25 + night * 0.9, cut: true });
@@ -903,7 +909,7 @@ export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   }
   const pulse = 1 + Math.sin(time * 3) * 0.05;
   r.draw(w.portal, compose(PL.trailhead.x, heightAt(PL.trailhead.x, PL.trailhead.z) + 3.3, PL.trailhead.z, 0, 0, time * 0.8, pulse), { unlit: true, emissive: 0.3 });
-  r.draw(w.water, I, { wave: 1, alpha: 0.84 });
-  r.draw(w.falls, I, { wave: 2, alpha: 0.82, cut: true });
+  r.draw(w.water, I, { wave: 1, alpha: 0.84, always: true });
+  r.draw(w.falls, I, { wave: 2, alpha: 0.82, cut: true, always: true });
   r.draw(w.foam, I, { unlit: true, alpha: 0.42 });
 }

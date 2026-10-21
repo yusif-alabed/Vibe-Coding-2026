@@ -231,13 +231,29 @@ function start(rawName: string, room?: string, recovery?: string) {
 // ---------- Main loop ----------
 let last = performance.now();
 let titleT = 0;
+// Adaptive resolution: if frames are slow for a couple of seconds, render fewer pixels (and claw
+// it back when there's headroom). Keeps the game smooth on laptops with very sharp screens.
+let slowT = 0, fastT = 0, avgMs = 16;
+const perf = { update: 0, render: 0 };
+function adaptResolution(ms: number, dt: number) {
+  avgMs = avgMs * 0.92 + Math.min(ms, 100) * 0.08;
+  if (avgMs > 24) { slowT += dt; fastT = 0; } else if (avgMs < 15) { fastT += dt; slowT = 0; } else { slowT = 0; fastT = 0; }
+  if (slowT > 1.5 && renderer.autoScale > 0.55) { renderer.autoScale = Math.max(0.55, renderer.autoScale - 0.1); slowT = 0; }
+  if (fastT > 5 && renderer.autoScale < 1) { renderer.autoScale = Math.min(1, renderer.autoScale + 0.05); fastT = 0; }
+}
+
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
+  adaptResolution(now - last, dt);
   last = now;
   try {
     if (scene) {
+      const t0 = performance.now();
       scene.update(dt);
+      const t1 = performance.now();
       scene.render();
+      perf.update = perf.update * 0.95 + (t1 - t0) * 0.05;
+      perf.render = perf.render * 0.95 + (performance.now() - t1) * 0.05;
     } else {
       renderTitleBackdrop(dt);
     }
@@ -317,7 +333,7 @@ function renderCharacterSheet(dt: number) {
   r.end();
 }
 
-(window as unknown as { __bb: unknown }).__bb = { get scene() { return scene; }, hub, buildMs };
+(window as unknown as { __bb: unknown }).__bb = { get scene() { return scene; }, hub, buildMs, perf, get draws() { return renderer.stats; }, get scale() { return renderer.autoScale; }, renderer };
 if (params.has("characters")) {
   const loop = (now: number) => { const dt = Math.min(0.05, (now - last) / 1000); last = now; renderCharacterSheet(dt); requestAnimationFrame(loop); };
   requestAnimationFrame(loop);

@@ -26,6 +26,14 @@ function slider(label: string, value: number, onInput: (v: number) => void) {
   return h("label.setting", {}, [h("span", {}, label), input]);
 }
 
+/** Render distance slider: 40 m … 250 m. Lower is smoother on slower devices. */
+function renderDistance(value: number, onInput: (v: number) => void) {
+  const out = h("b", {}, `${value} m`);
+  const input = h("input", { type: "range", min: "40", max: "250", step: "10", value: String(value) }) as HTMLInputElement;
+  input.addEventListener("input", () => { out.textContent = `${input.value} m`; onInput(Number(input.value)); });
+  return h("label.setting", {}, [h("span", {}, ["👁️ Render distance ", out]), input]);
+}
+
 function copyText(root: HTMLElement, text: string) {
   try {
     void navigator.clipboard?.writeText(text);
@@ -61,6 +69,7 @@ export function openSettings(ctx: Ctx, root: HTMLElement, onChange: () => void):
       slider("Nature sounds", s.ambience, (v) => { s.ambience = v; ctx.sound.apply(); }),
       h("h3", {}, "🎨 Graphics"),
       segmented(p.graphics, [["high", "✨ Beautiful"], ["low", "⚡ Fast (older phones)"]], (v) => set("graphics", v)),
+      renderDistance(p.renderDist, (v) => set("renderDist", v)),
       h("h3", {}, "🌗 Time of day"),
       segmented(p.time, [["auto", "🔄 Real cycle"], ["golden", "🌅 Golden hour"], ["day", "☀️ Day"], ["night", "🌙 Night"]], (v) => set("time", v)),
       h("h3", {}, "🍂 Season"),

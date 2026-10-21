@@ -11,10 +11,12 @@ export interface Prefs {
   shapes: boolean;
   /** Little vibrations on phones for coins, quests and bumps. */
   haptics: boolean;
+  /** How far away (metres) buildings, trees and props are drawn. Lower = faster. */
+  renderDist: number;
 }
 
 const KEY = "bb-prefs";
-const DEFAULTS: Prefs = { graphics: "high", time: "auto", joystick: "auto", season: "auto", weather: "auto", textSize: "normal", shapes: false, haptics: true };
+const DEFAULTS: Prefs = { graphics: "high", time: "auto", joystick: "auto", season: "auto", weather: "auto", textSize: "normal", shapes: false, haptics: true, renderDist: 110 };
 
 export function loadPrefs(): Prefs {
   try {
@@ -23,7 +25,8 @@ export function loadPrefs(): Prefs {
   } catch { /* ignore */ }
   // Small or touch-only screens start on the lighter graphics setting.
   const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  return { ...DEFAULTS, graphics: coarse && Math.min(screen.width, screen.height) < 500 ? "low" : "high" };
+  const small = coarse && Math.min(screen.width, screen.height) < 500;
+  return { ...DEFAULTS, graphics: small ? "low" : "high", renderDist: small ? 70 : DEFAULTS.renderDist };
 }
 
 export function savePrefs(p: Prefs) {

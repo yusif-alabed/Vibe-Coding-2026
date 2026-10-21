@@ -92,6 +92,10 @@ export interface MeshData {
   count: number;
 }
 
+/** Global detail factor for round primitives (used to build cheaper level-of-detail copies). */
+export const meshDetail = { k: 1 };
+const seg = (n: number, min: number) => Math.max(min, Math.round(n * meshDetail.k));
+
 export class MeshBuilder {
   private pos: number[] = [];
   private nrm: number[] = [];
@@ -145,17 +149,20 @@ export class MeshBuilder {
   box(m: Mat4, color: ColorLike | ColorFn, jitter = 0) {
     return this.addTris(prim("box", unitBox), m, color, jitter);
   }
-  cylinder(m: Mat4, color: ColorLike | ColorFn, seg = 8, rTop = 0.5, rBot = 0.5, jitter = 0) {
-    return this.addTris(prim(`cyl${seg}-${rTop}-${rBot}`, () => unitCylinder(seg, rTop, rBot)), m, color, jitter);
+  cylinder(m: Mat4, color: ColorLike | ColorFn, segs = 8, rTop = 0.5, rBot = 0.5, jitter = 0) {
+    const n = seg(segs, 4);
+    return this.addTris(prim(`cyl${n}-${rTop}-${rBot}`, () => unitCylinder(n, rTop, rBot)), m, color, jitter);
   }
   cone(m: Mat4, color: ColorLike | ColorFn, seg = 7, jitter = 0) {
     return this.addTris(prim(`cone${seg}`, () => unitCylinder(seg, 0, 0.5)), m, color, jitter);
   }
   sphere(m: Mat4, color: ColorLike | ColorFn, lat = 6, lon = 8, jitter = 0) {
+    lat = seg(lat, 3); lon = seg(lon, 4);
     return this.addTris(prim(`sph${lat}-${lon}`, () => unitSphere(lat, lon)), m, color, jitter, "center", true);
   }
-  torus(m: Mat4, color: ColorLike | ColorFn, R = 1, r = 0.2, seg = 16, side = 6) {
-    return this.addTris(prim(`tor${R}-${r}-${seg}-${side}`, () => unitTorus(R, r, seg, side)), m, color);
+  torus(m: Mat4, color: ColorLike | ColorFn, R = 1, r = 0.2, segs = 16, side = 6) {
+    const a = seg(segs, 6), b = seg(side, 3);
+    return this.addTris(prim(`tor${R}-${r}-${a}-${b}`, () => unitTorus(R, r, a, b)), m, color);
   }
 
   /** Raw triangle in world space (used by terrain). */
