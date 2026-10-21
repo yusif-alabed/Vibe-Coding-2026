@@ -1448,6 +1448,8 @@ export class HubScene implements Scene {
     r.shadowFocus = [focus.x, py, focus.z];
     // Anything between the camera and your beaver turns see-through (only on your screen).
     r.cutFocus = this.photo.active ? null : [focus.x, py + 1.1, focus.z];
+    // Draw distance: detail fades in as you walk toward it. Up in a balloon you can see the whole valley.
+    r.drawDistance = me.act === "balloon" && me.soak > 0.2 ? Infinity : this.ctx.prefs.renderDist ?? 110;
     r.begin(lookAt(cam, look), perspective(aspect < 0.8 ? 1.05 : 0.86, aspect, 0.4, 2400), cam);
 
     drawHub(r, this.world, this.time, this.night);

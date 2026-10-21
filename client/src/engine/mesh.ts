@@ -92,6 +92,10 @@ export interface MeshData {
   count: number;
 }
 
+/** Global detail factor for round primitives (used to build cheaper level-of-detail copies). */
+export const meshDetail = { k: 1 };
+const seg = (n: number, min: number) => Math.max(min, Math.round(n * meshDetail.k));
+
 export class MeshBuilder {
   private pos: number[] = [];
   private nrm: number[] = [];
@@ -145,17 +149,20 @@ export class MeshBuilder {
   box(m: Mat4, color: ColorLike | ColorFn, jitter = 0) {
     return this.addTris(prim("box", unitBox), m, color, jitter);
   }
-  cylinder(m: Mat4, color: ColorLike | ColorFn, seg = 8, rTop = 0.5, rBot = 0.5, jitter = 0) {
-    return this.addTris(prim(`cyl${seg}-${rTop}-${rBot}`, () => unitCylinder(seg, rTop, rBot)), m, color, jitter);
+  cylinder(m: Mat4, color: ColorLike | ColorFn, segs = 8, rTop = 0.5, rBot = 0.5, jitter = 0) {
+    const n = seg(segs, 4);
+    return this.addTris(prim(`cyl${n}-${rTop}-${rBot}`, () => unitCylinder(n, rTop, rBot)), m, color, jitter);
   }
   cone(m: Mat4, color: ColorLike | ColorFn, seg = 7, jitter = 0) {
     return this.addTris(prim(`cone${seg}`, () => unitCylinder(seg, 0, 0.5)), m, color, jitter);
   }
   sphere(m: Mat4, color: ColorLike | ColorFn, lat = 6, lon = 8, jitter = 0) {
+    lat = seg(lat, 3); lon = seg(lon, 4);
     return this.addTris(prim(`sph${lat}-${lon}`, () => unitSphere(lat, lon)), m, color, jitter, "center", true);
   }
-  torus(m: Mat4, color: ColorLike | ColorFn, R = 1, r = 0.2, seg = 16, side = 6) {
-    return this.addTris(prim(`tor${R}-${r}-${seg}-${side}`, () => unitTorus(R, r, seg, side)), m, color);
+  torus(m: Mat4, color: ColorLike | ColorFn, R = 1, r = 0.2, segs = 16, side = 6) {
+    const a = seg(segs, 6), b = seg(side, 3);
+    return this.addTris(prim(`tor${R}-${r}-${a}-${b}`, () => unitTorus(R, r, a, b)), m, color);
   }
 
   /** Raw triangle in world space (used by terrain). */
@@ -218,66 +225,5 @@ export class MeshBuilder {
       smooth: new Float32Array(this.smo),
       count: this.pos.length / 3,
     };
-  }
-
-  /**
-   * Splits the mesh into a grid of pieces, each with the sphere that contains it.
-   *
-   * The village is built as a handful of enormous meshes — all the props in one, all the trees
-   * in another — which is kind for draw calls and merciless for everything else: with no way to
-   * tell which part of a mesh is on screen, the whole 320-metre valley went to the GPU every
-   * frame, and again for the shadow pass, however little of it the camera could see.
-   *
-   * Chopping the finished triangle soup by position costs nothing at the call sites: the
-   * hundreds of places that add a bench or a spruce stay exactly as they are, and the renderer
-   * gains something it can cull.
-   */
-  chunks(cell: number): { data: MeshData; cx: number; cy: number; cz: number; radius: number }[] {
-    const tris = this.pos.length / 9;
-    if (tris === 0) return [];
-    const buckets = new Map<string, number[]>();
-    for (let t = 0; t < tris; t++) {
-      const i = t * 9;
-      // File by the triangle's centroid, so a triangle is never split between pieces.
-      const x = (this.pos[i] + this.pos[i + 3] + this.pos[i + 6]) / 3;
-      const z = (this.pos[i + 2] + this.pos[i + 5] + this.pos[i + 8]) / 3;
-      const key = `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
-      let list = buckets.get(key);
-      if (!list) buckets.set(key, (list = []));
-      list.push(t);
-    }
-
-    const out: { data: MeshData; cx: number; cy: number; cz: number; radius: number }[] = [];
-    for (const list of buckets.values()) {
-      const n = list.length * 9;
-      const positions = new Float32Array(n);
-      const normals = new Float32Array(n);
-      const colors = new Float32Array(n);
-      const smooth = new Float32Array(n);
-      let lo0 = Infinity, lo1 = Infinity, lo2 = Infinity;
-      let hi0 = -Infinity, hi1 = -Infinity, hi2 = -Infinity;
-      for (let k = 0; k < list.length; k++) {
-        const src = list[k] * 9;
-        const dst = k * 9;
-        for (let j = 0; j < 9; j++) {
-          const v = this.pos[src + j];
-          positions[dst + j] = v;
-          normals[dst + j] = this.nrm[src + j];
-          colors[dst + j] = this.col[src + j];
-          smooth[dst + j] = this.smo[src + j];
-          const axis = j % 3;
-          if (axis === 0) { if (v < lo0) lo0 = v; if (v > hi0) hi0 = v; }
-          else if (axis === 1) { if (v < lo1) lo1 = v; if (v > hi1) hi1 = v; }
-          else { if (v < lo2) lo2 = v; if (v > hi2) hi2 = v; }
-        }
-      }
-      const cx = (lo0 + hi0) / 2, cy = (lo1 + hi1) / 2, cz = (lo2 + hi2) / 2;
-      out.push({
-        data: { positions, normals, colors, smooth, count: list.length * 3 },
-        cx, cy, cz,
-        radius: Math.hypot(hi0 - cx, hi1 - cy, hi2 - cz),
-      });
-    }
-    return out;
   }
 }

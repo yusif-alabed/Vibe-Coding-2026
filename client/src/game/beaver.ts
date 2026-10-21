@@ -1,6 +1,6 @@
 import { CATALOG_BY_ID, type Look } from "@beaver/shared";
 import { compose, hexToRgb, mixRgb, multiply, type Mat4, type Vec3 } from "../engine/math";
-import { MeshBuilder } from "../engine/mesh";
+import { MeshBuilder, meshDetail } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 
 /**
@@ -19,6 +19,8 @@ export type Expression = "neutral" | "happy" | "excited" | "surprised" | "dizzy"
 export interface BeaverMeshes {
   parts: Record<PartName, GpuMesh>;
   face: Record<FacePart, GpuMesh>;
+  /** A low-poly copy drawn when the beaver is further away. */
+  low?: BeaverMeshes;
 }
 
 const PIVOTS: Record<PartName, [number, number, number]> = {
@@ -402,6 +404,8 @@ export function getBeaverMeshes(r: Renderer, look: Look): BeaverMeshes {
     const up = <K extends string>(b: Record<K, MeshBuilder>) =>
       Object.fromEntries(Object.entries(b).map(([k, v]) => [k, r.upload((v as MeshBuilder).build())])) as Record<K, GpuMesh>;
     m = { parts: up(partBuilders(look)), face: up(faceBuilders(look)) };
+    meshDetail.k = 0.4;
+    try { m.low = { parts: up(partBuilders(look)), face: m.face }; } finally { meshDetail.k = 1; }
     meshCache.set(key, m);
   }
   return m;
@@ -474,8 +478,13 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   const sy = stretch * (1 + breathe);
   const sxz = 1 / Math.sqrt(Math.max(0.5, sy));
   const base = multiply(root, compose(0, bob + swimDrop + sledDrop, 0, 0, lean, sway, sxz, sy, sxz));
+  // Level of detail: far-away beavers skip the ink outline and the small face details.
+  const cam = r.camPos;
+  const camDist = Math.hypot(root[12] - cam[0], root[13] - cam[1], root[14] - cam[2]);
+  const near = camDist < 32;
+  if (camDist > 16 && meshes.low) meshes = meshes.low;
   // A lighter outline keeps the individual animated pieces from reading as stacked blocks.
-  const opts = { outline: 0.028, tint };
+  const opts = { outline: near ? 0.028 : 0, tint };
   const at = (name: PartName, rx: number, ry: number, rz: number) => {
     const [px, py, pz] = PIVOTS[name];
     return multiply(base, compose(px, py, pz, ry, rx, rz));
@@ -494,7 +503,7 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   r.draw(meshes.parts.head, head, opts);
   // Face details sit on top without their own ink rings, so only the silhouette is outlined.
   r.draw(meshes.parts.muzzle, head, { tint });
-  drawFace(r, meshes, head, expr, t, seed, pose.talk ?? 0, idleLook, tint);
+  if (camDist < 55) drawFace(r, meshes, head, expr, t, seed, pose.talk ?? 0, idleLook, tint);
 
   // Arms: swing when walking, paddle when swimming, wave or cheer.
   const armSwing = Math.sin(w) * 0.7 * mv;

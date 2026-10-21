@@ -1,5 +1,5 @@
 import { TRAIN, BRIDGES, fencePosts, FOOTHILLS_R, FOREST_GRID, forestTreeAt, HUB, HUB_PLACES, LODGE, lodgeToWorld, MEADOW_TREES, PATH_LANTERNS, RIVER_LINE, STREETS, TOWN_AREAS, TOWN_PLACES, TRAILS, townClear } from "@beaver/shared";
-import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Mat4, type Vec3 } from "../engine/math";
+import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { P, rgb } from "./palette";
@@ -177,45 +177,11 @@ function groundColor(x: number, y: number, z: number, ny: number): Vec3 {
   return mixRgb(c, MEADOW_DEEP, (fine - 0.5) * 0.25);
 }
 
-/**
- * One piece of a chunked mesh, with the sphere that contains it.
- *
- * The village's scenery is built as a few vast meshes. Split into pieces the renderer can test
- * against the camera and the shadow map, most of the valley stops being drawn at all.
- */
-export interface Chunk { mesh: GpuMesh; b: [number, number, number, number] }
-
-/** How wide a scenery chunk is, in metres. Smaller culls harder but costs more draw calls. */
-const CHUNK = 36;
-
-/** Splits a finished builder into cullable pieces and uploads them. */
-function chunked(r: Renderer, m: MeshBuilder, cell = CHUNK): Chunk[] {
-  return m.chunks(cell).map((c) => ({ mesh: r.upload(c.data), b: [c.cx, c.cy, c.cz, c.radius] as [number, number, number, number] }));
-}
-
-/**
- * Draws every piece of a chunked mesh that the camera or the sun can see.
- *
- * `maxDist` additionally drops pieces further away than that. It exists for ground detail —
- * grass blades and flowers are 170,000 triangles of texture you cannot make out past about
- * fifty metres, and from the middle of the plaza almost all of it is in view at once.
- */
-function drawChunks(r: Renderer, parts: Chunk[], model: Mat4, opts: Parameters<Renderer["draw"]>[2] = {}, maxDist = 0): void {
-  const c0 = r.camPos;
-  for (const c of parts) {
-    if (maxDist && Math.hypot(c.b[0] - c0[0], c.b[2] - c0[2]) - c.b[3] > maxDist) continue;
-    r.draw(c.mesh, model, { ...opts, bound: c.b });
-  }
-}
-
-/** How far ground detail is drawn, in metres. */
-const DETAIL_RANGE = 52;
-
 export interface HubWorld {
-  terrain: Chunk[];
+  terrain: GpuMesh;
   /** Colourful night lights: bright cores and soft halos (halos only show after dark). */
-  neon: Chunk[];
-  neonHalo: Chunk[];
+  neon: GpuMesh;
+  neonHalo: GpuMesh;
   townGlass: GpuMesh;
   townIce: GpuMesh;
   spins: { mesh: GpuMesh; x: number; y: number; z: number; ry: number; speed: number; axis: "z" | "y"; mode: "lit" | "glow" | "beam" }[];
@@ -226,12 +192,13 @@ export interface HubWorld {
   balloons: GpuMesh[];
   chimneys: Vec3[];
   fires: Vec3[];
-  ground: Chunk[];
-  grass: Chunk[];
-  flowers: Chunk[];
-  trees: Chunk[];
-  props: Chunk[];
-  glow: Chunk[];
+  ground: GpuMesh;
+  grass: GpuMesh;
+  flowers: GpuMesh;
+  trees: GpuMesh;
+  farTrees: GpuMesh;
+  props: GpuMesh[];
+  glow: GpuMesh;
   water: GpuMesh;
   falls: GpuMesh;
   foam: GpuMesh;
@@ -431,12 +398,10 @@ export function buildHub(r: Renderer): HubWorld {
   });
 
   // ------------------------------------------------------------ Props
-  // Collected as builders and merged at the end: chunking groups them by where they stand,
-  // which is a far better split than the arbitrary one these `finish()` calls used to make.
-  const propParts: MeshBuilder[] = [];
+  const props: GpuMesh[] = [];
   let p = new MeshBuilder();
   const finish = () => {
-    if (p.vertexCount) propParts.push(p);
+    if (p.vertexCount) props.push(r.uploadChunked(p.build()));
     p = new MeshBuilder();
   };
   const glow = new MeshBuilder();
@@ -607,6 +572,8 @@ export function buildHub(r: Renderer): HubWorld {
 
   // ------------------------------------------------------------ Trees
   const trees = new MeshBuilder();
+  /** The dense forest on the foothills beyond the edge: low-detail, always drawn (it frames the valley). */
+  const farTrees = new MeshBuilder();
   const clear = CHALETS.map(([x, z]) => ({ x, z }));
   // Inside the walkable area: exactly the server's solid trees.
   for (let x = FOREST_GRID.from; x <= FOREST_GRID.to; x += FOREST_GRID.step) {
@@ -634,7 +601,7 @@ export function buildHub(r: Renderer): HubWorld {
       if (groundNormal(jx, jz)[1] < 0.55 || h > 70) continue;
       if (Math.hypot(jx - lakePoint(21)[0], jz - lakePoint(21)[1]) < 9) continue;
       const s = 1.2 + hash2(jx, jz * 3) * 0.7;
-      spruce(trees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: "far", snow: h > 30 });
+      spruce(farTrees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: "far", snow: h > 30 });
     }
   }
   for (const tr of MEADOW_TREES) spruce(trees, tr.x, heightAt(tr.x, tr.z) - 0.15, tr.z, tr.s, Math.floor(tr.x * 13 + tr.z));
@@ -798,13 +765,9 @@ export function buildHub(r: Renderer): HubWorld {
   const shadow = new MeshBuilder();
   shadow.cylinder(compose(0, 0, 0, 0, 0, 0, 0.68, 0.018, 0.44), "#2d3a30", 32);
 
-  const allProps = new MeshBuilder();
-  for (const part of propParts) allProps.merge(part);
-  allProps.merge(town.body).merge(neonWire);
-
   return {
-    terrain: chunked(r, t),
-    townGlass: r.upload(town.glass.build()),
+    terrain: r.uploadChunked(t.build(), 40),
+    townGlass: r.uploadChunked(town.glass.build()),
     townIce: r.upload(town.ice.build()),
     spins: town.spins.map((sp) => ({ ...sp, mesh: r.upload(sp.mesh.build()) })),
     gondola: r.upload(town.gondola.build()),
@@ -814,14 +777,15 @@ export function buildHub(r: Renderer): HubWorld {
     balloons: BALLOON_COLORS.map(([a, b]) => r.upload(buildBalloon(a, b).build())),
     chimneys: town.chimneys,
     fires: town.fires,
-    ground: chunked(r, ground),
-    grass: chunked(r, grass),
-    flowers: chunked(r, flowers),
-    trees: chunked(r, trees),
-    props: chunked(r, allProps),
-    neon: chunked(r, neon.core),
-    neonHalo: chunked(r, neon.halo),
-    glow: chunked(r, glow.merge(town.glow)),
+    ground: r.uploadChunked(ground.build(), 32),
+    grass: r.uploadChunked(grass.build(), 16),
+    flowers: r.uploadChunked(flowers.build(), 16),
+    trees: r.uploadChunked(trees.build()),
+    farTrees: r.uploadChunked(farTrees.build(), 40),
+    props: [...props, r.uploadChunked(town.body.build()), r.uploadChunked(neonWire.build())],
+    neon: r.uploadChunked(neon.core.build()),
+    neonHalo: r.uploadChunked(neon.halo.build()),
+    glow: r.uploadChunked(glow.merge(town.glow).build()),
     water: r.upload(w.build()),
     falls: r.upload(falls.build()),
     foam: r.upload(foam.build()),
@@ -892,22 +856,24 @@ export function applyVillageLight(r: Renderer) {
 /** Draws the whole village (everything except characters and particles). */
 export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   const I = compose(0, 0, 0);
-  r.draw(w.mountains, I, { noCast: true });
-  drawChunks(r, w.terrain, I, { noCast: true, season: true });
-  drawChunks(r, w.ground, I, { noCast: true, season: true });
-  // The fast graphics setting skips the (very many) grass blades and flowers.
+  r.draw(w.mountains, I, { noCast: true, always: true });
+  r.draw(w.terrain, I, { noCast: true, season: true, always: true });
+  // Cobbles and path stones are detail: the terrain underneath already has the path colours.
+  r.draw(w.ground, I, { noCast: true, season: true, maxDist: 55 });
+  // Grass and flowers only near you (the fast setting skips them entirely).
   if (r.quality !== "low") {
-    drawChunks(r, w.grass, I, { sway: 0.06, noCast: true, season: true, cut: true }, DETAIL_RANGE);
-    if (r.env.snow < 0.5) drawChunks(r, w.flowers, I, { sway: 0.05, noCast: true, season: true, cut: true }, DETAIL_RANGE);
+    r.draw(w.grass, I, { sway: 0.06, noCast: true, season: true, cut: true, maxDist: 40 });
+    if (r.env.snow < 0.5) r.draw(w.flowers, I, { sway: 0.05, noCast: true, season: true, cut: true, maxDist: 32 });
   }
-  drawChunks(r, w.trees, I, { sway: 0.22, season: true, cut: true });
-  drawChunks(r, w.props, I, { season: true, cut: true });
+  r.draw(w.trees, I, { sway: 0.22, season: true, cut: true });
+  r.draw(w.farTrees, I, { sway: 0.15, season: true, always: true, noCast: true });
+  for (const prop of w.props) r.draw(prop, I, { season: true, cut: true });
   // Windows and lanterns glow brighter as night falls.
-  drawChunks(r, w.glow, I, { unlit: true, emissive: 0.25 + night * 0.9, cut: true });
+  r.draw(w.glow, I, { unlit: true, emissive: 0.25 + night * 0.9, cut: true });
   // Neon signs and festoon lights: pastel bulbs by day, glowing colours with soft halos at night.
   const flicker = 1 + Math.sin(time * 2.1) * 0.06 + Math.sin(time * 7.3) * 0.03;
-  drawChunks(r, w.neon, I, { unlit: true, emissive: (0.1 + night * 1.5) * flicker, noCast: true, cut: true });
-  if (night > 0.05) drawChunks(r, w.neonHalo, I, { unlit: true, emissive: 0.6, alpha: 0.22 * night, noCast: true, noFog: true });
+  r.draw(w.neon, I, { unlit: true, emissive: (0.1 + night * 1.5) * flicker, noCast: true, cut: true });
+  if (night > 0.05) r.draw(w.neonHalo, I, { unlit: true, emissive: 0.6, alpha: 0.22 * night, noCast: true, noFog: true });
   r.draw(w.townIce, I, { unlit: true, emissive: 0.05, noCast: true });
   r.draw(w.townGlass, I, { alpha: 0.38, cut: true });
   for (const sp of w.spins) {
@@ -943,7 +909,7 @@ export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   }
   const pulse = 1 + Math.sin(time * 3) * 0.05;
   r.draw(w.portal, compose(PL.trailhead.x, heightAt(PL.trailhead.x, PL.trailhead.z) + 3.3, PL.trailhead.z, 0, 0, time * 0.8, pulse), { unlit: true, emissive: 0.3 });
-  r.draw(w.water, I, { wave: 1, alpha: 0.84 });
-  r.draw(w.falls, I, { wave: 2, alpha: 0.82, cut: true });
+  r.draw(w.water, I, { wave: 1, alpha: 0.84, always: true });
+  r.draw(w.falls, I, { wave: 2, alpha: 0.82, cut: true, always: true });
   r.draw(w.foam, I, { unlit: true, alpha: 0.42 });
 }

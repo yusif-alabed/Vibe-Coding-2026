@@ -9,7 +9,8 @@ items up to **Done** as they land.
   Connections, Mini Crossword, Spelling Bee), all built as seeded sims so they work solo
   against bots today and over the network later. See
   [the design](superpowers/specs/2026-10-21-word-lodge-design.md).
-- [x] **Frame-rate work** — chunked world geometry + frustum culling, cheaper draw queue.
+- [x] **Frame-rate work** — chunked world geometry, frustum culling, a render-distance slider,
+  distant-beaver LOD and a cheaper draw queue.
 
 ## Themed game buildings
 
@@ -41,7 +42,7 @@ The four games the manor holds, in build order:
 ## Map expansion
 
 - **Widen the valley** — raise `HUB.radius` 100 → ~140 and fill the empty north-west quadrant
-  with a harbour district or ski village. Costs geometry; do it after chunked culling lands.
+  with a harbour district or ski village. Costs geometry, but chunked culling has landed.
 - **A second valley by train** — a new `Scene` reached from the station, like the summit. Much
   cheaper than growing the hub and gives somewhere genuinely new to go.
 - **Underground** — a mine and cave network under the waterfall cliff. The train tunnel is
@@ -61,10 +62,13 @@ The four games the manor holds, in build order:
 
 - [x] **Chunked geometry + frustum culling** — the world drew ~1,027,000 triangles every frame
   regardless of where the camera pointed (743k visible pass + 315k again for shadows). Scenery
-  is now split into 345 pieces that are tested against the camera and the shadow box. Measured
-  from where players actually stand: **48% fewer triangles on the plaza, 69% on Main Street,
-  78% at the Word Lodge.**
-- [x] **Ground detail range** — grass and flowers (170k triangles) stop drawing past 52 m.
+  now uploads as a grid of chunks (`Renderer.uploadChunked`), each with a bounding sphere tested
+  against the camera frustum and the shadow box. Measured from where players actually stand:
+  roughly half to three-quarters of the valley's triangles are skipped.
+- [x] **Render distance** — a Settings slider (40–250 m); buildings, trees and props dissolve in
+  as you approach instead of popping, and the whole valley stays drawn during a balloon ride.
+  Grass, flowers and cobbles get a shorter range of their own.
+- [x] **Distant beaver level-of-detail** and **adaptive resolution** when frames run slow.
 - [x] **Cheaper draw queue** — reuse arrays, stop allocating per frame, skip redundant uniforms.
 - [x] **`pathDistance` / `riverDistance`** — were allocating an array and a closure on every
   call, during world build, every frame, and on the server for every movement check. ~2.5×
