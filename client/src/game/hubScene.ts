@@ -28,7 +28,7 @@ import { Minimap } from "../ui/minimap";
 import { openFriends, openSettings } from "../ui/panels";
 import { wantsJoystick } from "../prefs";
 import { Ambient } from "./ambient";
-import { cameraZoneAt, type CamZone } from "./cameraZones";
+import { streetYaw } from "./cameraZones";
 import { applyTimeOfDay, dayPhase, timeLabel } from "./daylight";
 import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
@@ -176,8 +176,6 @@ const INFO: Record<string, { label: string; lines: string[] }> = {
   trailhead: { label: "", lines: [] },
 };
 
-/** Buildings big enough that the follow camera should never sit inside them. */
-const BIG_SOLIDS = [PL.lodge, PL.outfitter, PL.arcade, ...HUB_COLLIDERS.filter((c) => c.r >= 2.6 && c.r < 7)];
 
 const SPRING_Y = () => heightAt(PL.hotSpring.x, PL.hotSpring.z) + 0.25;
 
@@ -195,8 +193,6 @@ export class HubScene implements Scene {
   // the whole orbit flip over when it is squeezed close to scenery.
   private lookOffset = 0;
   private dist = 13;
-  private camDist = 13;
-  private camLift = 0;
   private target: { x: number; z: number } | null = null;
   private sendAcc = 0;
   private lastSent = { x: NaN, z: NaN, ry: NaN };
@@ -229,9 +225,9 @@ export class HubScene implements Scene {
   private clockEl: HTMLElement;
   private clockKey = "";
   /** Fixed street/grandstand camera: which zone, and how far we've glided into it (0..1). */
-  private camZone: CamZone | null = null;
-  private zoneBlend = 0;
   private lastRender = performance.now();
+  /** Smoothed camera height target (so hops and steps don't shake the view). */
+  private camY = NaN;
   private night = 0;
   private lastCoins = 0;
   private stepPhase = 0;
@@ -769,16 +765,7 @@ export class HubScene implements Scene {
       this.animate(dt);
       return;
     }
-    // In a fixed-camera zone the view is set for you (dragging does nothing), and controls follow it.
     const fz0 = this.drawPos(this.me);
-    const zoneHere = cameraZoneAt(fz0.x, fz0.z);
-    if (zoneHere.zone && zoneHere.weight > 0.05) {
-      inp.consumeDrag();
-      inp.consumeDragY();
-      inp.consumeZoom();
-      this.yaw = lerpAngle(this.yaw, zoneHere.zone.yaw([fz0.x, fz0.y, fz0.z]), Math.min(1, dt * 2.5 * zoneHere.weight));
-      this.lookOffset = lerp(this.lookOffset, 0, Math.min(1, dt * 3));
-    }
     this.yaw -= inp.consumeDrag() * 0.006;
     // Drag up to look upward and drag down to look toward the ground. The cap
     // still permits a deliberate skyward look, but prevents a full inversion.
@@ -811,9 +798,7 @@ export class HubScene implements Scene {
 
     // Local movement (predicted; the server validates the same way).
     // On a street with a fixed angled camera, "forward" runs straight up the road.
-    const ctrlYaw = zoneHere.zone && zoneHere.weight > 0.05
-      ? lerpAngle(this.yaw, zoneHere.zone.moveYaw([fz0.x, fz0.y, fz0.z]), Math.min(1, zoneHere.weight * 1.5))
-      : this.yaw;
+    const ctrlYaw = streetYaw(fz0.x, fz0.z, this.yaw) ?? this.yaw;
     const fx = -Math.sin(ctrlYaw), fz = -Math.cos(ctrlYaw);
     let mx = 0, mz = 0;
     if (inp.down("w", "arrowup")) { mx += fx; mz += fz; }
@@ -1037,92 +1022,23 @@ export class HubScene implements Scene {
     const fp = this.drawPos(me);
     const py = fp.y;
     const focus = { x: fp.x, z: fp.z };
-    // A low, cinematic follow camera that keeps the peaks in frame.
-    const pitch = 0.12 + (this.dist - 7) * 0.013;
-    // Slide the camera in front of any tree canopy or building between it and the player.
+    // A simple follow camera: it sits behind and above your beaver at a fixed angle and
+    // moves exactly as you move. You turn it (drag / Q E) and zoom it (scroll); nothing else
+    // pushes it around. The angle is high enough to see over fences, trees and benches.
+    const now = performance.now();
+    const fdt = Math.min(0.1, (now - this.lastRender) / 1000);
+    this.lastRender = now;
+    const pitch = 0.36 + (this.dist - 7) * 0.012;
     const sx = Math.sin(this.yaw), sz = Math.cos(this.yaw);
-    let clearDist = this.dist;
-    for (const c of HUB_COLLIDERS) {
-      if (c.r < 0.9) continue;
-      // Trees: their branches spread well past the trunk. Buildings: just the walls.
-      // The fountain only blocks the view at its central statue tower.
-      const isFountain = c.x === 0 && c.z === 0;
-      const reach = isFountain ? 4.6 : c.r > 2.6 ? c.r + 2.0 : c.r * 2.3;
-      const ox = c.x - focus.x, oz = c.z - focus.z;
-      const along = ox * sx + oz * sz;
-      if (along < 1.5 || along > this.dist + reach) continue;
-      const side = Math.abs(ox * sz - oz * sx);
-      if (side > reach) continue;
-      const hit = along - Math.sqrt(reach * reach - side * side);
-      clearDist = Math.min(clearDist, hit - 0.6);
-    }
-    // Never zoom right onto the beaver's hat: keep a comfortable distance and rise up
-    // over whatever is in the way instead (a higher, steeper view).
-    const MIN_DIST = 6.5;
-    let lift = clearDist < MIN_DIST ? Math.min(5, (MIN_DIST - clearDist) * 0.75) : 0;
-    clearDist = Math.max(Math.min(MIN_DIST, this.dist), clearDist);
-    this.camDist += (clearDist - this.camDist) * Math.min(1, (clearDist < this.camDist ? 6 : 2) / 60);
-    const cd = this.camDist;
-    let cx = focus.x + sx * Math.cos(pitch) * cd;
-    let cz = focus.z + sz * Math.cos(pitch) * cd;
-    // The follow camera is a physical point too: push it out of buildings so it never looks through a wall,
-    // and gently swing around to the open side so it doesn't stay squeezed against the building.
-    for (const solid of BIG_SOLIDS) {
-      const dx = cx - solid.x, dz = cz - solid.z;
-      const d = Math.hypot(dx, dz);
-      const radius = solid.r + (solid === PL.lodge ? 3.5 : 2.4);
-      if (d < radius && !this.photo.active) this.yaw = lerpAngle(this.yaw, Math.atan2(focus.x - solid.x, focus.z - solid.z), 0.03);
-      if (d < radius) {
-        const k = d < 0.001 ? 1 : radius / d;
-        cx = solid.x + (d < 0.001 ? radius : dx * k);
-        cz = solid.z + (d < 0.001 ? 0 : dz * k);
-      }
-    }
-    // Trees and posts are solid to the camera too: slide it out of any trunk or canopy it would sit in.
-    for (const c of HUB_COLLIDERS) {
-      if (c.r >= 2.6) continue;
-      const reach = c.r < 0.9 ? 0.9 : c.r * 1.7;
-      const dx = cx - c.x, dz = cz - c.z;
-      const d = Math.hypot(dx, dz);
-      if (d >= reach || d < 1e-4) continue;
-      cx = c.x + (dx / d) * reach;
-      cz = c.z + (dz / d) * reach;
-      lift = Math.max(lift, (reach - d) * 0.8);
-    }
-    // Past the edge of the world the land rises into forest: keep the camera on our side of it.
-    const edge = HUB.radius + 1.5, cr = Math.hypot(cx, cz);
-    if (cr > edge) {
-      lift = Math.max(lift, Math.min(6, (cr - edge) * 0.7));
-      cx *= edge / cr;
-      cz *= edge / cr;
-    }
-    // Being pushed out of a building can slide the camera in close; lift it instead of hugging the beaver.
-    const hd = Math.hypot(cx - focus.x, cz - focus.z);
-    if (hd < MIN_DIST) lift = Math.max(lift, Math.min(5, (MIN_DIST - hd) * 0.9));
-    this.camLift += (lift - this.camLift) * Math.min(1, 3 / 60);
-    // Keep the eye above the avatar focus even if a wall or tree shortens the
-    // follow distance. Previously the shortened camera could end up lower than
-    // its target (the beaver's head), which made the game suddenly look skyward.
-    const focusY = py + 1.65;
-    let cy = py + 2.6 + Math.sin(pitch) * cd + this.camLift;
-    cy = Math.max(cy, heightAt(cx, cz) + 1.5, focusY + 1.05);
+    const flat = Math.cos(pitch) * this.dist;
+    const cx = focus.x + sx * flat, cz = focus.z + sz * flat;
+    // Only the height is eased, so a hop or a step onto the bridge doesn't jolt the view.
+    if (!Number.isFinite(this.camY) || Math.abs(this.camY - py) > 6) this.camY = py;
+    this.camY += (py - this.camY) * Math.min(1, fdt * 6);
+    const focusY = this.camY + 1.5;
+    const cy = Math.max(focusY + Math.sin(pitch) * this.dist, heightAt(cx, cz) + 1.2);
     let cam: Vec3 = [cx, cy, cz];
     let look: Vec3 = [focus.x, focusY + this.lookOffset, focus.z];
-    // Glide into (or out of) a fixed street/grandstand camera.
-    {
-      const now = performance.now();
-      const dt = Math.min(0.1, (now - this.lastRender) / 1000);
-      this.lastRender = now;
-      const z = this.photo.active ? { zone: null, weight: 0 } : cameraZoneAt(focus.x, focus.z);
-      if (z.zone && z.weight > 0.01) this.camZone = z.zone;
-      this.zoneBlend += (z.weight - this.zoneBlend) * Math.min(1, dt * 2.2);
-      if (this.camZone && this.zoneBlend > 0.002) {
-        const zc = this.camZone.camera([focus.x, py, focus.z]);
-        const b = this.zoneBlend * this.zoneBlend * (3 - 2 * this.zoneBlend);
-        cam = [lerp(cam[0], zc.eye[0], b), lerp(cam[1], zc.eye[1], b), lerp(cam[2], zc.eye[2], b)];
-        look = [lerp(look[0], zc.target[0], b), lerp(look[1], zc.target[1], b), lerp(look[2], zc.target[2], b)];
-      } else this.camZone = null;
-    }
     if (this.photo.active) {
       const pc = this.photo.camera([focus.x, py + 1.2, focus.z]);
       pc.eye[1] = Math.max(pc.eye[1], heightAt(pc.eye[0], pc.eye[2]) + 0.4, WATER_Y + 0.3);
