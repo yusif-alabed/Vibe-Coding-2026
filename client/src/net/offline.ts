@@ -363,7 +363,7 @@ export class OfflineNet implements Net {
     this.emit({ t: "wallet", coins: this.save.coins, owned: this.save.owned });
     window.setTimeout(() => {
       this.me.x = TOWN_PLACES.clubhouse.x + rand(-2, 2);
-      this.me.z = TOWN_PLACES.clubhouse.z - 4;
+      this.me.z = TOWN_PLACES.clubhouse.z - 1.5;
       this.welcome();
     }, quit ? 2500 : 6000);
   }

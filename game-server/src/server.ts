@@ -753,7 +753,7 @@ export class GameServer {
   private backToVillage(c: Client, hubId: string): void {
     if (!this.isConnected(c) || c.hubId || c.raceId || c.golfId) return;
     const hub = this.hubs.get(hubId) ?? this.publicHub();
-    this.joinHub(c, hub.full ? this.publicHub() : hub, { x: TOWN_PLACES.clubhouse.x + (Math.random() - 0.5) * 4, z: TOWN_PLACES.clubhouse.z - 4 });
+    this.joinHub(c, hub.full ? this.publicHub() : hub, { x: TOWN_PLACES.clubhouse.x + (Math.random() - 0.5) * 4, z: TOWN_PLACES.clubhouse.z - 1.5 });
   }
 
   /** Counts a daily-quest event and pays out any reward. */

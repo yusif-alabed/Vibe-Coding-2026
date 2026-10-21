@@ -40,7 +40,7 @@ export const STREETS: [number, number, number, number][] = [
   [7.5, 66, 20, 66], // to the Ferris wheel
   [-4, 80, 7.8, 80], // to the ranger station
   [6.8, 60, -12, 62], // to the campground
-  [-12, 62, -40, 71], // to the golf clubhouse
+  [-13, 66, -21, 73], // to the golf clubhouse
   [68, -8, 86, 26], // to the train station
   [30, -34, 48, -46], // past the hot springs to the balloon meadow
   [10, -40, 16, -48], // to the summit gondola
@@ -91,8 +91,8 @@ export const TOWN_BUILDINGS: TownBuilding[] = [
   { kind: "tent", x: -20, z: 56, ry: 0.4, w: 3, d: 3, seed: 54 },
   { kind: "tent", x: -25, z: 63, ry: 1.4, w: 3, d: 3, seed: 55 },
   { kind: "tent", x: -18, z: 69, ry: 2.6, w: 3, d: 3, seed: 56 },
-  // Golf clubhouse by the lake, facing the path from the campground.
-  { kind: "clubhouse", x: -46, z: 76, ry: S + 0.2, w: 11, d: 7, seed: 60 },
+  // Golf clubhouse on the flat meadow past the campground, facing the path.
+  { kind: "clubhouse", x: -21, z: 80, ry: S, w: 11, d: 7, seed: 60 },
   // Valley railway station on the east edge (the line runs round the valley just outside town).
   { kind: "station", x: 90, z: 31, ry: Math.atan2(-90, -31), w: 10, d: 5, seed: 61 },
   // Summit gondola base station on the snowy hill beside the trailhead.
@@ -105,7 +105,7 @@ export const TOWN_BUILDINGS: TownBuilding[] = [
 export const TOWN_AREAS: { kind: "square" | "rink" | "camp" | "fair" | "garden" | "balloons" | "golf"; x: number; z: number; r: number; clear?: number }[] = [
   { kind: "garden", x: 56, z: 11, r: 6.5 },
   { kind: "balloons", x: 52, z: -52, r: 9 },
-  { kind: "golf", x: -46, z: 86, r: 6 },
+  { kind: "golf", x: -21, z: 90, r: 5 },
   { kind: "square", x: -74, z: 0, r: 10 },
   { kind: "rink", x: -24, z: -52, r: 7, clear: 16 },
   { kind: "camp", x: -19, z: 62, r: 9 },
@@ -134,7 +134,7 @@ export const TOWN_PLACES = {
   camp: { x: -19, z: 62 },
   maple: { x: -86, z: 2.5 },
   greenhouse: { x: 56, z: -5 },
-  clubhouse: { x: -44, z: 70.5 },
+  clubhouse: { x: -21, z: 74 },
   station: { x: 86, z: 27 },
   balloons: { x: 52, z: -52 },
   gondola: { x: 15.5, z: -48.5 },

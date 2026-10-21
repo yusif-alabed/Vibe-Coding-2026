@@ -813,7 +813,7 @@ export function buildHub(r: Renderer): HubWorld {
       { text: "🎡 Fairground", x: 27, y: 16.5, z: 66 },
       { text: "🌲 Ranger Station", x: -8, y: 8, z: 80 },
       { text: "🏕️ Campground", x: -19, y: 4, z: 62 },
-      { text: "⛳ Golf Clubhouse", x: -46, y: 9.5, z: 76 },
+      { text: "⛳ Golf Clubhouse", x: -21, y: 9.5, z: 80 },
       { text: "🚂 Valley Station", x: 90, y: 8, z: 31 },
       { text: "🚡 Summit Gondola", x: 18, y: 10, z: -53 },
       { text: "🎈 Balloon Meadow", x: 52, y: 4, z: -52 },
