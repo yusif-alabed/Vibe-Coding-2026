@@ -17,8 +17,13 @@ export interface CamZone {
   weight(x: number, z: number): number;
   /** Camera eye and look-at target for a beaver standing at focus. */
   camera(focus: Vec3): { eye: Vec3; target: Vec3 };
-  /** Camera yaw used for controls (W walks away from the camera). */
+  /** Camera yaw the view settles to. */
   yaw(focus: Vec3): number;
+  /**
+   * Yaw used for walking controls: on a street "forward" goes straight up the road, even though the
+   * camera looks at it from an angle.
+   */
+  moveYaw(focus: Vec3): number;
 }
 
 const smooth = (a: number, b: number, v: number) => {
@@ -48,6 +53,11 @@ function rail(name: string, seg: readonly [number, number, number, number], half
       return { eye, target: [f[0] - sx * 2, f[1] + 1.0, f[2] - sz * 2] };
     },
     yaw: () => yaw,
+    // Forward = along the street, in whichever direction the camera is looking.
+    moveYaw: () => {
+      const s = ux * -sx + uz * -sz >= 0 ? 1 : -1;
+      return Math.atan2(-ux * s, -uz * s);
+    },
   };
 }
 
@@ -61,6 +71,7 @@ function stand(name: string, cx: number, cz: number, radius: number, eyeOff: Vec
       return { eye, target: [cx + (f[0] - cx) * 0.6, f[1] + 0.8, cz + (f[2] - cz) * 0.6] };
     },
     yaw: (f) => Math.atan2(eye[0] - f[0], eye[2] - f[2]),
+    moveYaw: (f) => Math.atan2(eye[0] - f[0], eye[2] - f[2]),
   };
 }
 

@@ -810,7 +810,11 @@ export class HubScene implements Scene {
     }
 
     // Local movement (predicted; the server validates the same way).
-    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+    // On a street with a fixed angled camera, "forward" runs straight up the road.
+    const ctrlYaw = zoneHere.zone && zoneHere.weight > 0.05
+      ? lerpAngle(this.yaw, zoneHere.zone.moveYaw([fz0.x, fz0.y, fz0.z]), Math.min(1, zoneHere.weight * 1.5))
+      : this.yaw;
+    const fx = -Math.sin(ctrlYaw), fz = -Math.cos(ctrlYaw);
     let mx = 0, mz = 0;
     if (inp.down("w", "arrowup")) { mx += fx; mz += fz; }
     if (inp.down("s", "arrowdown")) { mx -= fx; mz -= fz; }
