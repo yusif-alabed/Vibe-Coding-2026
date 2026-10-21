@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  ANSWERS, CLUES, GROUPS, WordMatch, hiveWords, known, markGuess, scoreWord, stillPossible, wordCoins, wordsOfLength,
+  ANSWERS, CLUES, GROUPS, WordMatch, hiveWords, isWordGame, known, makePuzzle, markGuess, parseWordAction,
+  scoreWord, stillPossible, wordCoins, wordsOfLength,
 } from "./index";
 import { BeePuzzle } from "./bee";
 import { ConnectionsPuzzle } from "./connections";
@@ -315,4 +316,71 @@ test("word lists are big enough to keep puzzles fresh", () => {
   assert.ok(wordsOfLength(5).length > 2000);
   assert.ok(wordsOfLength(4).length > 1000);
   assert.ok(wordsOfLength(3).length > 300);
+});
+
+// ------------------------------------------------------------------ hostile input
+
+test("only the four real game names are accepted", () => {
+  for (const g of GAMES) assert.equal(isWordGame(g), true, g);
+  // `game in WORD_INFO` used to let these through, and the match then held an undefined puzzle.
+  for (const bad of ["toString", "constructor", "__proto__", "valueOf", "hasOwnProperty", "", "WORDLE", null, 7, {}]) {
+    assert.equal(isWordGame(bad), false, `${String(bad)} must be rejected`);
+  }
+  assert.throws(() => makePuzzle("toString" as never, 1), /unknown word game/);
+});
+
+test("a malformed action is turned away rather than crashing the room", () => {
+  // Each of these reached the rules before and threw: the puzzles call `a.word.toLowerCase()`
+  // and spread `a.cards`, so one bad message took the server down with it.
+  const junk: unknown[] = [
+    null, undefined, 42, "guess", [], {},
+    { kind: "guess" }, { kind: "guess", word: 12345 }, { kind: "guess", word: "has space" },
+    { kind: "guess", word: "x".repeat(99) },
+    { kind: "pick" }, { kind: "pick", cards: "nope" }, { kind: "pick", cards: [1, "2"] },
+    { kind: "pick", cards: [0, 99] }, { kind: "pick", cards: [1.5] },
+    { kind: "fill" }, { kind: "fill", cell: "3", letter: "a" }, { kind: "fill", cell: 1, letter: "ab" },
+    { kind: "fill", cell: 1, letter: 5 }, { kind: "fill", cell: -1, letter: "a" }, { kind: "fill", cell: 1, letter: "!" },
+    { kind: "nonsense" },
+  ];
+  for (const raw of junk) assert.equal(parseWordAction(raw), null, `should reject ${JSON.stringify(raw)}`);
+
+  assert.deepEqual(parseWordAction({ kind: "guess", word: "CRANE" }), { kind: "guess", word: "crane" });
+  assert.deepEqual(parseWordAction({ kind: "pick", cards: [3, 1, 0, 2] }), { kind: "pick", cards: [3, 1, 0, 2] });
+  assert.deepEqual(parseWordAction({ kind: "fill", cell: 7, letter: "Q" }), { kind: "fill", cell: 7, letter: "q" });
+  assert.deepEqual(parseWordAction({ kind: "fill", cell: 7, letter: "" }), { kind: "fill", cell: 7, letter: "" });
+
+  // And with the gate in place, feeding the junk straight through changes nothing.
+  for (const game of GAMES) {
+    const m = new WordMatch(game, 5, entrants(1));
+    for (const raw of junk) {
+      const a = parseWordAction(raw);
+      if (a) m.act("me", a);
+    }
+    assert.equal(m.player("me")!.done, false, `${game}: junk should not end the round`);
+  }
+});
+
+test("walking out earns nothing for placing", () => {
+  const m = new WordMatch("wordle", 1, entrants(2));
+  m.quit("me");
+  const mine = m.results().find((r) => r.id === "me")!;
+  // Quitting instantly used to come first (nobody had scored, and an early finish won the
+  // tie-break), paying a podium bonus for doing nothing at all.
+  assert.equal(mine.place, 3, "a quitter ranks below everyone still playing");
+  assert.equal(mine.coins, 0, `quitting paid ${mine.coins} coins`);
+
+  // Someone who played and ran out of time still gets paid.
+  const played = new WordMatch("wordle", 1, entrants(2));
+  played.act("me", { kind: "guess", word: "crane" });
+  played.advance(Date.now() + played.setup.seconds * 1000 + 1);
+  assert.ok(played.results().find((r) => r.id === "me")!.coins > 0, "playing and losing still pays");
+});
+
+test("solving still beats a rival who quit early", () => {
+  const m = new WordMatch("bee", 613, entrants(2));
+  m.quit("me");
+  const [, a] = m.players;
+  a.score = 1;
+  const order = m.results().map((r) => r.id);
+  assert.equal(order[order.length - 1], "me", "the quitter is last");
 });

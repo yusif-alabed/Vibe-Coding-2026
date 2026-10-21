@@ -132,6 +132,8 @@ export interface WordPlayerState {
   nextAt: number;
   /** Bots only: scratch space the puzzle's bot logic can keep notes in. */
   memo: string[];
+  /** Walked out rather than finishing. Ranks last among equals and earns no placing bonus. */
+  gaveUp: boolean;
 }
 
 /** What a move did. */
@@ -172,6 +174,55 @@ export interface WordResult {
   /** Seconds taken, when they finished. */
   time: number | null;
   coins: number;
+}
+
+/**
+ * The four games, as a list rather than only as object keys.
+ *
+ * `game in WORD_INFO` is true for "toString", "constructor" and every other name on
+ * Object.prototype, so a client could ask for one and the server would happily try to build a
+ * puzzle that does not exist. Membership is checked against this instead.
+ */
+export const WORD_GAMES: readonly WordGame[] = ["wordle", "connections", "crossword", "bee"];
+
+/** True only for a real game name, whatever a client sends. */
+export function isWordGame(v: unknown): v is WordGame {
+  return typeof v === "string" && (WORD_GAMES as readonly string[]).includes(v);
+}
+
+/**
+ * Turns whatever arrived over the wire into an action, or null.
+ *
+ * Nothing downstream may assume a shape: the puzzles read `a.word.toLowerCase()` and spread
+ * `a.cards`, so a client sending `null`, a number, or a string where an array belongs would
+ * take the room — and the server process with it — down. Every field is checked and clamped
+ * here so the rules themselves can stay readable.
+ */
+export function parseWordAction(raw: unknown): WordAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Record<string, unknown>;
+  if (a.kind === "guess") {
+    if (typeof a.word !== "string" || a.word.length > 24) return null;
+    if (!/^[a-zA-Z]*$/.test(a.word)) return null;
+    return { kind: "guess", word: a.word.toLowerCase() };
+  }
+  if (a.kind === "pick") {
+    if (!Array.isArray(a.cards) || a.cards.length > 16) return null;
+    const cards: number[] = [];
+    for (const c of a.cards) {
+      if (typeof c !== "number" || !Number.isInteger(c) || c < 0 || c > 15) return null;
+      cards.push(c);
+    }
+    return { kind: "pick", cards };
+  }
+  if (a.kind === "fill") {
+    if (typeof a.cell !== "number" || !Number.isInteger(a.cell) || a.cell < 0 || a.cell > 400) return null;
+    const letter = a.letter;
+    if (typeof letter !== "string" || letter.length > 1) return null;
+    if (letter && !/^[a-zA-Z]$/.test(letter)) return null;
+    return { kind: "fill", cell: a.cell, letter: letter.toLowerCase() };
+  }
+  return null;
 }
 
 export const WORD_INFO: Record<WordGame, { name: string; icon: string; how: string; scoreLabel: string; seconds: number }> = {

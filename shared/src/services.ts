@@ -4,7 +4,7 @@ import { questEvent, type ProgressRecord } from "./progress";
 import { visitedPlace, type QuestEvent, type VisitPlace } from "./quests";
 import { TOWN_PLACES } from "./constants";
 import { weekKey, type LeaderGame, type MiniGame, ARCADE_INFO } from "./minigames";
-import { WORD_INFO, type WordGame } from "./words/types";
+import { WORD_INFO, isWordGame, type WordGame } from "./words/types";
 
 /**
  * Per-player rules shared by the game server and solo mode, so both behave exactly the same:
@@ -118,8 +118,9 @@ export function actAllowed(a: HubAct, x: number, z: number): boolean {
 export function isLeaderGame(game: unknown): game is LeaderGame {
   if (typeof game !== "string") return false;
   if (game === "golf") return true;
-  if (game.startsWith("word:")) return game.slice(5) in WORD_INFO;
-  return game in ARCADE_INFO;
+  // `in` would also accept "toString" and every other name on Object.prototype.
+  if (game.startsWith("word:")) return isWordGame(game.slice(5));
+  return Object.hasOwn(ARCADE_INFO, game);
 }
 
 /** The name, icon and units for anything with a weekly leaderboard. */

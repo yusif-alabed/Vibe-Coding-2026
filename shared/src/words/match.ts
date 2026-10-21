@@ -22,6 +22,9 @@ export function makePuzzle(game: WordGame, seed: number): WordPuzzle {
     case "connections": return new ConnectionsPuzzle(seed);
     case "crossword": return new CrosswordPuzzle(seed);
     case "bee": return new BeePuzzle(seed);
+    // Reached only if a caller skipped `isWordGame`; better a clear throw than a match
+    // holding an undefined puzzle that fails on the first move.
+    default: throw new Error(`unknown word game: ${String(game)}`);
   }
 }
 
@@ -49,6 +52,7 @@ export class WordMatch {
         skill: 0.35 + this.rand() * 0.6,
         nextAt: 0,
         memo: [],
+        gaveUp: false,
       };
       this.puzzle.start(p);
       p.nextAt = now + (2 + this.rand() * 6 + i) * 1000;
@@ -122,11 +126,17 @@ export class WordMatch {
     return Math.max(0, this.startedAt + this.setup.seconds * 1000 - now);
   }
 
-  /** A player gives up and leaves; their score stands. */
+  /**
+   * A player gives up and leaves. Their score stands, but they are marked as having walked
+   * out: without that, quitting on the first second sorted *above* everyone still playing
+   * (nobody had scored yet, and an early `finishedAt` won the tie-break), so the fastest way
+   * to earn coins at the Lodge was to start a round and immediately leave it.
+   */
   quit(id: string, now = Date.now()): void {
     const p = this.player(id);
     if (!p || p.done) return;
     p.done = true;
+    p.gaveUp = true;
     p.finishedAt = Math.round(((now - this.startedAt) / 1000) * 10) / 10;
   }
 
@@ -161,15 +171,17 @@ export class WordMatch {
     return [...this.players]
       .sort((a, b) =>
         Number(b.solved) - Number(a.solved) ||
+        Number(a.gaveUp) - Number(b.gaveUp) ||
         b.score - a.score ||
-        (a.finishedAt ?? Infinity) - (b.finishedAt ?? Infinity))
+        // Finishing earlier only wins the tie-break if you finished by solving it.
+        ((a.solved ? a.finishedAt : null) ?? Infinity) - ((b.solved ? b.finishedAt : null) ?? Infinity))
       .map((p, i) => ({
         id: p.id, name: p.name, isBot: p.isBot,
         place: i + 1,
         score: p.score,
         solved: p.solved,
         time: p.finishedAt,
-        coins: p.isBot ? 0 : wordCoins(this.game, i + 1, p.solved, p.score, this.players.length),
+        coins: p.isBot ? 0 : wordCoins(this.game, i + 1, p.solved, p.score, this.players.length, p.gaveUp),
       }));
   }
 
@@ -179,11 +191,17 @@ export class WordMatch {
   }
 }
 
-/** Coins for a round, on the same scale as the races and the arcade games. */
-export function wordCoins(game: WordGame, place: number, solved: boolean, score: number, players: number): number {
-  const podium = players > 1 ? [25, 15, 10, 8][place - 1] ?? 5 : 0;
+/**
+ * Coins for a round, on the same scale as the races and the arcade games.
+ *
+ * Placing only pays if you saw the puzzle through. Paying for a podium you reached by walking
+ * out after one second made leaving the best-value thing to do in the building.
+ */
+export function wordCoins(game: WordGame, place: number, solved: boolean, score: number, players: number, gaveUp = false): number {
+  const podium = players > 1 && !gaveUp && solved ? [25, 15, 10, 8][place - 1] ?? 5 : 0;
   const effort = Math.min(45, Math.round(score / (game === "bee" ? 3 : 6)));
-  return (solved ? 30 : 8) + effort + podium;
+  const showedUp = gaveUp ? 0 : 8;
+  return (solved ? 30 : showedUp) + effort + podium;
 }
 
 export { WORD_INFO };

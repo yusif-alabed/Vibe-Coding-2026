@@ -24,6 +24,17 @@ const options = {
   logLevel: "info",
 };
 
+/**
+ * Puts the app tag (or the whole bundle) into the page.
+ *
+ * The replacement has to be a function. With a string, `$&`, "$`" and friends are substitution
+ * patterns, and a minified bundle can easily contain them — esbuild names a variable `$`, the
+ * next token is `&&`, and the `$&` it forms gets replaced by the matched `<!--APP-->`. The
+ * stray `<!--` then comments out the rest of that line, which in minified output is most of
+ * the program, and the page dies with a syntax error somewhere far away.
+ */
+const injectApp = (page, tag) => page.replace("<!--APP-->", () => tag);
+
 // The template's "not built yet" notice is removed from every built page.
 const html = (await readFile(here("./index.html"), "utf8"))
   .replace(/<div id="boot-msg"[\s\S]*?<\/div>\s*/, "")
@@ -53,7 +64,7 @@ const inlineAssets = async (js) => {
 if (mode === "dev") {
   await mkdir(here("./dev"), { recursive: true });
   await copyPublic(here("./dev"));
-  await writeFile(here("./dev/index.html"), html.replace("<!--APP-->", '<script type="module" src="/app.js"></script>'));
+  await writeFile(here("./dev/index.html"), injectApp(html, '<script type="module" src="/app.js"></script>'));
   const ctx = await esbuild.context({ ...options, outfile: here("./dev/app.js") });
   await ctx.watch();
   const { port } = await ctx.serve({ servedir: here("./dev"), port: 5173 });
@@ -62,12 +73,12 @@ if (mode === "dev") {
   await mkdir(here("./dist"), { recursive: true });
   await copyPublic(here("./dist"));
   await esbuild.build({ ...options, outfile: here("./dist/app.js") });
-  await writeFile(here("./dist/index.html"), html.replace("<!--APP-->", '<script type="module" src="./app.js"></script>'));
+  await writeFile(here("./dist/index.html"), injectApp(html, '<script type="module" src="./app.js"></script>'));
 } else if (mode === "preview") {
   const out = await esbuild.build({ ...options, write: false, format: "iife" });
   const js = (await inlineAssets(out.outputFiles[0].text)).replace(/<\/script/gi, "<\\/script");
   await mkdir(here("./dist"), { recursive: true });
-  const page = html.replace("<!--APP-->", `<script>${js}</script>`);
+  const page = injectApp(html, `<script>${js}</script>`);
   await writeFile(here("./dist/beaver-banff.html"), page);
   // Also refresh the ready-to-play copy at the top of the repo, so anyone can just open index.html.
   await writeFile(here("../index.html"), page);

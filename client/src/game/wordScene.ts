@@ -82,6 +82,7 @@ function buildShell(r: Renderer): Shell {
   for (const s of [-1, 1]) {
     for (let b = 0; b < 4; b++) {
       const z = -6 + b * 4;
+      if (s < 0 && z > -4 && z < 2) continue; // the hearth stands here now
       m.box(compose(s * (halfW - 0.75), 1.9, z, 0, 0, 0, 0.7, 3.8, 3.2), C("#6f4a30"));
       for (let shelf = 0; shelf < 4; shelf++) {
         const y = 0.5 + shelf * 0.95;
@@ -101,11 +102,13 @@ function buildShell(r: Renderer): Shell {
     }
   }
 
-  // A hearth under the board end, and a rug of warm light from it.
-  m.box(compose(0, 1.1, -halfD + 0.5, 0, 0, 0, 4.4, 2.2, 0.8), C("#8d8272"));
-  m.box(compose(0, 0.85, -halfD + 0.95, 0, 0, 0, 2.6, 1.5, 0.3), C("#2a2522"));
-  g.box(compose(0, 0.62, -halfD + 1.0, 0, 0, 0, 2.1, 1.0, 0.18), C("#ff9a3c"));
-  m.box(compose(0, 2.4, -halfD + 0.55, 0, 0, 0, 5.0, 0.3, 1.1), C("#6f4a30"));
+  // A hearth on the left wall. It used to sit under the board at the end of the room, where it
+  // hid the bottom rows of every game; the end wall is now left clear for the board alone.
+  const hx = -halfW + 0.6;
+  m.box(compose(hx, 1.1, -1.5, 0, 0, 0, 0.8, 2.2, 4.4), C("#8d8272"));
+  m.box(compose(hx + 0.45, 0.85, -1.5, 0, 0, 0, 0.3, 1.5, 2.6), C("#2a2522"));
+  g.box(compose(hx + 0.5, 0.62, -1.5, 0, 0, 0, 0.18, 1.0, 2.1), C("#ff9a3c"));
+  m.box(compose(hx + 0.55, 2.4, -1.5, 0, 0, 0, 1.1, 0.3, 5.0), C("#6f4a30"));
 
   // Lecterns: one for you at the front, three for rivals further back.
   for (let i = 0; i < 4; i++) {
@@ -122,9 +125,10 @@ function buildShell(r: Renderer): Shell {
   const cell = new MeshBuilder();
   cell.box(compose(0, 0, 0, 0, 0, 0, 1, 1, 0.16), "#ffffff");
 
-  // A flat hexagon prism for the Bee hive.
+  // A flat hexagon prism for the Bee hive, lying in the XY plane so its face points at the
+  // room. Rotating it about Z (as it was) turns it edge-on and it all but disappears.
   const hex = new MeshBuilder();
-  hex.cylinder(compose(0, 0, 0, 0, 0, Math.PI / 2, 1, 0.22, 1), "#ffffff", 6);
+  hex.cylinder(compose(0, 0, 0, 0, Math.PI / 2, 0, 1, 1, 1), "#ffffff", 6);
 
   // The easel the crossword stands on.
   const easel = new MeshBuilder();
@@ -454,8 +458,8 @@ export class WordScene implements Scene {
 
     const aspect = r.canvas.clientWidth / Math.max(1, r.canvas.clientHeight);
     const shakeX = this.shake > 0 ? Math.sin(this.time * 60) * this.shake * 0.25 : 0;
-    const cam: Vec3 = [Math.sin(this.yaw) * 7 + shakeX, 4.2, 6.4];
-    const look: Vec3 = [shakeX * 0.4, 3.0, -4.5];
+    const cam: Vec3 = [Math.sin(this.yaw) * 7 + shakeX, 4.8, 7.6];
+    const look: Vec3 = [shakeX * 0.4, 3.8, -5.5];
     r.shadowFocus = [0, 1, -2];
     r.cutFocus = null;
     r.begin(lookAt(cam, look), perspective(aspect < 0.8 ? 1.15 : 0.9, aspect, 0.3, 300), cam);
@@ -532,9 +536,9 @@ export class WordScene implements Scene {
     const ink = letters(r, INK);
     const white = letters(r, "#ffffff");
     const { length: cols, tries: rows } = this.setup;
-    const size = 0.92, step = 1.04;
+    const size = 0.78, step = 0.88;
     const x0 = -((cols - 1) * step) / 2;
-    const y0 = 5.3;
+    const y0 = 5.9;
     const z = -ROOM.halfD + 0.75;
 
     for (let row = 0; row < rows; row++) {
@@ -561,31 +565,33 @@ export class WordScene implements Scene {
       }
     }
 
-    // Rivals' boards on the side walls: colours only, never their letters.
+    // Rivals' boards flank the main one: colours only, never their letters.
+    //
+    // These began on the side walls, which was tidier and useless — the camera looks straight
+    // down the room, so nobody ever saw them. Watching a rival close in is the whole point of
+    // playing here, so they go where they can be watched.
     const others = this.rivals.filter((p) => p.id !== this.ctx.state.you).slice(0, 3);
+    const nameInk = letters(r, INK);
     others.forEach((p, i) => {
-      const side = i === 0 ? -1 : 1;
-      const wx = side * (ROOM.halfW - 1.3);
-      const wz = i === 2 ? 1.5 : -3.2;
-      const ry = side * Math.PI * 0.5;
-      const mini = 0.3, mstep = 0.34;
+      const side = i === 1 ? 1 : -1;
+      const bx = side * 6.4;
+      const by = i === 2 ? y0 - 2.9 : y0;
+      const mini = 0.34, mstep = 0.4;
       for (let row = 0; row < rows; row++) {
         const mark = p.marks[row] ?? "";
         for (let col = 0; col < cols; col++) {
           const mk = mark[col];
           const face = mk === "g" ? GREEN : mk === "y" ? AMBER : mk === "b" ? SLATE : "#d8cbb0";
-          const lx = (col - (cols - 1) / 2) * mstep;
-          const ly = 4.3 - row * mstep;
-          r.draw(this.shell.tile, compose(wx, ly, wz - lx * side, ry, 0, 0, mini, mini, 0.1), { tint: [...C(face), 1] });
+          r.draw(this.shell.tile, compose(bx + (col - (cols - 1) / 2) * mstep, by - row * mstep, z, 0, 0, 0, mini, mini, 0.12), {
+            tint: [...C(face), 1],
+          });
         }
       }
-      const name = letters(r, INK);
-      const label = (p.isBot ? p.name : p.name).slice(0, 8).toUpperCase();
+      const label = p.name.slice(0, 9).toUpperCase();
       for (let k = 0; k < label.length; k++) {
-        const glyph = name.get(label[k]);
+        const glyph = nameInk.get(label[k]);
         if (!glyph) continue;
-        const lx = (k - (label.length - 1) / 2) * 0.26;
-        r.draw(glyph, compose(wx, 4.85, wz - lx * side, ry, 0, 0, 0.22, 0.22, 0.06), {});
+        r.draw(glyph, compose(bx + (k - (label.length - 1) / 2) * 0.23, by + 0.46, z + 0.05, 0, 0, 0, 0.2, 0.2, 0.06), {});
       }
     });
   }
@@ -597,7 +603,7 @@ export class WordScene implements Scene {
     const ink = letters(r, INK);
     const white = letters(r, "#ffffff");
     const cardW = 2.5, cardH = 1.0, gapX = 2.7, gapY = 1.2;
-    const baseY = 3.9, z = -ROOM.halfD + 1.3;
+    const baseY = 4.6, z = -ROOM.halfD + 1.3;
 
     const foundOf = (i: number) => this.self.found.find((f) => f.cards.includes(i));
     // Solved groups collapse into a bar at the top, in the order they were found.
@@ -605,17 +611,17 @@ export class WordScene implements Scene {
       const y = baseY + 0.9 - gi * gapY;
       const col = GROUP_COLORS[f.rank] ?? GROUP_COLORS[0];
       r.draw(this.shell.card, compose(0, y, z, 0, 0, 0, gapX * 4, cardH, 0.2), { outline: 0.03, tint: [...C(col), 1] });
-      const text = `${f.theme.toUpperCase()}`.slice(0, 26);
+      const text = f.theme.toUpperCase().slice(0, 26);
       for (let k = 0; k < text.length; k++) {
         const glyph = ink.get(text[k]);
         if (!glyph) continue;
-        r.draw(glyph, compose((k - (text.length - 1) / 2) * 0.33, y + 0.18, z + 0.14, 0, 0, 0, 0.26, 0.26, 0.07), {});
+        r.draw(glyph, compose((k - (text.length - 1) / 2) * 0.3, y + 0.2, z + 0.14, 0, 0, 0, 0.27, 0.27, 0.07), {});
       }
       const words = f.cards.map((c) => this.setup.cards[c].toUpperCase()).join(" ");
       for (let k = 0; k < words.length; k++) {
         const glyph = ink.get(words[k]);
         if (!glyph) continue;
-        r.draw(glyph, compose((k - (words.length - 1) / 2) * 0.26, y - 0.22, z + 0.14, 0, 0, 0, 0.2, 0.2, 0.06), {});
+        r.draw(glyph, compose((k - (words.length - 1) / 2) * 0.23, y - 0.24, z + 0.14, 0, 0, 0, 0.21, 0.21, 0.06), {});
       }
     });
 
@@ -633,11 +639,12 @@ export class WordScene implements Scene {
         outline: 0.03, tint: [...C(face), 1],
       });
       const word = this.setup.cards[i].toUpperCase();
-      const letterSize = word.length > 7 ? 0.26 : word.length > 5 ? 0.3 : 0.34;
+      // Sized so the longest word still fits the card at a spacing that keeps letters apart.
+      const letterSize = Math.min(0.34, (cardW - 0.3) / (word.length * 1.08));
       for (let k = 0; k < word.length; k++) {
         const glyph = (chosen ? ink : ink).get(word[k]);
         if (!glyph) continue;
-        const lx = (k - (word.length - 1) / 2) * letterSize * 0.82;
+        const lx = (k - (word.length - 1) / 2) * letterSize * 1.08;
         r.draw(glyph, compose(x + lx, y + lift * 0.14, z + lift * 0.3 + 0.12, 0, 0, 0, letterSize, letterSize, 0.07), {});
       }
       // Tapping a card picks it; four picks submit.
@@ -663,7 +670,7 @@ export class WordScene implements Scene {
     // Mistake pips under the table.
     for (let k = 0; k < this.setup.tries; k++) {
       const used = k < this.self.mistakes;
-      r.draw(this.shell.hex, compose(-0.6 + k * 0.4, baseY - 4.6, z + 0.2, 0, 0, 0, 0.14, 0.14, 0.14), {
+      r.draw(this.shell.hex, compose(-0.6 + k * 0.4, baseY - 5.1, z + 0.2, 0, 0, 0, 0.14, 0.14, 0.14), {
         unlit: true, emissive: used ? 0.1 : 0.5, tint: used ? [0.35, 0.3, 0.28, 1] : [0.95, 0.5, 0.35, 1],
       });
     }
@@ -675,12 +682,12 @@ export class WordScene implements Scene {
     const { r } = this.ctx;
     const ink = letters(r, INK);
     const size = this.setup.size;
-    const cell = 0.95, step = 1.0;
+    const cell = 0.85, step = 0.9;
     const x0 = -((size - 1) * step) / 2;
-    const y0 = 5.1;
+    const y0 = 5.9;
     const z = -ROOM.halfD + 1.0;
 
-    r.draw(this.shell.easel, compose(0, 0, z + 0.5), {});
+    r.draw(this.shell.easel, compose(0, 2.2, z + 0.5), {});
     r.draw(this.shell.cell, compose(0, y0 - ((size - 1) * step) / 2, z - 0.12, 0, 0, 0, size * step + 0.4, size * step + 0.4, 0.14), {
       outline: 0.03, tint: [...C("#6f4a30"), 1],
     });
@@ -733,14 +740,18 @@ export class WordScene implements Scene {
       }
     }
 
-    // The clue for wherever the cursor is, on the lectern board.
-    const text = clue ? `${clue.n} ${clue.dir === "a" ? "ACROSS" : "DOWN"} — ${clue.text.toUpperCase()}` : "";
-    const lines = wrap(text, 30);
+    // The clue for wherever the cursor is, on a board under the grid.
+    const text = clue ? `${clue.n} ${clue.dir === "a" ? "ACROSS" : "DOWN"}  ${clue.text.toUpperCase()}` : "";
+    const lines = wrap(text, 22);
+    const boardY = y0 - size * step - 0.75;
+    r.draw(this.shell.cell, compose(0, boardY - (lines.length - 1) * 0.16, z + 0.05, 0, 0, 0, 6.4, 0.5 + lines.length * 0.34, 0.12), {
+      outline: 0.02, unlit: true, emissive: 0.5, tint: [...C("#fdfaf2"), 1],
+    });
     lines.forEach((line, li) => {
       for (let k = 0; k < line.length; k++) {
         const glyph = ink.get(line[k]);
         if (!glyph) continue;
-        r.draw(glyph, compose((k - (line.length - 1) / 2) * 0.23, 1.55 - li * 0.3, 1.0, 0, -0.5, 0, 0.19, 0.19, 0.05), {});
+        r.draw(glyph, compose((k - (line.length - 1) / 2) * 0.24, boardY - li * 0.32, z + 0.14, 0, 0, 0, 0.21, 0.21, 0.06), {});
       }
     });
   }
@@ -750,20 +761,20 @@ export class WordScene implements Scene {
   private drawBee() {
     const { r } = this.ctx;
     const ink = letters(r, INK);
-    const hive: [number, number][] = [[0, 0], [0, 1.5], [1.3, 0.75], [1.3, -0.75], [0, -1.5], [-1.3, -0.75], [-1.3, 0.75]];
-    const cx = 0, cy = 3.2, z = -ROOM.halfD + 1.6;
+    const hive: [number, number][] = [[0, 0], [0, 1.72], [1.49, 0.86], [1.49, -0.86], [0, -1.72], [-1.49, -0.86], [-1.49, 0.86]];
+    const cx = 0, cy = 4.0, z = -ROOM.halfD + 1.6;
 
     hive.forEach(([hx, hy], i) => {
       const ch = i === 0 ? this.setup.centre : this.setup.outer[i - 1];
       const centre = i === 0;
       const used = this.typed.includes(ch);
-      r.draw(this.shell.hex, compose(cx + hx, cy + hy, z, 0, 0, Math.PI / 6, 0.78, 0.78, 0.24), {
+      r.draw(this.shell.hex, compose(cx + hx, cy + hy, z, 0, Math.PI / 2, 0, 0.98, 0.26, 0.98), {
         outline: 0.03,
         tint: centre ? [...C("#f2c14e"), 1] : used ? [...C("#ffe9a8"), 1] : [...C(CREAM), 1],
         emissive: centre ? 0.18 : 0,
       });
       const glyph = ink.get(ch);
-      if (glyph) r.draw(glyph, compose(cx + hx, cy + hy, z + 0.16, 0, 0, 0, 0.5, 0.5, 0.08), {});
+      if (glyph) r.draw(glyph, compose(cx + hx, cy + hy, z + 0.2, 0, 0, 0, 0.6, 0.6, 0.09), {});
       const sp = r.project(cx + hx, cy + hy, z + 0.2);
       if (sp && !this.self.done) this.hotspots.push({ x: sp.x, y: sp.y, r: 34, hit: () => this.press(ch) });
     });

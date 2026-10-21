@@ -57,6 +57,8 @@ import {
   TOWN_PLACES,
   weekKey,
   lowerIsBetter,
+  isWordGame,
+  parseWordAction,
   WordMatch,
   hashString,
   mulberry32,
@@ -640,12 +642,13 @@ export class OfflineNet implements Net {
         else this.queued = false;
         break;
       case "queueWord":
-        this.startWord(msg.game);
+        if (isWordGame(msg.game)) this.startWord(msg.game);
         break;
       case "wordAct": {
         const w = this.word;
-        if (!w) break;
-        const r = w.act(this.me.id, msg.a, Date.now());
+        const act = parseWordAction(msg.a);
+        if (!w || !act) break;
+        const r = w.act(this.me.id, act, Date.now());
         if (r.ok || r.note) this.emit({ t: "wordState", you: w.self(this.me.id), rivals: w.rivals() });
         if (w.advance(Date.now())) this.endWord(false);
         break;

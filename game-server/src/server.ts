@@ -12,7 +12,8 @@ import {
   lifeWire,
   recordBest,
   isLeaderGame,
-  WORD_INFO,
+  isWordGame,
+  parseWordAction,
   recordEvent,
   recordVisit,
   takeItem,
@@ -236,11 +237,15 @@ export class GameServer {
         if (hub) this.golfQueue(c, hub, Number(msg.holes));
         break;
       case "queueWord":
-        if (hub) this.wordQueue(c, hub, msg.game);
+        if (hub && isWordGame(msg.game)) this.wordQueue(c, hub, msg.game);
         break;
       case "wordAct": {
         const w = c.wordId ? this.words.get(c.wordId) : undefined;
-        w?.act(c, msg.a);
+        // Never hand the rules a shape they weren't promised: the puzzles read
+        // `a.word.toLowerCase()` and spread `a.cards`, so a malformed action would take the
+        // whole process down, not just this player's round.
+        const action = parseWordAction(msg.a);
+        if (w && action) w.act(c, action);
         break;
       }
       case "wordQuit": {
@@ -785,7 +790,7 @@ export class GameServer {
    */
   private wordQueue(c: Client, hub: HubRoom, game: WordGame): void {
     if (c.queued || c.raceId || c.golfId || c.wordId) return;
-    if (!(game in WORD_INFO)) return;
+    if (!isWordGame(game)) return;
     if (Math.hypot(c.x - TOWN_PLACES.wordlodge.x, c.z - TOWN_PLACES.wordlodge.z) > 9) {
       c.send({ t: "error", text: "Walk up Library Lane to the Word Lodge first!" });
       return;
