@@ -3,6 +3,7 @@ import { compose, fbm2, hash2, hexToRgb, lerp, lerpAngle, lookAt, mixRgb, perspe
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
+import { coin } from "../ui/icons";
 import { Joystick } from "../ui/joystick";
 import { wantsJoystick } from "../prefs";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
@@ -143,9 +144,9 @@ export class SummitScene implements Scene {
     this.chat = chatBar(ctx);
     this.root.append(
       this.labels,
-      h("div.hud-top", {}, [h("div.pill", {}, "🏔️ Sulphur Summit · 2,281 m"), h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${ctx.state.coins}`)])]),
+      h("div.hud-top", {}, [h("div.pill", {}, "🏔️ Sulphur Summit · 2,281 m"), h("div.row.plank", {}, [h("div.pill.coins", {}, [coin(), String(ctx.state.coins)])])]),
       this.actionEl,
-      h("div.dock", {}, [
+      h("div.dock.plank", {}, [
         h("button.btn.cream.icon.pe", { title: "Photo mode", onclick: () => this.photo.open(this.me.ry, 6.5) }, "📷"),
         h("button.btn.orange.icon.pe", { title: "Ride the gondola down", onclick: () => this.down() }, "🚡"),
       ]),

@@ -42,6 +42,7 @@ import { compose, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } fr
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
+import { coin, icon } from "../ui/icons";
 import { furnitureGrid } from "../ui/furnitureShop";
 import { Joystick } from "../ui/joystick";
 import { Minimap } from "../ui/minimap";
@@ -337,11 +338,11 @@ export class HubScene implements Scene {
           h("div.pill", { title: room.id }, [room.isPrivate ? `🏡 ${room.code === "SOLO" ? "Solo village" : `Cabin ${room.code}`}` : `🏔️ ${room.id}`]),
           h("div.pill", { title: "Beavers here" }, ["🦫", this.countEl]),
         ]),
-        h("div.row", {}, [
-          h("div.pill.coins", { title: "Coins" }, ["🪙", this.coinsEl]),
-          (this.friendsBtn = h("button.btn.cream.icon.pe.badge-host", { title: "Friends & party", onclick: () => this.openFriendsPanel() }, "👥")),
-          h("button.btn.cream.icon.pe", { title: "Settings", onclick: () => this.openSettingsPanel() }, "⚙️"),
-          h("button.btn.cream.icon.pe", { title: "How to play", onclick: () => this.showHelp() }, "?"),
+        h("div.row.plank", {}, [
+          h("div.pill.coins", { title: "Coins" }, [coin(), this.coinsEl]),
+          (this.friendsBtn = h("button.btn.cream.icon.pe.badge-host", { title: "Friends & party", onclick: () => this.openFriendsPanel() }, icon("friends"))),
+          h("button.btn.cream.icon.pe", { title: "Settings", onclick: () => this.openSettingsPanel() }, icon("gear")),
+          h("button.btn.cream.icon.q.pe", { title: "How to play", onclick: () => this.showHelp() }, "?"),
         ]),
       ]),
     );
@@ -375,7 +376,7 @@ export class HubScene implements Scene {
     this.questsEl = h("div.card.quests.pe", { onclick: () => { this.questsOpen = !this.questsOpen; this.renderQuests(); } });
     this.root.append(this.questsEl);
     this.renderQuests();
-    this.root.append(h("div.dock", {}, [
+    this.root.append(h("div.dock.plank", {}, [
       h("button.btn.cream.icon.pe", { title: "My cabin", onclick: () => this.goHome() }, "🏡"),
       h("button.btn.cream.icon.pe", { title: "Photo mode", onclick: () => this.openPhoto() }, "📷"),
       (this.journalBtn = h("button.btn.cream.icon.pe", { title: "Journal & badges (J)", onclick: () => this.openLife("journal") }, "📖")),
@@ -466,15 +467,15 @@ export class HubScene implements Scene {
     const done = q.list.filter((x) => x.done).length;
     this.questsEl.classList.toggle("closed", !this.questsOpen);
     this.questsEl.replaceChildren(
-      h("header", {}, [h("span", {}, "📜 Daily quests"), h("span.n", {}, `${done}/${q.list.length} ${this.questsOpen ? "▴" : "▾"}`)]),
+      h("header", {}, [h("span", {}, [icon("calendar"), "Daily quests"]), h("span.n", {}, `${done}/${q.list.length} ${this.questsOpen ? "▴" : "▾"}`)]),
       h("div.ql", {}, [
         ...q.list.map((x) => h("div.quest" + (x.done ? ".done" : ""), {}, [
           h("span.qi", {}, x.done ? "✅" : x.icon),
           h("span.lbl", {}, `${x.label}${x.goal > 1 ? ` (${x.progress}/${x.goal})` : ""} · 🪙${x.reward}`),
           h("div.bar", {}, h("i", { style: { width: `${(100 * x.progress) / x.goal}%` } })),
         ])),
-        h("div.bonus" + (q.bonus ? ".got" : ""), {}, q.bonus ? "🎉 All done today! Bonus collected." : "Finish all three for a 🪙50 bonus · new quests at midnight UTC"),
-        this.cones.length ? h("div.bonus", {}, `🌰 Golden pinecones found today: ${this.conesGot.size}/${this.cones.length}`) : null,
+        h("div.bonus" + (q.bonus ? ".got" : ""), {}, [icon("tree"), h("span", {}, q.bonus ? "🎉 All done today! Bonus collected." : "Finish all three for a 🪙50 bonus · new quests at midnight UTC"), icon("tree")]),
+        this.cones.length ? h("div.bonus.cones", {}, `🌰 Golden pinecones found today: ${this.conesGot.size}/${this.cones.length}`) : null,
       ]),
     );
   }
@@ -921,7 +922,7 @@ export class HubScene implements Scene {
     const panel = h("div.card.panel", {}, [
       h("header", {}, [
         h("h2", {}, "🎒 Beaver Outfitter"),
-        h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${st.coins}`), h("button.btn.cream.small", { onclick: () => this.closeOverlays() }, "✕")]),
+        h("div.row", {}, [h("div.pill.coins", {}, [coin(), String(st.coins)]), h("button.btn.cream.small", { onclick: () => this.closeOverlays() }, "✕")]),
       ]),
       h("div.tabs", { style: "flex-wrap:wrap" }, tabs.map(([k, label]) => h("button.tab" + (k === this.shopTab ? ".on" : ""), { onclick: () => { this.shopTab = k; this.refreshShop(); } }, label))),
       h("div", { style: "padding:0 16px 6px;font-size:13px;color:var(--muted);font-weight:700" }, this.shopTab === "cabin"

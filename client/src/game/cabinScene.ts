@@ -14,6 +14,7 @@ import { compose, hash2, hexToRgb, lerp, lerpAngle, lookAt, mixRgb, perspective,
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
+import { coin } from "../ui/icons";
 import { furnitureGrid } from "../ui/furnitureShop";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
 import { applyTimeOfDay, dayPhase } from "./daylight";
@@ -245,9 +246,9 @@ export class CabinScene implements Scene {
     hud.append(
       h("div.hud-top", {}, [
         h("div.pill", {}, mine ? "🏡 Your cabin" : `🏡 ${msg.ownerName}'s cabin`),
-        h("div.row", {}, [h("div.pill.coins", { title: "Coins" }, ["🪙", this.coinsEl])]),
+        h("div.row.plank", {}, [h("div.pill.coins", { title: "Coins" }, [coin(), this.coinsEl])]),
       ]),
-      (this.socialEl = h("div.card.pe", { style: "position:absolute;right:12px;top:calc(70px + env(safe-area-inset-top,0px));padding:8px 12px;max-width:min(300px,70vw);display:grid;gap:6px" })),
+      (this.socialEl = h("div.card.pe", { style: "position:absolute;right:12px;top:calc(86px + env(safe-area-inset-top,0px));padding:8px 12px;max-width:min(300px,70vw);display:grid;gap:6px" })),
       this.hintEl,
       h("div.hud-bottom", {}, [
         h("button.btn.orange.pe", { onclick: () => this.leave() }, "🚪 Back to the village"),
@@ -396,7 +397,7 @@ export class CabinScene implements Scene {
     this.panelEl.replaceChildren(h("div.card.panel", {}, [
       h("header", {}, [
         h("h2", {}, "🛒 Cabin furniture"),
-        h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${this.ctx.state.coins}`), h("button.btn.cream.small", { onclick: () => this.closePanel() }, "✕")]),
+        h("div.row", {}, [h("div.pill.coins", {}, [coin(), String(this.ctx.state.coins)]), h("button.btn.cream.small", { onclick: () => this.closePanel() }, "✕")]),
       ]),
       h("div", { style: "padding:0 16px 6px;font-size:13px;color:var(--muted);font-weight:700" }, "Earn coins from races, daily quests and golden pinecones."),
       furnitureGrid(this.ctx),

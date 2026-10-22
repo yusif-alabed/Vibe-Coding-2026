@@ -21,6 +21,7 @@ import type { Ctx, Scene } from "./game/scene";
 import { OfflineNet } from "./net/offline";
 import { OnlineNet, type Net } from "./net/net";
 import { h, toast } from "./ui/dom";
+import { icon, logoMountains } from "./ui/icons";
 import { CSS } from "./ui/style";
 import { loadPrefs } from "./prefs";
 
@@ -86,7 +87,7 @@ function showTitle() {
     h("div.swatch.pe" + (c === titleLook.fur ? ".on" : ""), { style: { background: c }, title: "Fur colour", onclick: () => { titleLook.fur = c; drawSwatches(); } }),
   ));
   drawSwatches();
-  const code = h("input.field.pe", { placeholder: "Cabin code", maxLength: 5, style: "text-transform:uppercase", value: (params.get("room") ?? "").toUpperCase().slice(0, 5) }) as HTMLInputElement;
+  const code = h("input.field.code.pe", { placeholder: "Cabin code", maxLength: 5, value: (params.get("room") ?? "").toUpperCase().slice(0, 5) }) as HTMLInputElement;
   const invitedRoom = params.get("room");
   const invitedFriend = params.get("friend");
   const recovery = h("input.field.pe", { placeholder: "Recovery code (from your other device)", maxLength: 12, style: "text-transform:uppercase" }) as HTMLInputElement;
@@ -97,27 +98,30 @@ function showTitle() {
     ? [
         invitedRoom ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom.toUpperCase()) }, `🎉 Join your friend's cabin ${invitedRoom.toUpperCase()}`) : null,
         invitedFriend ? h("div.hint", { style: "margin:0" }, "👋 A friend invited you! Play online and you'll get a friend request to them.") : null,
-        h("button.btn.orange.pe", { onclick: () => go("public") }, "🏔️ Play online"),
-        h("div.row", {}, [
-          h("button.btn.pe", { style: "flex:1", onclick: () => go("private-new") }, "🏡 New private cabin"),
-        ]),
-        h("div.row", {}, [code, h("button.btn.cream.pe", { onclick: () => code.value.trim() && go(code.value.trim().toUpperCase()) }, "Join")]),
-        h("button.btn.cream.small.pe", { onclick: () => go(undefined) }, "Play solo with bot beavers"),
-        h("details.pe", { style: "text-align:left;font-weight:700;font-size:13px;color:var(--muted)" }, [h("summary", { style: "cursor:pointer" }, "Playing on a new device?"), h("div", { style: "margin-top:6px" }, recovery)]),
+        h("button.btn.orange.pe", { onclick: () => go("public") }, [icon("mountains"), "Play online"]),
+        h("button.btn.pe", { onclick: () => go("private-new") }, [icon("house"), "New private cabin"]),
+        h("div.row", {}, [code, h("button.btn.dark.pe", { onclick: () => code.value.trim() && go(code.value.trim().toUpperCase()) }, "Join")]),
+        h("button.btn.cream.small.pe", { onclick: () => go(undefined) }, "🦫 Play solo with bot beavers"),
+        h("details.pe", { style: "text-align:left;font-size:15px;color:var(--ink)" }, [h("summary", {}, "Playing on a new device?"), h("div", { style: "margin-top:6px" }, recovery)]),
       ]
-    : [h("button.btn.orange.pe", { style: "font-size:21px;padding:13px", onclick: () => go(undefined) }, "🛷 Let's go!")];
+    : [h("button.btn.orange.pe", { onclick: () => go(undefined) }, [icon("mountains"), "Let's go!"])];
 
-  titleEl = h("div.title", {}, h("div.card.pe", {}, [
-    h("h1.logo", {}, ["Beaver ", h("span", {}, "Banff")]),
-    h("div.tagline", {}, "Explore the mountains · meet friends · race toboggans · dress up"),
-    h("div.label", {}, "Name"),
-    name,
-    h("div.label", {}, "Fur colour"),
-    swatches,
-    h("div.stack", {}, buttons),
-    h("div.hint", {}, serverUrl
-      ? [h("b", {}, "Online: "), "every game is played with real beavers — no bots. ", h("b", {}, "Private cabin: "), "share the code with friends."]
-      : [h("b", {}, "Solo preview: "), "runs right in your browser with friendly bot beavers. Run the game server (see README) to play together online."]),
+  titleEl = h("div.title", {}, h("div.signpost.pe", {}, [
+    h("div.sign-head", {}, [
+      logoMountains(),
+      h("h1.logo", {}, ["Beaver ", h("span", {}, "Banff")]),
+      h("div.tagline", {}, "Explore the mountains · meet friends · race toboggans · dress up"),
+    ]),
+    h("div.sign-body", {}, h("div.card", {}, [
+      h("div.label", {}, [icon("tree"), "Name"]),
+      name,
+      h("div.label", {}, [icon("paw"), "Fur colour"]),
+      swatches,
+      h("div.stack", {}, buttons),
+      h("div.hint", {}, serverUrl
+        ? [h("b", {}, "Online: "), "every game is played with real beavers — no bots. ", h("b", {}, "Private cabin: "), "share the code with friends."]
+        : [h("b", {}, "Solo preview: "), "runs right in your browser with friendly bot beavers. Run the game server (see README) to play together online."]),
+    ])),
   ]));
   ui.append(titleEl);
   setTimeout(() => name.focus(), 50);
@@ -125,7 +129,7 @@ function showTitle() {
 
 function inviteCard(text: string, onYes: () => void, onNo: () => void) {
   const card = h("div.card.invite.pe", {}, [
-    h("div", { style: "font-weight:800;margin-bottom:8px" }, text),
+    h("div", { style: "margin-bottom:8px" }, text),
     h("div.row", { style: "justify-content:center" }, [
       h("button.btn.small", { onclick: () => { card.remove(); onYes(); } }, "✅ Yes!"),
       h("button.btn.small.cream", { onclick: () => { card.remove(); onNo(); } }, "No thanks"),
@@ -147,7 +151,7 @@ function start(rawName: string, room?: string, recovery?: string) {
   };
   titleEl?.remove();
   titleEl = null;
-  const loading = h("div.title", {}, h("div.card", { style: "padding:18px 26px;font:600 20px var(--font-display)" }, "Paddling over… 🦫"));
+  const loading = h("div.title", {}, h("div.card.loading-card", {}, "Paddling over… 🦫"));
   ui.append(loading);
 
   net.onMessage((m: ServerMsg) => {

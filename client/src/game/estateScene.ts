@@ -6,6 +6,7 @@ import { compose, hash2, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Ve
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
+import { coin } from "../ui/icons";
 import { Joystick } from "../ui/joystick";
 import { wantsJoystick } from "../prefs";
 import { drawBeaver, getBeaverMeshes, type BeaverPose } from "./beaver";
@@ -296,7 +297,7 @@ export class EstateScene implements Scene {
     this.panel = h("div.card.pe", { style: "position:absolute;right:12px;top:64px;width:min(340px,calc(100vw - 24px));max-height:calc(100% - 150px);overflow:auto;padding:12px;display:none;font-size:14px" });
     this.root.append(
       this.labels,
-      h("div.hud-top", {}, [h("div.pill", {}, "🎲 The Board Game Estate"), h("div.row", {}, [h("div.pill.coins", {}, `🪙 ${ctx.state.coins}`)])]),
+      h("div.hud-top", {}, [h("div.pill", {}, "🎲 The Board Game Estate"), h("div.row.plank", {}, [h("div.pill.coins", {}, [coin(), h("span.n", {}, String(ctx.state.coins))])])]),
       this.actionEl,
       this.panel,
       h("div.dock", {}, [
@@ -350,7 +351,7 @@ export class EstateScene implements Scene {
       for (const l of m.list) if (l.kind === "board") this.open.set(l.game as BoardGame, l);
       this.actionKey = "";
     }
-    if (m.t === "wallet") { this.ctx.state.coins = m.coins; const c = this.root.querySelector(".coins"); if (c) c.textContent = `🪙 ${m.coins}`; }
+    if (m.t === "wallet") { this.ctx.state.coins = m.coins; const c = this.root.querySelector(".coins .n"); if (c) c.textContent = String(m.coins); }
     if (m.t === "error") toast(this.root, m.text);
     if (m.t === "lifeSay") toast(this.root, m.text, 4200);
     if (m.t === "queue") {
