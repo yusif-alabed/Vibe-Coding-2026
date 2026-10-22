@@ -10,3 +10,4 @@ client/dev/
 data/
 game-server/data/
 public/
+.vercel
