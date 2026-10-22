@@ -55,6 +55,7 @@ import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import { openCasino, type CasinoPanel } from "../ui/casino";
+import { Interior, INTERIOR_KEYS, interiorTitle } from "./interiors";
 import { gondolaPoint, nextBoarding, railPoint, trainUnit } from "./village/transport";
 import { isFlyingPet, PetFollower, petMesh } from "./pets";
 import { buzz, Fishing, npcSay, openBag, openClubs, openGarden, openGolf, openJournal, openLeaderboard, openNeighbours, openWordLodge, PLACE_TITLES, type Panel } from "../ui/life";
@@ -294,6 +295,8 @@ export class HubScene implements Scene {
   private lifePanel: Panel | null = null;
   private lifePanelKind = "";
   private casino: CasinoPanel | null = null;
+  /** The building you've walked into, if any (you're still at its door as far as the server knows). */
+  private interior: Interior | null = null;
   private fishing: Fishing | null = null;
   private npcMarks = new Map<string, HTMLElement>();
   private townsfolk = NPCS.map((n) => ({ ...n, look: { fur: n.fur, hat: n.hat, scarf: n.scarf, backpack: null, trail: null } as Look, face: n.ry, talkT: 0 }));
@@ -433,7 +436,11 @@ export class HubScene implements Scene {
       e.preventDefault();
     }
     if (e.key === " ") this.ctx.net.send({ t: "emote", i: 1 });
-    if (e.key.toLowerCase() === "f") this.runAction();
+    if (e.key.toLowerCase() === "f") {
+      // Inside a building, F presses whatever's on the action button there.
+      if (this.interior) (this.actionEl.querySelector("button") as HTMLButtonElement | null)?.click();
+      else this.runAction();
+    }
     if (e.key === "Escape" && !this.minimap.isBig) this.closeOverlays();
     if (e.key.toLowerCase() === "p") this.openPhoto();
     if (e.key.toLowerCase() === "j") this.openLife("journal");
@@ -772,9 +779,39 @@ export class HubScene implements Scene {
     this.panelEl = el;
   }
 
-  private openCasino() {
+  private enterInterior(k: string) {
     this.closeOverlays();
-    this.casino = openCasino(this.ctx, this.root, () => { this.casino = null; });
+    this.target = null;
+    this.me.moving = 0;
+    const net = this.ctx.net;
+    this.interior = new Interior(this.ctx, k, {
+      queueGame: (g) => net.send({ t: "queueGame", game: g }),
+      queueWord: (g) => net.send({ t: "queueWord", game: g }),
+      lobbyGame: () => this.lobby?.game ?? null,
+      leaveLobby: () => net.send({ t: "lobbyLeave" }),
+      shop: (tab) => this.openShop(tab),
+      life: (kind, game) => this.openLife(kind, game),
+      casino: (tab) => this.openCasino(tab),
+      act: (a) => net.send({ t: "act", a }),
+      myAct: () => this.me.act ?? null,
+      read: () => net.send({ t: "read" }),
+      photo: () => this.openPhoto(),
+      toast: (text) => toast(this.root, text, 3200),
+    }, this.actionEl, this.root, this.joystick);
+    this.labels.style.visibility = "hidden";
+  }
+
+  private leaveInterior() {
+    this.interior?.dispose();
+    this.interior = null;
+    this.labels.style.visibility = "";
+    this.actionKey = "";
+    this.ctx.sound.play("step-snow", 0.5);
+  }
+
+  private openCasino(tab: "slots" | "roulette" | "blackjack" = "slots") {
+    this.closeOverlays();
+    this.casino = openCasino(this.ctx, this.root, () => { this.casino = null; }, tab);
     this.casino.el.dataset.panel = "other";
     this.panelEl = this.casino.el;
   }
@@ -954,7 +991,8 @@ export class HubScene implements Scene {
     if (d(TOWN_PLACES.casino) < 5) return "casino";
     if (d(TOWN_PLACES.sports) < 5.5) return "sports";
     if (d(TOWN_PLACES.club) < 5) return "club";
-    for (const g of ["spleef", "td", "shadowbox"] as MiniGame[]) {
+    if (d(TOWN_PLACES.gym) < 5.5) return "gym";
+    for (const g of ["spleef", "td"] as MiniGame[]) {
       const sp = (TOWN_PLACES as Record<string, { x: number; z: number }>)[GAME_SPOTS[g]];
       if (sp && d(sp) < 5.5) return `game:${g}`;
     }
@@ -992,6 +1030,7 @@ export class HubScene implements Scene {
 
   private runAction() {
     const k = this.nearby();
+    if (INTERIOR_KEYS.has(k)) { this.enterInterior(k); this.actionKey = ""; return; }
     const spot = this.spotGame(k);
     if (spot && this.lobby?.game === spot) this.ctx.net.send({ t: "lobbyLeave" });
     else if (k === "race") this.ctx.net.send({ t: "queueRace" });
@@ -1082,7 +1121,8 @@ export class HubScene implements Scene {
     if (pa) label = this.me.act === pa.act ? pa.done ?? "✋ Done" : pa.label;
     if (k === "station" && this.me.act === "train" && this.me.board && Date.now() < this.me.board.at) label = `🚉 Next train in ${Math.ceil((this.me.board.at - Date.now()) / 1000)}s · Leave`;
     if (INFO[k]?.label && k !== "library") label = INFO[k].label;
-    const sec = this.secondary(k);
+    if (INTERIOR_KEYS.has(k)) label = `🚪 Go inside: ${interiorTitle(k)}`;
+    const sec = INTERIOR_KEYS.has(k) ? null : this.secondary(k);
     const key = label + (sec?.label ?? "");
     if (key === this.actionKey) return;
     this.actionKey = key;
@@ -1154,6 +1194,11 @@ export class HubScene implements Scene {
 
   update(dt: number) {
     this.time += dt;
+    if (this.interior) {
+      this.animate(dt);
+      if (this.interior.update(dt) === "exit") this.leaveInterior();
+      return;
+    }
     const inp = this.ctx.input;
     if (this.photo.active) {
       this.photo.update(dt);
@@ -1523,6 +1568,7 @@ export class HubScene implements Scene {
   }
 
   render() {
+    if (this.interior) { this.interior.render(); return; }
     const { r } = this.ctx;
     const me = this.me;
     r.time = this.time;
@@ -1805,6 +1851,7 @@ export class HubScene implements Scene {
   }
 
   dispose() {
+    this.interior?.dispose();
     this.minimap.dispose();
     this.joystick?.dispose();
     this.photo.dispose();

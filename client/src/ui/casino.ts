@@ -20,8 +20,8 @@ function card(c: Card) {
 
 export interface CasinoPanel { el: HTMLElement; result(m: Extract<ServerMsg, { t: "casino" }>): void }
 
-export function openCasino(ctx: Ctx, root: HTMLElement, onClose: () => void): CasinoPanel {
-  let game: CasinoGame = "slots";
+export function openCasino(ctx: Ctx, root: HTMLElement, onClose: () => void, tab: CasinoGame = "slots"): CasinoPanel {
+  let game: CasinoGame = tab;
   let bet = 5;
   let choice: RouletteBet = "red";
   let busy = false;

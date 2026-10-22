@@ -98,4 +98,19 @@ describe("Downtown", () => {
     a.ws.close();
     b.ws.close();
   });
+
+  it("lets a beaver on their own play the computer", async () => {
+    const a = await connect("Solo");
+    const c = a.client();
+    c.x = TOWN_PLACES.estategate.x; c.z = TOWN_PLACES.estategate.z;
+    a.send({ t: "estate", enter: true });
+    await a.waitFor("estate");
+    a.send({ t: "boardQueue", game: "chess" });
+    await a.waitFor("queue", (m) => !!m.lobby);
+    a.send({ t: "lobbyStart" });
+    const v = await a.waitFor("board", () => true, 400);
+    assert.equal(v.v.seats.length, 2);
+    assert.ok(v.v.seats[1].isBot);
+    a.ws.close();
+  });
 });

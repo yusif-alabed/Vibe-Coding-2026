@@ -825,8 +825,9 @@ export class GameServer {
   }
 
   /**
-   * Sit down at a table: opens (or joins) the estate's lobby for that game. Like every game online
-   * it's real players only, so a table waits for a second beaver; everyone on the lawn can see it.
+   * Sit down at a table: opens (or joins) the estate's lobby for that game. Everyone on the lawn
+   * can see it and sit down too; the countdown starts when a second beaver does. If you're on your
+   * own you can start anyway and play the computer.
    */
   private queueBoard(c: Client, game: BoardGame): void {
     const grounds = c.estate && c.spaceId ? this.spaces.get(c.spaceId) : undefined;
@@ -836,7 +837,7 @@ export class GameServer {
     this.leaveLobby(c);
     let l = this.lobbies.get(key);
     if (!l) {
-      l = { kind: "board", game, key, hubId: grounds.id, players: [], size: BOARD_INFO[game].seats[1], min: 2, timer: null, startsAt: null };
+      l = { kind: "board", game, key, hubId: grounds.id, players: [], size: BOARD_INFO[game].seats[1], min: 1, timer: null, startsAt: null };
       this.lobbies.set(key, l);
     }
     if (l.players.length >= l.size) { c.send({ t: "error", text: "That table is full — the next one opens as soon as it starts." }); return; }
@@ -1006,7 +1007,8 @@ export class GameServer {
       // Board games are played right there on the lawn: nobody leaves the estate.
       this.announceLobbies(l.hubId);
       for (const p of players) p.send({ t: "queue", lobby: null });
-      if (players.length >= 2) this.startBoard(players, l.game, randomInt(1, 2 ** 31));
+      // Nobody else came and you pressed start: you play the computer.
+      if (players.length >= 1) this.startBoard(players, l.game, randomInt(1, 2 ** 31));
       return;
     }
     const hub = this.hubs.get(l.hubId);

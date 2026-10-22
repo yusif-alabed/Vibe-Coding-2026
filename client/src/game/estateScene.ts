@@ -612,11 +612,11 @@ export class EstateScene implements Scene {
     if (q) {
       const info = BOARD_INFO[q.game];
       const n = lob?.count ?? 1, size = lob?.size ?? info.seats[1];
-      const status = secs !== null ? `${info.icon} ${info.name} · ${n}/${size} · starting in ${secs}s` : `${info.icon} ${info.name} · waiting for another beaver…`;
+      const status = secs !== null ? `${info.icon} ${info.name} · ${n}/${size} · starting in ${secs}s` : `${info.icon} ${info.name} · waiting for another beaver (or play the computer)`;
       kids = [
         h("div.card", { style: "padding:8px 14px;font-weight:700;text-align:center" }, [status, lob && lob.names.length > 1 ? h("div.hint", { style: "margin:2px 0 0" }, lob.names.join(", ")) : ""]),
         h("div.row", { style: "gap:8px;justify-content:center" }, [
-          n >= (lob?.min ?? 2) ? big("▶ Start now", () => this.ctx.net.send({ t: "lobbyStart" }), ".orange") : "",
+          big(n <= 1 ? "🤖 Play the computer" : "▶ Start now", () => this.ctx.net.send({ t: "lobbyStart" }), ".orange"),
           big("Leave", () => this.ctx.net.send({ t: "lobbyLeave" }), ".cream"),
         ]),
       ];

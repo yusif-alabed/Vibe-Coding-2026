@@ -14,6 +14,7 @@ import { applyTimeOfDay, dayPhase } from "./daylight";
 import { buildMountains } from "./hubWorld";
 import { applyMood, currentMood, drawWeather, type WorldMood } from "./weather";
 import { spruce } from "./village/nature";
+import { buildGymHall } from "./village/gymHall";
 import type { Ctx, Scene } from "./scene";
 
 /**
@@ -109,28 +110,11 @@ function buildArena(r: Renderer, game: ArcadeGame): Meshes {
     }
     for (let i = 0; i < 24; i++) spruce(props, (i % 2 ? 1 : -1) * (20 + hash2(i, 1) * 10), 0, -12 + (i >> 1) * 2.5, 1.1 + hash2(i, 3) * 0.5, i);
   } else if (game === "hoops") {
-    ground.cylinder(compose(0, -0.5, 0, 0, 0, 0, 150, 1, 150), grass, 40);
-    ground.box(compose(0, 0.02, -3, 0, 0, 0, 26, 0.04, 14), "#c86a3c");
-    for (let i = 0; i < 4; i++) {
-      const x = (i - 1.5) * 5;
-      props.box(compose(x, 0.05, 0, 0, 0, 0, 1.4, 0.03, 0.1), "#ffffff"); // free-throw line
-      props.cylinder(compose(x, 1.7, -7.6, 0, 0, 0, 0.16, 3.4, 0.16), "#3a3a3a", 6);
-      props.box(compose(x, 3.6, -7.3, 0, 0, 0, 1.9, 1.2, 0.08), "#ffffff");
-      props.box(compose(x, 3.4, -7.24, 0, 0, 0, 0.6, 0.45, 0.02), "#e2483d");
-      props.torus(compose(x, 3.05, -6.85, 0, 0, 0, 1), "#ff7a1a", 0.3, 0.035, 14, 5);
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * Math.PI * 2;
-        props.box(compose(x + Math.cos(a) * 0.25, 2.85, -6.85 + Math.sin(a) * 0.25, 0, 0, 0, 0.02, 0.4, 0.02), "#f2f2f2");
-      }
-    }
-    // A chain-link fence and the town behind.
-    props.box(compose(0, 1.5, -10, 0, 0, 0, 28, 3, 0.05), "#9aa3a8");
-    for (let i = 0; i < 12; i++) {
-      const hh = 5 + hash2(i, 1) * 4, x = -18 + i * 3.3;
-      props.box(compose(x, hh / 2, -24, 0, 0, 0, 3, hh, 3.4), ["#c8473a", "#e8c37a", "#7a9ec4", "#a8c97a"][i % 4]);
-      props.box(compose(x, hh + 0.15, -24, 0, 0, 0, 3.3, 0.3, 3.7), "#5a3a2c");
-      for (let k = 0; k < Math.floor(hh / 2); k++) props.box(compose(x, 1.3 + k * 2, -22.28, 0, 0, 0, 1.6, 0.9, 0.05), "#ffe2a0");
-    }
+    // Indoors, in the Sports Centre's hall: four practice hoops along the back wall, one per shooter.
+    mtn = null;
+    ground.box(compose(0, -0.7, 2.85, 0, 0, 0, 32, 1, 24), "#b88a5a");
+    buildGymHall(props, { cx: 0, cz: 2.85, w: 30, d: 22, h: 9, practiceHoops: [-7.5, -2.5, 2.5, 7.5], courtHoops: true, openFront: true });
+    for (let i = 0; i < 4; i++) props.box(compose((i - 1.5) * 5, 0.013, 0, 0, 0, 0, 1.4, 0.012, 0.08), "#ffffff"); // shooting lines
   } else if (game === "penalty") {
     ground.cylinder(compose(0, -0.5, 0, 0, 0, 0, 150, 1, 150), (x, _y, z) => (Math.floor(z / 3) % 2 ? hexToRgb("#5fa54a") : hexToRgb("#6db456")), 40);
     const W = PENS.goalW, H = PENS.goalH, gz = -11;
@@ -541,10 +525,11 @@ export class DowntownScene implements Scene {
     const { r } = this.ctx;
     r.time = this.time;
     // The gym is indoors: always bright.
-    this.night = applyTimeOfDay(r, this.game === "shadowbox" ? 0.45 : dayPhase(this.ctx.prefs.time));
+    const indoors = this.game === "shadowbox" || this.game === "hoops";
+    this.night = applyTimeOfDay(r, indoors ? 0.45 : dayPhase(this.ctx.prefs.time));
     this.mood = currentMood(this.ctx.prefs);
     if (this.game === "spleef") this.mood = { ...this.mood, season: "winter" };
-    if (this.game === "shadowbox" || this.game === "volley") this.mood = { ...this.mood, weather: { ...this.mood.weather, kind: "clear" } };
+    if (this.game === "shadowbox" || this.game === "hoops" || this.game === "volley") this.mood = { ...this.mood, weather: { ...this.mood.weather, kind: "clear" } };
     applyMood(r, this.mood);
     if (this.game !== "spleef") r.env.snow = 0;
     r.resize();
@@ -564,10 +549,11 @@ export class DowntownScene implements Scene {
     r.begin(lookAt(cam, look), perspective(aspect < 0.8 ? 1.1 : 0.9, aspect, 0.3, 2400), cam);
     const I = compose(0, 0, 0);
     if (this.m.mtn) r.draw(this.m.mtn, compose(0, -10, 0), { noCast: true });
-    r.draw(this.m.ground, I, { noCast: true, season: g !== "shadowbox" });
-    r.draw(this.m.props, I, { sway: 0.1, season: g !== "shadowbox" });
+    const inside = g === "shadowbox" || g === "hoops";
+    r.draw(this.m.ground, I, { noCast: true, season: !inside });
+    r.draw(this.m.props, I, { sway: inside ? 0 : 0.1, season: !inside, noCast: g === "hoops" });
     if (this.m.water) r.draw(this.m.water, I, { wave: 1, alpha: 0.85 });
-    if (g !== "shadowbox") drawWeather(r, this.mood, this.time, cam, this.night);
+    if (!inside) drawWeather(r, this.mood, this.time, cam, this.night);
 
     const pose = (p: P, extra: Partial<BeaverPose> = {}): BeaverPose => ({
       walk: this.time * 10, moving: p.s.moving || 0, swim: 0, jump: 0, wave: 0, sled: 0, time: this.time,

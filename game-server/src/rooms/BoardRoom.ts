@@ -1,11 +1,11 @@
-import { BOARD_INFO, BoardMatch, type BoardAction, type BoardGame } from "@beaver/shared";
+import { BOARD_INFO, BOT_NAMES, BoardMatch, type BoardAction, type BoardGame } from "@beaver/shared";
 import type { Client } from "../client";
 
 /**
  * One table at the Board Game Estate. Same shape as `WordRoom`: the rules all live in `BoardMatch`
- * in shared/, this just feeds it actions and a clock. Every seat is a real player who came through the
- * estate's lobby; if one leaves mid-game their seat resigns (and in three- or four-player games a
- * bot quietly finishes their turns). Every seat gets only its own `view()`.
+ * in shared/, this just feeds it actions and a clock. Seats are the real players who sat down; a
+ * beaver who started on their own plays the computer. If someone leaves mid-game their seat resigns
+ * (in three- or four-player games a bot quietly finishes their turns). Every seat gets only its own `view()`.
  */
 export class BoardRoom {
   readonly match: BoardMatch;
@@ -20,9 +20,14 @@ export class BoardRoom {
     seed: number,
     private readonly onDone: (room: BoardRoom) => void,
   ) {
-    // Online it's real players only: the lobby guarantees at least two. (Solo mode adds bots itself.)
-    const humans = players.slice(0, BOARD_INFO[game].seats[1]);
-    const seats = humans.map((c) => ({ id: c.id, name: c.name, isBot: false }));
+    // Real players first. Only someone who chose to start on their own gets computer opponents.
+    const [min, max] = BOARD_INFO[game].seats;
+    const humans = players.slice(0, max);
+    const bots = humans.length >= 2 ? 0 : Math.max(min, game === "mystery" || game === "tycoon" ? 3 : 2) - humans.length;
+    const seats = [
+      ...humans.map((c) => ({ id: c.id, name: c.name, isBot: false })),
+      ...Array.from({ length: bots }, (_, i) => ({ id: `bbot-${id}-${i}`, name: BOT_NAMES[(seed + i * 5) % BOT_NAMES.length], isBot: true })),
+    ];
     humans.forEach((c, i) => { this.seatOf.set(c.id, i); c.boardId = id; });
     this.match = new BoardMatch(game, seed, seats, Date.now());
     this.broadcast();
