@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo \"No install needed: the game is prebuilt into index.html\"",
+  "buildCommand": "mkdir -p public && cp index.html public/index.html && cp .nojekyll public/ 2>/dev/null; echo built",
+  "outputDirectory": "public",
+  "git": { "deploymentEnabled": { "main": true } },
+  "headers": [
+    { "source": "/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] }
+  ]
+}

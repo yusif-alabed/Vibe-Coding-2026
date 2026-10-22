@@ -9,3 +9,4 @@ client/dev/
 # Saved player progress from a local game server
 data/
 game-server/data/
+public/

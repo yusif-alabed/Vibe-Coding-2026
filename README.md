@@ -77,6 +77,16 @@ Other commands:
 | `npm run build` | Production client in `client/dist/` (set `GAME_SERVER_URL=wss://your-server`), and refreshes the playable `index.html` |
 | `npm run build:preview` | Refreshes the one-file playable `index.html` (solo mode) |
 
+## Vercel
+
+The repo has a `vercel.json`: Vercel skips installing and building and serves the prebuilt
+`index.html` from the repo root (the whole game in one file, running in solo mode). To keep the
+Vercel site up to date:
+
+1. Rebuild the page after changing the game: `node client/build.mjs preview` (it rewrites `index.html`), then commit and push.
+2. In Vercel → your project → **Settings → Git**, the connected repository must be
+   `yusif-alabed/Vibe-Coding-2026` with production branch `main`. Every push to `main` then deploys.
+
 ## Put it online (so friends anywhere can play)
 
 The game server also serves the game itself, so hosting is one service and one link:
