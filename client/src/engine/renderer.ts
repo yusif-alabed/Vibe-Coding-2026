@@ -294,7 +294,20 @@ export interface GpuMesh {
   bounds?: { c: Vec3; r: number };
   /** A chunked mesh: drawn as these spatial pieces so off-screen and far-away pieces are skipped. */
   parts?: GpuMesh[];
+  /**
+   * Lighter versions for distance (ascending `dist`): the same mesh without the triangles too small
+   * to cover a pixel from that far away. `lods[0]` also draws the shadow map, whose texels are ~4 cm,
+   * unless it's marked `follow` (a hand-made version): then shadows use whichever version is shown.
+   */
+  lods?: { dist: number; mesh: GpuMesh; follow?: boolean }[];
+  /** Hidden closer than this (the far half of a hand-made LOD pair). */
+  minDist?: number;
 }
+
+/** Level-of-detail steps: beyond `dist` metres, triangles under `area` m² are dropped. */
+const LOD_STEPS = [{ dist: 40, area: 0.001 }, { dist: 80, area: 0.005 }, { dist: 140, area: 0.02 }];
+/** Only meshes at least this big get LODs (small ones aren't worth the extra buffers). */
+const LOD_MIN_VERTS = 4500;
 
 export interface DrawOpts {
   outline?: number; // ink width in world units (0 = none)
@@ -351,10 +364,10 @@ export interface Environment {
   sky: boolean;
 }
 
-interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number; ink: number }
+interface Item { mesh: GpuMesh; smesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number; ink: number; depth?: number }
 
 /** Beyond this the ink outline is thinner than a pixel, so its second pass is skipped. */
-const INK_DIST = 70;
+const INK_DIST = 45;
 
 const NO_TINT: readonly [number, number, number, number] = [0, 0, 0, 0];
 /** Scratch for the per-draw uniform comparison, so `drawNow` allocates nothing. */
@@ -409,6 +422,7 @@ export class Renderer {
   /** Draw calls submitted last frame (for the debug overlay). */
   debugQueue = false;
   lastQueue: { mesh: GpuMesh; view: boolean; shadow: boolean }[] = [];
+  private inked: Item[] = [];
   stats = { items: 0, culled: 0, verts: 0, shadowVerts: 0 };
   private shadowSupported = true;
   env: Environment = {
@@ -536,51 +550,140 @@ export class Renderer {
   }
 
   upload(data: MeshData): GpuMesh {
+    const m = this.uploadOne(data);
+    if (data.count >= LOD_MIN_VERTS) {
+      const P = data.positions;
+      const tris = data.count / 3;
+      const area = new Float32Array(tris);
+      for (let t = 0; t < tris; t++) {
+        const i = t * 9;
+        const ax = P[i + 3] - P[i], ay = P[i + 4] - P[i + 1], az = P[i + 5] - P[i + 2];
+        const bx = P[i + 6] - P[i], by = P[i + 7] - P[i + 1], bz = P[i + 8] - P[i + 2];
+        area[t] = 0.5 * Math.hypot(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx);
+      }
+      let prev = data.count;
+      for (const step of LOD_STEPS) {
+        let keep = 0;
+        for (let t = 0; t < tris; t++) if (area[t] >= step.area) keep++;
+        // Not worth it unless it saves a good share (and never leave a mesh empty).
+        if (keep === 0 || keep * 3 > prev * 0.85) continue;
+        const pick = (src: Float32Array) => {
+          const out = new Float32Array(keep * 9);
+          let o = 0;
+          for (let t = 0; t < tris; t++) if (area[t] >= step.area) { out.set(src.subarray(t * 9, t * 9 + 9), o); o += 9; }
+          return out;
+        };
+        const lod = this.uploadOne({ positions: pick(P), normals: pick(data.normals), colors: pick(data.colors), smooth: pick(data.smooth), count: keep * 3 });
+        lod.bounds = m.bounds;
+        (m.lods ??= []).push({ dist: step.dist, mesh: lod });
+        prev = keep * 3;
+      }
+    }
+    return m;
+  }
+
+  private uploadOne(data: MeshData): GpuMesh {
     const gl = this.gl;
     const vao = gl.createVertexArray()!;
     gl.bindVertexArray(vao);
     const buffers: WebGLBuffer[] = [];
-    [data.positions, data.normals, data.colors, data.smooth].forEach((arr, i) => {
+    const { positions: P, normals: N, colors: C, smooth: S, count } = data;
+    // Pack each vertex into 24 bytes instead of 48: position as floats, normal and outline/wind
+    // direction as signed bytes, colour as unsigned bytes, all in one interleaved buffer. Half the
+    // memory and half the vertex bandwidth for the GPU, which is what limits weaker laptops and
+    // phones. (A mesh whose colours or directions don't fit those ranges keeps the float layout.)
+    let packable = true;
+    for (let i = 0; i < count * 3 && packable; i++) {
+      const c = C[i], sm = S[i], n = N[i];
+      if (!(c >= 0 && c <= 1 && sm >= -1 && sm <= 1 && n >= -1.0001 && n <= 1.0001)) packable = false;
+    }
+    if (packable) {
+      const buf = new ArrayBuffer(count * 24);
+      const f = new Float32Array(buf), i8 = new Int8Array(buf), u8 = new Uint8Array(buf);
+      const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v * 127)));
+      for (let v = 0; v < count; v++) {
+        const o = v * 24, k = v * 3;
+        f[o / 4] = P[k]; f[o / 4 + 1] = P[k + 1]; f[o / 4 + 2] = P[k + 2];
+        i8[o + 12] = q(N[k]); i8[o + 13] = q(N[k + 1]); i8[o + 14] = q(N[k + 2]);
+        u8[o + 16] = Math.round(C[k] * 255); u8[o + 17] = Math.round(C[k + 1] * 255); u8[o + 18] = Math.round(C[k + 2] * 255);
+        i8[o + 20] = q(S[k]); i8[o + 21] = q(S[k + 1]); i8[o + 22] = q(S[k + 2]);
+      }
       const b = gl.createBuffer()!;
       gl.bindBuffer(gl.ARRAY_BUFFER, b);
-      gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(i);
-      gl.vertexAttribPointer(i, 3, gl.FLOAT, false, 0, 0);
+      gl.bufferData(gl.ARRAY_BUFFER, buf, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.BYTE, true, 24, 12);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.UNSIGNED_BYTE, true, 24, 16);
+      gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.BYTE, true, 24, 20);
       buffers.push(b);
-    });
+    } else {
+      [P, N, C, S].forEach((arr, i) => {
+        const b = gl.createBuffer()!;
+        gl.bindBuffer(gl.ARRAY_BUFFER, b);
+        gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(i);
+        gl.vertexAttribPointer(i, 3, gl.FLOAT, false, 0, 0);
+        buffers.push(b);
+      });
+    }
     gl.bindVertexArray(null);
-    return { vao, count: data.count, buffers, bounds: boundsOf(data.positions) };
+    return { vao, count, buffers, bounds: boundsOf(P) };
   }
 
-  /** Uploads a big static mesh as a grid of chunks (by triangle centre) so each can be culled. */
-  uploadChunked(data: MeshData, cell = 24): GpuMesh {
+  /** Splits a mesh into a grid of cells (by triangle centre). */
+  private cells(data: MeshData, cell: number): Map<number, MeshData> {
     const P = data.positions;
     const tris = data.count / 3;
-    const cells = new Map<number, number[]>();
+    const lists = new Map<number, number[]>();
     for (let t = 0; t < tris; t++) {
       const i = t * 9;
       const cx = (P[i] + P[i + 3] + P[i + 6]) / 3, cz = (P[i + 2] + P[i + 5] + P[i + 8]) / 3;
       const k = (Math.floor(cx / cell) + 512) * 1024 + Math.floor(cz / cell) + 512;
-      let l = cells.get(k);
-      if (!l) cells.set(k, (l = []));
+      let l = lists.get(k);
+      if (!l) lists.set(k, (l = []));
       l.push(t);
     }
-    const parts: GpuMesh[] = [];
-    for (const list of cells.values()) {
+    const out = new Map<number, MeshData>();
+    for (const [k, list] of lists) {
       const n = list.length * 9;
       const pick = (src: Float32Array) => {
-        const out = new Float32Array(n);
-        let o = 0;
-        for (const t of list) { out.set(src.subarray(t * 9, t * 9 + 9), o); o += 9; }
-        return out;
+        const o = new Float32Array(n);
+        let j = 0;
+        for (const t of list) { o.set(src.subarray(t * 9, t * 9 + 9), j); j += 9; }
+        return o;
       };
-      parts.push(this.upload({ positions: pick(P), normals: pick(data.normals), colors: pick(data.colors), smooth: pick(data.smooth), count: list.length * 3 }));
+      out.set(k, { positions: pick(P), normals: pick(data.normals), colors: pick(data.colors), smooth: pick(data.smooth), count: list.length * 3 });
     }
-    return { vao: null, count: data.count, buffers: [], parts, bounds: boundsOf(P) };
+    return out;
+  }
+
+  /** Uploads a big static mesh as a grid of chunks (by triangle centre) so each can be culled. */
+  uploadChunked(data: MeshData, cell = 24): GpuMesh {
+    const parts = [...this.cells(data, cell).values()].map((d) => this.upload(d));
+    return { vao: null, count: data.count, buffers: [], parts, bounds: boundsOf(data.positions) };
+  }
+
+  /**
+   * Like `uploadChunked`, with a hand-made low-detail version of the same things (e.g. trees with
+   * fewer branch tiers) that each chunk switches to beyond `dist` metres.
+   */
+  uploadChunkedLod(near: MeshData, far: MeshData, dist: number, cell = 24): GpuMesh {
+    const n = this.cells(near, cell), f = this.cells(far, cell);
+    const parts: GpuMesh[] = [];
+    for (const [k, d] of n) {
+      const part = this.uploadOne(d);
+      const fd = f.get(k);
+      if (fd) { const fm = this.uploadOne(fd); fm.bounds = part.bounds; part.lods = [{ dist, mesh: fm, follow: true }]; }
+      parts.push(part);
+    }
+    // Far pieces whose near twin landed in the next cell over: only drawn from far away.
+    for (const [k, d] of f) if (!n.has(k)) { const m = this.uploadOne(d); m.minDist = dist; parts.push(m); }
+    return { vao: null, count: near.count, buffers: [], parts, bounds: boundsOf(near.positions) };
   }
 
   dispose(m: GpuMesh) {
     for (const p of m.parts ?? []) this.dispose(p);
+    for (const l of m.lods ?? []) this.dispose(l.mesh);
     for (const b of m.buffers) this.gl.deleteBuffer(b);
     if (m.vao) this.gl.deleteVertexArray(m.vao);
   }
@@ -618,6 +721,7 @@ export class Renderer {
       return;
     }
     let view = true, shadow = true, fade = 0, ink = opts.outline ?? 0;
+    let vmesh = mesh, smesh = mesh;
     const b = mesh.bounds;
     if (b) {
       // World-space bounding sphere (model matrices here are rotation/translation/scale).
@@ -630,19 +734,26 @@ export class Renderer {
       for (let i = 0; i < 6 && view; i++) if (f[i * 4] * x + f[i * 4 + 1] * y + f[i * 4 + 2] * z + f[i * 4 + 3] < -r) view = false;
       const dist = Math.hypot(x - this.camPos[0], z - this.camPos[2]) - r;
       const limit = Math.min(opts.maxDist ?? Infinity, opts.always ? Infinity : this.drawDistance) * this.autoDist;
-      if (dist > limit) view = false;
+      if (dist > limit || (mesh.minDist && dist < mesh.minDist)) view = false;
       // Small things far away cover a pixel or two: not worth a draw call.
       else if (!opts.always && r < dist * 0.005) view = false;
       else if (Number.isFinite(limit) && r < 60) fade = limit;
       if (dist > INK_DIST) ink = 0;
+      if (mesh.minDist && dist < mesh.minDist) shadow = false;
+      if (mesh.lods && sc > 0.6 && sc < 1.7) {
+        if (!mesh.lods[0].follow) smesh = mesh.lods[0].mesh;
+        // Glowing things (bulbs, lanterns, neon) stay whole: at night they're the bright dots you see.
+        if (!opts.unlit && !opts.emissive) for (const l of mesh.lods) if (dist > l.dist) vmesh = l.mesh;
+        if (mesh.lods[0].follow) smesh = vmesh;
+      }
       const sf = this.shadowFocus;
       shadow = !!sf && Math.hypot(x - sf[0], z - sf[2]) - r < SHADOW_EXTENT * 1.15 && (!Number.isFinite(limit) || dist < limit + 20);
     }
     if (!view && !(shadow && this.casts(opts))) { this.stats.culled++; return; }
     this.stats.items++;
-    if (view) this.stats.verts += mesh.count * (ink ? 2 : 1);
-    if (shadow && this.casts(opts)) this.stats.shadowVerts += mesh.count;
-    this.queue.push({ mesh, model, opts, view, shadow, fade, ink });
+    if (view) this.stats.verts += vmesh.count * (ink ? 2 : 1);
+    if (shadow && this.casts(opts)) this.stats.shadowVerts += smesh.count;
+    this.queue.push({ mesh: vmesh, smesh, model, opts, view, shadow, fade, ink });
   }
 
   private casts(o: DrawOpts): boolean {
@@ -691,10 +802,10 @@ export class Renderer {
     gl.polygonOffset(1.6, 3);
     for (const it of this.queue) {
       if (!it.shadow || !this.casts(it.opts)) continue;
-      gl.bindVertexArray(it.mesh.vao);
+      gl.bindVertexArray(it.smesh.vao);
       gl.uniformMatrix4fv(this.us.uModel, false, it.model);
       gl.uniform1f(this.us.uSway, it.opts.sway ?? 0);
-      gl.drawArrays(gl.TRIANGLES, 0, it.mesh.count);
+      gl.drawArrays(gl.TRIANGLES, 0, it.smesh.count);
     }
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -772,7 +883,27 @@ export class Renderer {
       if (!it.view) continue;
       ((it.opts.alpha ?? 1) >= 1 ? opaque : clear).push(it);
     }
+    // Near to far: the depth test then throws away hidden pixels before the (fairly heavy) lighting
+    // shader runs on them, instead of shading a wall and then painting the tree in front over it.
+    // Big always-drawn things (terrain, water, mountains) go last; they cover most of the screen
+    // and are mostly hidden behind everything else.
+    const c0 = this.camPos;
+    for (const it of opaque) {
+      const m = it.model, b = it.mesh.bounds;
+      const x = b ? m[0] * b.c[0] + m[4] * b.c[1] + m[8] * b.c[2] + m[12] : m[12];
+      const z = b ? m[2] * b.c[0] + m[6] * b.c[1] + m[10] * b.c[2] + m[14] : m[14];
+      it.depth = it.opts.always || (b && b.r > 60) ? 1e9 : (x - c0[0]) ** 2 + (z - c0[2]) ** 2;
+    }
+    // Outlined things (beavers, mostly) keep the order they were queued in and go after the rest: an
+    // ink hull drawn before the parts behind it would hide them.
+    const inked = this.inked;
+    inked.length = 0;
+    let j = 0;
+    for (const it of opaque) { if (it.ink) inked.push(it); else opaque[j++] = it; }
+    opaque.length = j;
+    opaque.sort((a, b) => a.depth! - b.depth!);
     for (const it of opaque) this.drawNow(it);
+    for (const it of inked) this.drawNow(it);
     if (clear.length) {
       // Far to near, so overlapping translucent things blend correctly.
       const c = this.camPos;

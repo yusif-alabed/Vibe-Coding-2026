@@ -20,8 +20,13 @@ items up to **Done** as they land.
   (with a full refresh each second), encodes each broadcast once, and drops stale position updates
   for players on slow connections. Clients draw other beavers ~140 ms in the past, sliding evenly
   between updates (`client/src/game/smoothing.ts`).
+- [x] **Lighter geometry** — vertices are packed into 24 bytes (was 48), opaque things are drawn
+  near-to-far so hidden pixels skip lighting, big meshes get automatic level-of-detail (triangles too
+  small to see from that distance are dropped, and the shadow map never draws them), and trees and
+  cobbles swap to hand-made low-detail versions further away (`uploadChunkedLod`). Canvas sprites
+  are cached bitmaps, not SVGs re-rasterised every redraw.
 - [x] **Frame-rate governor and cheaper frames** — shadows are redrawn every other frame, ink
-  outlines are skipped past 70 m, tiny far objects aren't drawn, far beavers don't cast shadows and
+  outlines are skipped past 45 m, tiny far objects aren't drawn, far beavers don't cast shadows and
   are culled whole, name tags only touch the DOM when they move, and the pixel ratio is capped at
   1.5. When frames run slow the game lowers resolution, then shadows, then view distance, and
   climbs back when there's headroom.

@@ -13,7 +13,7 @@ import { ALIAS, ART, INK } from "./spriteArt";
 const PICT = /\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*/gu;
 const HAS = /\p{Extended_Pictographic}/u;
 const urls = new Map<string, string | null>();
-const imgs = new Map<string, HTMLImageElement>();
+const imgs = new Map<string, { im: HTMLImageElement; bmp: HTMLCanvasElement | null }>();
 
 function key(ch: string): string {
   const k = ch.replace(/️/g, "");
@@ -35,13 +35,29 @@ export function spriteUrl(ch: string): string | null {
   return u;
 }
 
-/** A loaded image of a sprite, for drawing on a canvas (null until it has loaded). */
-export function spriteImage(ch: string): HTMLImageElement | null {
+/**
+ * A sprite as a small bitmap, for drawing on a 2D canvas (null until it has loaded). Drawing an SVG
+ * image re-rasterises the vector art every time, which on the minimap (redrawn each frame) cost
+ * more than the whole 3D scene; a 64px bitmap made once is a plain copy.
+ */
+export function spriteImage(ch: string): HTMLCanvasElement | null {
   const u = spriteUrl(ch);
   if (!u) return null;
-  let im = imgs.get(u);
-  if (!im) { im = new Image(); im.src = u; imgs.set(u, im); }
-  return im.complete && im.naturalWidth ? im : null;
+  let e = imgs.get(u);
+  if (!e) {
+    const im = new Image();
+    e = { im, bmp: null };
+    const entry = e;
+    im.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 64;
+      c.getContext("2d")!.drawImage(im, 0, 0, 64, 64);
+      entry.bmp = c;
+    };
+    im.src = u;
+    imgs.set(u, e);
+  }
+  return e.bmp;
 }
 
 /** Split a string into plain text and sprite characters. */

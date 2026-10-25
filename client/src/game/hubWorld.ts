@@ -228,6 +228,9 @@ export function buildMountains(r: Renderer, seed: number, ring: [number, number]
 }
 
 /** Flat stone (cobble or flagstone): domed top, bevelled edge. */
+/** Where `stoneTile` also writes its low-detail twin (a flat top, 4 triangles instead of 18), if set. */
+let tileFar: MeshBuilder | null = null;
+
 function stoneTile(m: MeshBuilder, x: number, y: number, z: number, rx: number, rz: number, rot: number, col: Vec3, h: number, seed: number) {
   const K = 6;
   const top: Vec3[] = [], out: Vec3[] = [];
@@ -259,6 +262,11 @@ function stoneTile(m: MeshBuilder, x: number, y: number, z: number, rx: number, 
     };
     m.vertex(top[k], nt(top[k]), c).vertex(out[k], no(out[k]), cEdge).vertex(out[k1], no(out[k1]), cEdge);
     m.vertex(top[k], nt(top[k]), c).vertex(out[k1], no(out[k1]), cEdge).vertex(top[k1], nt(top[k1]), c);
+  }
+  if (tileFar) {
+    // From 22 m away the bevel is under a pixel: the far twin is just the stone's top face.
+    const f = tileFar, n: Vec3 = [0, 1, 0];
+    for (let k = 1; k < K - 1; k++) f.vertex(top[0], n, c).vertex(top[k], n, c).vertex(top[k + 1], n, c);
   }
 }
 
@@ -299,6 +307,9 @@ export function buildHub(r: Renderer): HubWorld {
 
   // ------------------------------------------------------------ Plaza cobbles, trails, flagstones
   const ground = new MeshBuilder();
+  /** The same ground from further away: flat-topped cobbles (see `stoneTile`). */
+  const groundFar = new MeshBuilder();
+  tileFar = groundFar;
   for (let ri = 0; ; ri++) {
     const rr = 7.45 + ri * 0.44;
     if (rr > 14.6) break;
@@ -360,8 +371,10 @@ export function buildHub(r: Renderer): HubWorld {
       const Cc: Vec3 = [x1 - nx * w1, heightAt(x1 - nx * w1, z1 - nz * w1) + lift, z1 - nz * w1];
       const D: Vec3 = [x1 + nx * w1, heightAt(x1 + nx * w1, z1 + nz * w1) + lift, z1 + nz * w1];
       const ca = mixRgb(colA, colB, noise2(x0 * 0.7, z0 * 0.7)), cb = mixRgb(colA, colB, noise2(x1 * 0.7, z1 * 0.7));
-      ground.vertex(A, up, ca).vertex(B, up, ca).vertex(Cc, up, cb);
-      ground.vertex(A, up, ca).vertex(Cc, up, cb).vertex(D, up, cb);
+      for (const g of [ground, groundFar]) {
+        g.vertex(A, up, ca).vertex(B, up, ca).vertex(Cc, up, cb);
+        g.vertex(A, up, ca).vertex(Cc, up, cb).vertex(D, up, cb);
+      }
     }
   };
   const FLAG = [C("#b9ad98"), C("#a99c87"), C("#c9bfa9"), C("#9c907e")];
@@ -396,6 +409,7 @@ export function buildHub(r: Renderer): HubWorld {
       }
     }
   });
+  tileFar = null;
 
   // ------------------------------------------------------------ Props
   const props: GpuMesh[] = [];
@@ -572,6 +586,12 @@ export function buildHub(r: Renderer): HubWorld {
 
   // ------------------------------------------------------------ Trees
   const trees = new MeshBuilder();
+  /** The same trees with fewer branch tiers, swapped in beyond ~45 m. */
+  const treesFar = new MeshBuilder();
+  const tree = (x: number, y: number, z: number, s: number, seed: number, o: { lod?: "far" | "near"; snow?: boolean } = {}) => {
+    spruce(trees, x, y, z, s, seed, o);
+    spruce(treesFar, x, y, z, s, seed, { ...o, lod: "far" });
+  };
   /** The dense forest on the foothills beyond the edge: low-detail, always drawn (it frames the valley). */
   const farTrees = new MeshBuilder();
   const clear = CHALETS.map(([x, z]) => ({ x, z }));
@@ -583,7 +603,7 @@ export function buildHub(r: Renderer): HubWorld {
       const h = heightAt(tr.x, tr.z);
       const rr = Math.hypot(tr.x, tr.z);
       const snow = h > 30 || (tr.z < PL.trailhead.z - 6 && rr < 70);
-      spruce(trees, tr.x, h - 0.15, tr.z, tr.s, Math.floor(tr.x * 7 + tr.z), { lod: rr > 70 ? "far" : "near", snow });
+      tree(tr.x, h - 0.15, tr.z, tr.s, Math.floor(tr.x * 7 + tr.z), { lod: rr > 70 ? "far" : "near", snow });
     }
   }
   // Beyond the edge: a dense, purely visual forest climbing the foothills.
@@ -604,12 +624,12 @@ export function buildHub(r: Renderer): HubWorld {
       spruce(farTrees, jx, h - 0.15, jz, s, Math.floor(jx * 7 + jz), { lod: "far", snow: h > 30 });
     }
   }
-  for (const tr of MEADOW_TREES) spruce(trees, tr.x, heightAt(tr.x, tr.z) - 0.15, tr.z, tr.s, Math.floor(tr.x * 13 + tr.z));
+  for (const tr of MEADOW_TREES) tree(tr.x, heightAt(tr.x, tr.z) - 0.15, tr.z, tr.s, Math.floor(tr.x * 13 + tr.z));
   // Snowy spruces around the trailhead hill.
   const th = PL.trailhead;
   for (let i = 0; i < 4; i++) for (const s of [-1, 1]) {
     const x = th.x + s * (9 + i * 4), z = th.z - 6 - i * 3;
-    spruce(trees, x, heightAt(x, z) - 0.1, z, 1.15, i + (s > 0 ? 2 : 0), { snow: true });
+    tree(x, heightAt(x, z) - 0.1, z, 1.15, i + (s > 0 ? 2 : 0), { snow: true });
   }
 
   // ------------------------------------------------------------ Grass & flowers
@@ -777,10 +797,10 @@ export function buildHub(r: Renderer): HubWorld {
     balloons: BALLOON_COLORS.map(([a, b]) => r.upload(buildBalloon(a, b).build())),
     chimneys: town.chimneys,
     fires: town.fires,
-    ground: r.uploadChunked(ground.build(), 32),
+    ground: r.uploadChunkedLod(ground.build(), groundFar.build(), 22, 32),
     grass: r.uploadChunked(grass.build(), 16),
     flowers: r.uploadChunked(flowers.build(), 16),
-    trees: r.uploadChunked(trees.build()),
+    trees: r.uploadChunkedLod(trees.build(), treesFar.build(), 45),
     farTrees: r.uploadChunked(farTrees.build(), 40),
     props: [...props, r.uploadChunked(town.body.build()), r.uploadChunked(neonWire.build())],
     neon: r.uploadChunked(neon.core.build()),

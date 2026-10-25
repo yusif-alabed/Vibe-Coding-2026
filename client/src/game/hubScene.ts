@@ -1317,7 +1317,8 @@ export class HubScene implements Scene {
     if (this.sendAcc > 1 / 12) {
       this.sendAcc = 0;
       if (me.x !== this.lastSent.x || me.z !== this.lastSent.z || me.tr !== this.lastSent.ry) {
-        this.ctx.net.send({ t: "move", x: me.x, z: me.z, ry: me.tr });
+        // Centimetres are plenty: full-precision floats made each move twice as long on the wire.
+        this.ctx.net.send({ t: "move", x: Math.round(me.x * 100) / 100, z: Math.round(me.z * 100) / 100, ry: Math.round(me.tr * 100) / 100 });
         this.lastSent = { x: me.x, z: me.z, ry: me.tr };
       }
     }
