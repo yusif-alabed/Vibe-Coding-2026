@@ -87,6 +87,15 @@ Vercel site up to date:
 2. In Vercel → your project → **Settings → Git**, the connected repository must be
    `yusif-alabed/Vibe-Coding-2026` with production branch `main`. Every push to `main` then deploys.
 
+**Why the Vercel and GitHub Pages sites have no multiplayer:** those pages are static, and online play
+needs the always-on game server (WebSockets), which Vercel can't run. Multiplayer is still in the
+code — host the server (see [Put it online](#put-it-online-so-friends-anywhere-can-play)) and either:
+
+- share the server's own URL (it serves the game too, with "Play online" on the title screen), or
+- keep the Vercel page and point it at your server: build it with
+  `GAME_SERVER_URL=wss://your-server node client/build.mjs preview`, or open the existing page with
+  `?server=wss://your-server` on the end of the link.
+
 ## Put it online (so friends anywhere can play)
 
 The game server also serves the game itself, so hosting is one service and one link:

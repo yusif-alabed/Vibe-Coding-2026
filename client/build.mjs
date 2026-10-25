@@ -1,7 +1,8 @@
 // Client build script (esbuild).
 //   node build.mjs dev      → dev server on http://localhost:5173 with live rebuilds
 //   node build.mjs build    → dist/ (index.html + app.js) for deployment
-//   node build.mjs preview  → dist/beaver-banff.html and ../index.html, one self-contained file (solo mode)
+//   node build.mjs preview  → dist/beaver-banff.html and ../index.html, one self-contained file
+//                             (solo mode; set GAME_SERVER_URL=wss://your-server to build in online play)
 //   node build.mjs hosted   → dist/ for the game server to serve (connects back to the same address)
 import * as esbuild from "esbuild";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -19,7 +20,7 @@ const options = {
   target: "es2020",
   sourcemap: mode === "dev",
   minify: mode !== "dev" && !process.env.NO_MINIFY,
-  define: { __GAME_SERVER_URL__: JSON.stringify(mode === "preview" ? "" : serverUrl) },
+  define: { __GAME_SERVER_URL__: JSON.stringify(serverUrl) },
   alias: { "@beaver/shared": here("../shared/src/index.ts") },
   logLevel: "info",
 };
