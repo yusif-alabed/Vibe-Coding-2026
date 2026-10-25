@@ -91,7 +91,9 @@ Vercel site up to date:
 online play needs an always-on game server (WebSockets), which Vercel can't run. The multiplayer code is
 all still here. The page has a **"Play with friends online"** box on its title screen: paste the address of
 a running game server and it connects (and remembers it). Whoever hosts the server can also send a link
-that does it for you: `https://your-page/?server=wss://their-server`.
+that suggests it: `https://your-page/?server=wss://their-server`. A link never switches servers by itself — the
+title screen shows who it wants to connect to and waits for you to press Connect, because your saved login is
+sent to whichever server you join.
 
 ## Put it online (so friends anywhere can play)
 

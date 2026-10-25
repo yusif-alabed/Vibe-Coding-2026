@@ -60,11 +60,14 @@ function normalizeServer(raw: string): string {
   try { return new URL(v).origin.replace(/^http/, "ws"); } catch { return ""; }
 }
 
-// Which game server to use: a link that names one (?server=…), then the page's own server if it
-// is hosted by one, then the address saved from the title screen, then whatever was built in.
-const linkServer = normalizeServer(params.get("server") ?? "");
-if (linkServer) storageSet("bb-server", linkServer);
-let serverUrl = linkServer || (builtUrl === "same-origin" ? sameOrigin : normalizeServer(storageGet("bb-server") ?? "") || builtUrl);
+// Which game server to use: the page's own server if it is hosted by one, otherwise the address
+// saved from the title screen, otherwise whatever was built in. A link (?server=…) can only
+// *suggest* a server: your saved login is sent to whichever server you connect to, so a link never
+// switches servers by itself. The title screen asks "Connect to this server?" first.
+const linkServer = builtUrl === "same-origin" ? "" : normalizeServer(params.get("server") ?? "");
+const savedServer = normalizeServer(storageGet("bb-server") ?? "");
+let pendingServer = linkServer && linkServer !== savedServer ? linkServer : "";
+let serverUrl = builtUrl === "same-origin" ? sameOrigin : savedServer || builtUrl;
 
 let renderer: Renderer;
 try {
@@ -141,6 +144,16 @@ function showTitle() {
     ]),
   ]);
 
+  const suggestion = pendingServer
+    ? h("div.pe", { style: "margin:0 0 10px;padding:10px;border-radius:12px;background:#fff3d6;border:2px solid #c9a56b;text-align:center;font-size:15px;color:var(--ink)" }, [
+        h("div", { style: "margin-bottom:8px" }, ["🔗 This link wants to connect you to ", h("b", {}, pendingServer.replace(/^wss?:\/\//, "")), ". Only continue if a friend sent it to you."]),
+        h("div.row", { style: "justify-content:center" }, [
+          h("button.btn.small.pe", { onclick: () => { storageSet("bb-server", pendingServer); serverUrl = pendingServer; pendingServer = ""; storageSet("bb-name", name.value); titleEl?.remove(); showTitle(); } }, "✅ Connect"),
+          h("button.btn.small.cream.pe", { onclick: () => { pendingServer = ""; storageSet("bb-name", name.value); titleEl?.remove(); showTitle(); } }, "No thanks"),
+        ]),
+      ])
+    : null;
+
   const buttons = serverUrl
     ? [
         invitedRoom ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom.toUpperCase()) }, `🎉 Join your friend's cabin ${invitedRoom.toUpperCase()}`) : null,
@@ -165,7 +178,7 @@ function showTitle() {
       name,
       h("div.label", {}, [icon("paw"), "Fur colour"]),
       swatches,
-      h("div.stack", {}, buttons),
+      h("div.stack", {}, [suggestion, ...buttons]),
       h("div.hint", {}, serverUrl
         ? [h("b", {}, "Online: "), "every game is played with real beavers — no bots. ", h("b", {}, "Private cabin: "), "share the code with friends."]
         : [h("b", {}, "Solo: "), "runs right in your browser with friendly bot beavers. To play with friends, paste the server address from whoever is hosting into the box above."]),
