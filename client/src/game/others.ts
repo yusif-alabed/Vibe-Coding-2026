@@ -2,6 +2,7 @@ import { EMOTES, type Look, type PlayerInfo, type ServerMsg } from "@beaver/shar
 import { compose, lerp, lerpAngle } from "../engine/math";
 import type { Renderer } from "../engine/renderer";
 import { h } from "../ui/dom";
+import { newTrack, pushSample, sampleAt, type Track } from "./smoothing";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import type { Ctx } from "./scene";
 
@@ -12,6 +13,7 @@ interface Other {
   jumpT: number; waveT: number; cheerT: number; talkT: number;
   expr: Expression; exprT: number; seed: number;
   tag: HTMLElement; bubble: HTMLElement | null; bubbleUntil: number;
+  track: Track;
 }
 
 /**
@@ -43,7 +45,7 @@ export class Others {
       id: p.id, name: p.name, look: p.look, x: p.x, z: p.z, ry: p.ry, tx: p.x, tz: p.z, tr: p.ry,
       walk: 0, moving: 0, jumpT: 0, waveT: 1.2, cheerT: 0, talkT: 0, expr: "happy", exprT: 1.2,
       seed: [...p.id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1000, 7) / 100,
-      tag, bubble: null, bubbleUntil: 0,
+      tag, bubble: null, bubbleUntil: 0, track: newTrack(p.x, p.z),
     });
   }
 
@@ -67,7 +69,7 @@ export class Others {
       case "state":
         for (const [id, x, z, ry] of m.p) {
           const o = this.list.get(id);
-          if (o) { o.tx = x; o.tz = z; o.tr = ry; }
+          if (o) { o.tx = x; o.tz = z; o.tr = ry; pushSample(o.track, x, z); }
         }
         return true;
       case "look": {
@@ -108,12 +110,11 @@ export class Others {
   update(dt: number) {
     this.time += dt;
     for (const o of this.list.values()) {
-      const d = Math.hypot(o.tx - o.x, o.tz - o.z);
-      // Way off (they just arrived or were corrected): snap rather than slide across the room.
-      if (d > 8) { o.x = o.tx; o.z = o.tz; }
-      const k = Math.min(1, dt * 10);
-      o.x = lerp(o.x, o.tx, k);
-      o.z = lerp(o.z, o.tz, k);
+      // Drawn slightly in the past, sliding evenly between server updates (see smoothing.ts).
+      const px = o.x, pz = o.z;
+      const p = sampleAt(o.track);
+      o.x = p.x; o.z = p.z;
+      const d = Math.hypot(o.x - px, o.z - pz) / Math.max(dt, 1e-4) * 0.05;
       o.ry = lerpAngle(o.ry, o.tr, Math.min(1, dt * 12));
       o.moving = lerp(o.moving, d > 0.05 ? 1 : 0, Math.min(1, dt * 8));
       o.walk += dt * 11 * o.moving;

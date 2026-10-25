@@ -15,6 +15,21 @@ items up to **Done** as they land.
   Boxing Gym (shadow boxing), Fort Timber (co-op tower defence), the Spleef Stage and the Lucky
   Lodge (coins-only slots, roulette, blackjack with a daily loss cap). The arcade games are
   `GameSim`s in `shared/src/arcade2.ts`; the casino rules are `shared/src/casino.ts`.
+- [x] **Smooth online play** — the server banks walking time instead of judging each move on its
+  own (no more rubber-banding when packets arrive in bursts), only sends the beavers who moved
+  (with a full refresh each second), encodes each broadcast once, and drops stale position updates
+  for players on slow connections. Clients draw other beavers ~140 ms in the past, sliding evenly
+  between updates (`client/src/game/smoothing.ts`).
+- [x] **Frame-rate governor and cheaper frames** — shadows are redrawn every other frame, ink
+  outlines are skipped past 70 m, tiny far objects aren't drawn, far beavers don't cast shadows and
+  are culled whole, name tags only touch the DOM when they move, and the pixel ratio is capped at
+  1.5. When frames run slow the game lowers resolution, then shadows, then view distance, and
+  climbs back when there's headroom.
+- [x] **Downtown, interiors, arenas and the estate redressed** in the town's storybook style
+  (`client/src/game/village/downtown.ts`): a timber field house, a log dance hall with a false
+  front, a turreted Lucky Lodge, a brick boxing gym with a sawtooth roof, a proper stockade, a
+  fountain plaza; panelled, furnished interiors; crowds and set dressing in every arena; and a
+  timber-framed mansion with gardens at the estate.
 - [x] **🎲 The Board Game Estate** — built as a zone behind gates (like the summit) rather than a
   manor interior: giant chess and checkers, a guess-who lawn, the mansion whodunnit laid out as a
   floor plan, and a property-trading city board. Rules in `shared/src/board/`, one table is a

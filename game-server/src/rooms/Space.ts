@@ -16,6 +16,9 @@ import type { PlayerStore } from "../store";
  * What a beaver sees on arrival is up to the caller (the village sends a `welcome`, the summit
  * a `summit`, a cabin its layout).
  */
+/** Most walking time a beaver can bank (so a network hiccup never costs them ground). */
+const MOVE_CREDIT_MS = 1500;
+
 export class Space {
   readonly clients = new Map<string, Client>();
   private timer: NodeJS.Timeout;
@@ -60,12 +63,22 @@ export class Space {
 
   move(c: Client, x: number, z: number, ry: number): void {
     const now = Date.now();
-    const next = this.validate({ x: c.x, z: c.z }, { x, z }, now - c.lastMoveAt);
+    // Moves arrive in bursts on real networks (two packets 5 ms apart after a 150 ms hiccup).
+    // Judging each one against the gap since the last would clamp the burst, leave the server
+    // behind the player and rubber-band them. Instead each beaver earns walking time as the clock
+    // runs (up to a cap) and spends it on distance, so a burst is fine but speed-hacking isn't.
+    c.moveCredit = Math.min(MOVE_CREDIT_MS, c.moveCredit + Math.max(0, now - c.lastMoveAt));
+    c.lastMoveAt = now;
+    const next = this.validate({ x: c.x, z: c.z }, { x, z }, c.moveCredit);
+    const walked = Math.hypot(next.x - c.x, next.z - c.z);
+    c.moveCredit = Math.max(0, c.moveCredit - (walked / (HUB.maxSpeed * HUB.speedTolerance)) * 1000);
     const corrected = Math.hypot(next.x - x, next.z - z) > 0.75;
+    const ryOk = Number.isFinite(ry) ? ry : c.ry;
+    if (walked < 0.005 && Math.abs(ryOk - c.ry) < 0.01) return; // nothing changed: nothing to send
     c.x = next.x;
     c.z = next.z;
-    c.ry = Number.isFinite(ry) ? ry : c.ry;
-    c.lastMoveAt = now;
+    c.ry = ryOk;
+    c.moved = true;
     this.dirty = true;
     if (corrected) this.store.log({ type: "move_rejected", actor: c.id });
   }
@@ -112,16 +125,26 @@ export class Space {
   }
 
   broadcast(msg: ServerMsg, exceptId?: string): void {
-    for (const o of this.clients.values()) if (o.id !== exceptId) o.send(msg);
+    const json = JSON.stringify(msg);
+    for (const o of this.clients.values()) if (o.id !== exceptId) o.sendRaw(json);
   }
 
+  private ticks = 0;
+
   private tick(): void {
-    if (!this.dirty) return;
+    this.ticks++;
+    // Once a second everyone gets the full list (heals anything a dropped packet missed);
+    // in between only the beavers who actually moved are sent, which keeps busy villages light.
+    const full = this.ticks % HUB.tickRate === 0;
+    if (!this.dirty && !full) return;
     this.dirty = false;
-    const p = [...this.clients.values()].map(
-      (c) => [c.id, Math.round(c.x * 100) / 100, Math.round(c.z * 100) / 100, Math.round(c.ry * 100) / 100] as [string, number, number, number],
-    );
-    this.broadcast({ t: "state", p });
+    const p: [string, number, number, number][] = [];
+    for (const c of this.clients.values()) {
+      if (!full && !c.moved) continue;
+      c.moved = false;
+      p.push([c.id, Math.round(c.x * 100) / 100, Math.round(c.z * 100) / 100, Math.round(c.ry * 100) / 100]);
+    }
+    if (p.length) this.broadcast({ t: "state", p });
   }
 
   dispose(): void {

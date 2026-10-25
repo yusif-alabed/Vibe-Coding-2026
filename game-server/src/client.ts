@@ -8,6 +8,10 @@ export class Client {
   z = 0;
   ry = 0;
   lastMoveAt = Date.now();
+  /** Walking time banked since the last move (see Space.move). */
+  moveCredit = 0;
+  /** Moved since the last position broadcast. */
+  moved = false;
   steer = 0;
   input: PlayerInput = { steer: 0, fwd: 0, press: false };
   /** Golf round this player is in, if any. */
@@ -54,6 +58,15 @@ export class Client {
 
   send(msg: ServerMsg): void {
     if (this.ws.readyState === this.ws.OPEN) this.ws.send(JSON.stringify(msg));
+  }
+
+  /** Sends an already-encoded message (broadcasts encode once for everyone). */
+  sendRaw(json: string): void {
+    // A player on a slow connection with a backlog skips position updates rather than
+    // queueing them up forever (the next one supersedes them anyway).
+    if (this.ws.readyState !== this.ws.OPEN) return;
+    if (json.startsWith('{"t":"state"') && this.ws.bufferedAmount > 64 * 1024) return;
+    this.ws.send(json);
   }
 
   close(): void {

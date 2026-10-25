@@ -1,4 +1,4 @@
-import { LODGE, lodgeToWorld, TOWN_BUILDINGS, type TownBuilding } from "@beaver/shared";
+import { LODGE, lodgeToWorld, TOWN_AREAS, TOWN_BUILDINGS, type TownBuilding } from "@beaver/shared";
 import { compose, hexToRgb, type Vec3 } from "../../engine/math";
 import { MeshBuilder } from "../../engine/mesh";
 import { Frame } from "./architecture";
@@ -231,9 +231,9 @@ export function buildNeon(heightAt: (x: number, z: number) => number, wire: Mesh
   // Downtown lettering: every venue gets its name in neon.
   const DOWNTOWN: Partial<Record<TownBuilding["kind"], { lines: [string, number, Vec3][]; y: number; z: number }>> = {
     club: { lines: [["CLUB BEAVER", 0.75, NEON.pink], ["HAVE A DAM GOOD TIME!", 0.32, NEON.teal]], y: 6.0, z: 0.8 },
-    casino: { lines: [["LUCKY LODGE", 0.7, NEON.gold]], y: 6.4, z: 0.6 },
-    sports: { lines: [["SPORTS", 0.8, NEON.sky]], y: 5.4, z: 0.5 },
-    gym: { lines: [["BOXING", 0.65, NEON.red]], y: 5.4, z: 0.4 },
+    casino: { lines: [["LUCKY LODGE", 0.5, NEON.gold]], y: 3.95, z: 2.45 },
+    sports: { lines: [["SPORTS", 0.7, NEON.sky]], y: 7.0, z: 0.25 },
+    gym: { lines: [["BOXING", 0.55, NEON.red]], y: 4.2, z: 0.15 },
     fort: { lines: [["FORT TIMBER", 0.45, NEON.lime]], y: 3.6, z: 0.4 },
     estategate: { lines: [["BOARD GAMES", 0.42, NEON.violet]], y: 6.1, z: 0.2 },
   };
@@ -251,10 +251,11 @@ export function buildNeon(heightAt: (x: number, z: number) => number, wire: Mesh
   const club = TOWN_BUILDINGS.find((b) => b.kind === "club");
   if (club) {
     const f = new Frame(club.x, heightAt(club.x, club.z), club.z, club.ry);
-    for (const s of [-1, 0, 1]) {
-      const p = f.p(s * 3.4, 0, club.d / 2 + 7.4);
-      wire.cylinder(compose(p[0], p[1] + 1.8, p[2], 0, 0, 0, 0.12, 3.6, 0.12), [0.2, 0.16, 0.14], 6);
-      k.festoon(f.p(s * 2.5, 4.9, club.d / 2 + 0.3), [p[0], p[1] + 3.5, p[2]], 8, 0.4, wire, s + 3);
+    // From the false front out to the far side of the dance floor's lighting truss.
+    const floor = TOWN_AREAS.find((a) => a.kind === "dance");
+    if (floor) for (const s of [-1, 0, 1]) {
+      const ex = floor.x + floor.r + 0.4, ez = floor.z + s * (floor.r + 0.4);
+      k.festoon(f.p(s * 2.5, 6.2, club.d / 2 + 0.3), [ex, heightAt(floor.x, floor.z) + 3.6, ez], 9, 0.5, wire, s + 3);
     }
   }
   // Lights around the Downtown plaza.

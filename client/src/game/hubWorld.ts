@@ -828,7 +828,7 @@ export function buildHub(r: Renderer): HubWorld {
       ...([
         ["🏙️ Downtown", 58, 48, 7], ["🪩 Club Beaver", 40, 46, 9], ["🍀 Lucky Lodge", 58, 32, 9], ["🏟️ Sports Centre", 74, 48, 10],
         ["🥊 Boxing Gym", 58, 64, 8.5], ["🏰 Fort Timber", 70, 33, 8.5], ["⛏️ Spleef Stage", 45, 62, 4], ["🎲 Board Game Estate", 41, 30, 7],
-      ] as [string, number, number, number][]).map(([text, x, z, y]) => ({ text, x, y: heightAt(x, z) + y, z })),
+      ] as [string, number, number, number][]).map(([text, x, z, y]) => ({ text, x, y, z })),
     ],
   };
 }

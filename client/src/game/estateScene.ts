@@ -2,7 +2,7 @@ import {
   BOARD_INFO, FUR_COLORS, GW_QUESTIONS, GW_SUSPECTS, hashString, isDark, MY_COLORS, MY_ITEMS, MY_ROOMS, MY_SUSPECTS, roomDistance, TY, TY_BOARD, TY_GROUPS, ownsSet,
   cardName, type BoardAction, type BoardGame, type BoardView, type LobbyWire, type Look, type ServerMsg, type TycoonState,
 } from "@beaver/shared";
-import { compose, hash2, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
+import { compose, hash2, hexToRgb, lerp, lerpAngle, lookAt, mixRgb, perspective, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { h, toast } from "../ui/dom";
@@ -15,6 +15,8 @@ import { applyMood, currentMood, drawWeather, type WorldMood } from "./weather";
 import { buildMountains } from "./hubWorld";
 import { spruce } from "./village/nature";
 import { PhotoMode } from "./photo";
+import { box, chimney, flowerBox, Frame, gableRoofX, gableRoofZ, lanternPost, panel, railingX, windowPane } from "./village/architecture";
+import { door, plinth, timberFrame } from "./village/town";
 import { chatBar, Others } from "./others";
 import type { Ctx, Scene } from "./scene";
 
@@ -52,7 +54,7 @@ const groundY = (x: number, z: number) => {
 // ------------------------------------------------------------------ Meshes
 
 interface Meshes {
-  world: GpuMesh; lawn: GpuMesh; mtn: GpuMesh; water: GpuMesh;
+  world: GpuMesh; glow: GpuMesh; lawn: GpuMesh; mtn: GpuMesh; water: GpuMesh;
   pieces: Record<string, GpuMesh>; man: Record<string, GpuMesh>; tile: GpuMesh; card: GpuMesh; house: GpuMesh; hotel: GpuMesh; ring: GpuMesh;
 }
 
@@ -97,7 +99,8 @@ function chessPiece(kind: string, col: string): MeshBuilder {
 function build(r: Renderer): Meshes {
   const lawn = new MeshBuilder();
   const w = new MeshBuilder();
-  const lawnA = hexToRgb("#7cb35e"), lawnB = hexToRgb("#73a957"), stone = hexToRgb("#d9cdb8");
+  const glow = new MeshBuilder();
+  const lawnA = hexToRgb("#5f9a45"), lawnB = hexToRgb("#56903e"), stone = hexToRgb("#d9cdb8");
   // Lawn with mown stripes.
   const step = 2;
   for (let x = -70; x < 70; x += step) for (let z = -70; z < 70; z += step) {
@@ -123,25 +126,10 @@ function build(r: Renderer): Meshes {
     w.sphere(compose(GATE.x + s * 3, 4.1, GATE.z + 6, 0, 0, 0, 0.45, 0.55, 0.45), "#c48a52", 5, 8);
   }
   w.torus(compose(GATE.x, 3.8, GATE.z + 6, 0, Math.PI / 2, 0, 3), "#2e2b2a", 1, 0.05, 16, 4);
-  // The mansion: three storeys, a portico, a big roof and lit windows.
-  const M = MANSION;
-  w.box(compose(M.x, 5, M.z, 0, 0, 0, M.w, 10, M.d), "#c8b08a");
-  w.box(compose(M.x, 10.3, M.z, 0, 0, 0, M.w + 1, 0.6, M.d + 1), "#7a4b2c");
-  w.cylinder(compose(M.x, 12.8, M.z, Math.PI / 4, 0, 0, M.w * 0.95, 4.4, M.d * 1.3), "#5a3a2c", 4, 0.0, 0.5);
-  for (const s of [-1, 1]) {
-    w.box(compose(M.x + s * (M.w / 2 - 1.5), 13, M.z, 0, 0, 0, 1.4, 4, 1.4), "#9a6a4a");
-    w.cylinder(compose(M.x + s * (M.w / 2 + 1), 7, M.z, 0, 0, 0, 5, 14, 5), "#c8b08a", 10);
-    w.cone(compose(M.x + s * (M.w / 2 + 1), 16, M.z, 0, 0, 0, 6, 4.4, 6), "#5a3a2c", 10);
-  }
-  for (let k = 0; k < 3; k++) for (let i = 0; i < 7; i++) {
-    const x = M.x - 9 + i * 3;
-    if (k === 0 && Math.abs(x) < 2) continue;
-    w.box(compose(x, 2 + k * 3, M.z + M.d / 2 + 0.05, 0, 0, 0, 1.3, 1.8, 0.1), "#ffe2a0");
-  }
-  w.box(compose(M.x, 1.7, M.z + M.d / 2 + 0.05, 0, 0, 0, 2.2, 3.4, 0.12), "#5b3a24");
-  w.box(compose(M.x, 4.6, M.z + M.d / 2 + 2, 0, 0, 0, 8, 0.4, 4), "#efe6d4");
-  for (const s of [-3.4, -1.2, 1.2, 3.4]) w.cylinder(compose(M.x + s, 2.2, M.z + M.d / 2 + 3.6, 0, 0, 0, 0.6, 4.4, 0.6), "#f4ede0", 10);
-  for (let i = 0; i < 4; i++) w.box(compose(M.x, 0.12 + i * 0.12, M.z + M.d / 2 + 4.3 - i * 0.4, 0, 0, 0, 7, 0.24, 1.2), "#d9cdb8");
+  // The mansion, in the town's storybook style: dressed-stone ground floor, a timber-framed upper
+  // storey with flower boxes, a slate roof with dormers and chimneys, round corner towers, and a
+  // pillared portico with a balcony.
+  buildMansion(w, glow);
   // Mystery board: the mansion's floor plan laid out in front of it, nine rooms with low hedge walls.
   const my = st("mystery");
   for (let i = 0; i < 9; i++) {
@@ -191,6 +179,7 @@ function build(r: Renderer): Meshes {
     w.sphere(compose(x, 3.3, z, 0, 0, 0, 0.32), "#ffe2a0", 5, 8);
   }
   const water = new MeshBuilder().cylinder(compose(0, 0.62, 9, 0, 0, 0, 4.4, 0.05, 4.4), "#5fc8d8", 16);
+  buildGarden(w, glow);
 
   const pieces: Record<string, GpuMesh> = {};
   for (const k of "prnbqk") { pieces[k.toUpperCase()] = r.upload(chessPiece(k, "#f4ead6").build()); pieces[k] = r.upload(chessPiece(k, "#3a2a22").build()); }
@@ -216,9 +205,115 @@ function build(r: Renderer): Meshes {
   hotel.box(compose(0, 0.85, 0, 0, 0, 0, 1.3, 0.1, 0.7), "#8a2a24");
   const ring = new MeshBuilder().torus(compose(0, 0, 0), "#ffd93b", 1, 0.08, 20, 4);
   return {
-    world: r.upload(w.build()), lawn: r.upload(lawn.build()), mtn: buildMountains(r, 21, [170, 280], 14), water: r.upload(water.build()),
+    world: r.upload(w.build()), glow: r.upload(glow.build()), lawn: r.upload(lawn.build()), mtn: buildMountains(r, 21, [170, 280], 14), water: r.upload(water.build()),
     pieces, man, tile, card: r.upload(card.build()), house: r.upload(house.build()), hotel: r.upload(hotel.build()), ring: r.upload(ring.build()),
   };
+}
+
+function buildMansion(m: MeshBuilder, glow: MeshBuilder) {
+  const M = MANSION;
+  const f = new Frame(M.x, 0, M.z, 0);
+  const W = M.w, D = M.d, base = 0.8, g1 = 4.2, eave = 7.8;
+  const STONE = hexToRgb("#b9ab94"), CREAM = hexToRgb("#efe2c4"), TIMBER = hexToRgb("#5b3a24");
+  plinth(m, f, W, D, base, 91);
+  box(m, f, 0, (base + g1) / 2, 0, W, g1 - base, D, STONE);
+  for (let r = 0; r < 6; r++) for (let i = 0; i < 20; i++) {
+    const x = -W / 2 + ((i + (r % 2 ? 0.5 : 0) + 0.5) * W) / 20;
+    if (x > W / 2 - 0.3) continue;
+    box(m, f, x, base + 0.3 + r * 0.56, D / 2 + 0.04, W / 20 - 0.06, 0.5, 0.08, mixRgb(STONE, hexToRgb("#d4c8b0"), hash2(i, r)));
+  }
+  box(m, f, 0, (g1 + eave) / 2 + 0.05, 0.12, W + 0.25, eave - g1, D + 0.25, CREAM);
+  timberFrame(m, f, W + 0.25, g1 + 0.05, eave + 0.05, D / 2 + 0.26, 92);
+  box(m, f, 0, g1 + 0.05, D / 2 + 0.3, W + 0.5, 0.28, 0.3, TIMBER);
+  for (let i = 0; i < 8; i++) {
+    const x = -W / 2 + 1.6 + i * ((W - 3.2) / 7);
+    if (Math.abs(x) > 2.6) windowPane(m, glow, f, x, base + 1.7, D / 2 + 0.06, 1.2, 1.9, 0, true);
+    windowPane(m, glow, f, x, g1 + 1.7, D / 2 + 0.27, 1.1, 1.5);
+    flowerBox(m, f, x, g1 + 0.78, D / 2 + 0.5, 1.4, 93 + i);
+  }
+  for (const s of [-1, 1]) for (const z of [-2.5, 2.5]) {
+    windowPane(m, glow, f, s * (W / 2 + 0.02), base + 1.7, z, 1.2, 1.8, (s * Math.PI) / 2, true);
+    windowPane(m, glow, f, s * (W / 2 + 0.14), g1 + 1.7, z, 1.1, 1.4, (s * Math.PI) / 2);
+  }
+  const ridge = gableRoofX(m, f, 0, eave, D / 2 + 0.25, W + 1.2, 0.62, 0.65);
+  for (const s of [-1, 1]) panel(m, f, [[s * (W / 2 + 0.13), eave, -D / 2 - 0.1], [s * (W / 2 + 0.13), eave, D / 2 + 0.4], [s * (W / 2 + 0.13), ridge, 0.15]], [s, 0, 0], mixRgb(CREAM, TIMBER, 0.3));
+  // Dormers.
+  for (const x of [-7.5, 0, 7.5]) {
+    const dz = D / 4 + 0.5, dy = eave + (ridge - eave) * 0.3;
+    box(m, f, x, dy + 0.55, dz, 1.8, 1.5, 1.6, CREAM);
+    windowPane(m, glow, f, x, dy + 0.6, dz + 0.82, 0.9, 0.9);
+    gableRoofZ(m, f, x, dz - 0.8, dz + 1.0, dy + 1.3, 0.95, 0.75, 0.22);
+  }
+  for (const x of [-9, 9]) {
+    chimney(m, f, x, -1.2, eave - 1, ridge + 1.4, 1.1, 94 + x);
+  }
+  // Round towers at both ends, with ring trims, windows and slate cones.
+  for (const s of [-1, 1]) {
+    const tx = s * (W / 2 + 1.4);
+    m.cylinder(f.m(tx, (base + eave + 2) / 2, 0, 5, eave + 2 - base, 5), STONE, 14);
+    for (const y of [g1, eave + 2]) m.cylinder(f.m(tx, y, 0, 5.3, 0.25, 5.3), TIMBER, 14);
+    for (const y of [base + 1.8, g1 + 1.8]) windowPane(m, glow, new Frame(...f.p(tx, 0, 0), 0), 0, y, 2.5, 1.0, 1.6, 0, true);
+    m.cone(f.m(tx, eave + 4.4, 0, 6, 4.8, 6), hexToRgb("#4a5868"), 14);
+    m.sphere(f.m(tx, eave + 6.9, 0, 0.3, 0.3, 0.3), hexToRgb("#e8b84a"), 4, 6);
+    box(m, f, tx, eave + 7.5, 0, 0.06, 1.0, 0.06, hexToRgb("#2e2b2a"));
+  }
+  // Portico: four columns, a pediment, a balcony with railings, double doors and wide steps.
+  const pz = D / 2 + 2.2;
+  for (const x of [-3.4, -1.2, 1.2, 3.4]) {
+    m.cylinder(f.m(x, base + 2.0, pz + 1.3, 0.6, 4.0, 0.6), hexToRgb("#f4ede0"), 12);
+    box(m, f, x, base + 0.1, pz + 1.3, 0.85, 0.2, 0.85, STONE);
+    box(m, f, x, base + 4.05, pz + 1.3, 0.85, 0.2, 0.85, STONE);
+  }
+  box(m, f, 0, base + 4.35, pz, 8.4, 0.4, 3.6, hexToRgb("#efe6d4"));
+  railingX(m, f, -4, 4, base + 4.55, pz + 1.65, 0.9);
+  door(m, glow, f, -0.75, base, D / 2 + 0.05, hexToRgb("#3f6b3a"));
+  door(m, glow, f, 0.75, base, D / 2 + 0.05, hexToRgb("#3f6b3a"));
+  for (let i = 0; i < 4; i++) box(m, f, 0, base - 0.12 - i * 0.2, pz + 2.4 + i * 0.4, 7.5 + i * 0.4, 0.24, 1.2, STONE);
+  for (const s of [-1, 1]) lanternPost(m, glow, s * 4.6, 0, M.z + pz + 3.6, 0, 3.0);
+}
+
+/** Topiary, flower beds, a white gazebo and hedge arches over the gravel walk. */
+function buildGarden(m: MeshBuilder, glow: MeshBuilder) {
+  const HEDGE = hexToRgb("#3f7a3a"), HEDGE_L = hexToRgb("#4f8a42");
+  // Topiary cones and balls in stone pots along the main walk.
+  for (const z of [30, 22, -2, -6]) for (const s of [-1, 1]) {
+    const x = s * 3.2;
+    m.box(compose(x, 0.35, z, 0, 0, 0, 0.9, 0.7, 0.9), "#c2b8a6");
+    if (z % 4 === 0) m.cone(compose(x, 1.6, z, 0, 0, 0, 1.0, 2.0, 1.0), HEDGE, 8);
+    else { m.sphere(compose(x, 1.15, z, 0, 0, 0, 0.55), HEDGE_L, 5, 8); m.sphere(compose(x, 1.95, z, 0, 0, 0, 0.35), HEDGE, 5, 8); }
+  }
+  // Flower beds edging the cross walks.
+  const cols = ["#e2483d", "#ff7eb3", "#ffd93b", "#a77bff", "#ffffff"];
+  for (const z of [7, 11, -4, -8]) for (const s of [-1, 1]) {
+    const x0 = s * 6;
+    m.box(compose(x0 + s * 4.5, 0.12, z, 0, 0, 0, 9, 0.24, 0.9), "#6b4a2c");
+    for (let i = 0; i < 12; i++) {
+      const x = x0 + s * (0.4 + i * 0.75);
+      m.sphere(compose(x, 0.32, z, 0, 0, 0, 0.22, 0.18, 0.22), "#3f6b32", 3, 5);
+      m.sphere(compose(x + 0.05, 0.45, z + 0.05, 0, 0, 0, 0.13), cols[(i + (z > 0 ? 1 : 3)) % cols.length], 3, 5);
+    }
+  }
+  // Hedge arch over the walk just inside the gate.
+  for (const z of [27]) {
+    for (const s of [-1, 1]) m.box(compose(s * 2.4, 1.6, z, 0, 0, 0, 1.0, 3.2, 1.2), HEDGE);
+    for (let i = 0; i <= 8; i++) {
+      const a = (i / 8) * Math.PI;
+      m.sphere(compose(Math.cos(a) * 2.4, 3.2 + Math.sin(a) * 1.2, z, 0, 0, 0, 0.7, 0.6, 0.65), i % 2 ? HEDGE : HEDGE_L, 4, 6);
+    }
+    for (let i = 0; i < 6; i++) m.sphere(compose(-1.8 + i * 0.72, 3.5 + Math.sin((i / 5) * Math.PI) * 0.8, z + 0.6, 0, 0, 0, 0.12), cols[i % cols.length], 3, 4);
+  }
+  // A white gazebo off to one side, with a lantern inside.
+  const gx = -33, gz = -19;
+  m.cylinder(compose(gx, 0.2, gz, 0, 0, 0, 6, 0.4, 6), "#e8e2d0", 8);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    m.cylinder(compose(gx + Math.cos(a) * 2.6, 1.7, gz + Math.sin(a) * 2.6, 0, 0, 0, 0.2, 2.8, 0.2), "#fbf7ee", 6);
+    if (i !== 2) m.box(compose(gx + Math.cos(a + Math.PI / 8) * 2.5, 0.85, gz + Math.sin(a + Math.PI / 8) * 2.5, -a - Math.PI / 8 + Math.PI / 2, 0, 0, 1.9, 0.08, 0.08), "#fbf7ee");
+  }
+  m.cone(compose(gx, 4.0, gz, Math.PI / 8, 0, 0, 7, 2.0, 7), "#4a5868", 8);
+  m.sphere(compose(gx, 5.1, gz, 0, 0, 0, 0.25), "#e8b84a", 4, 6);
+  glow.sphere(compose(gx, 2.8, gz, 0, 0, 0, 0.3), "#ffe2a0", 5, 8);
+  m.box(compose(gx, 2.6, gz, 0, 0, 0, 0.03, 0.4, 0.03), "#2e2b2a");
 }
 
 /** World position of city-board lot i (GO in the near-right corner, play runs clockwise). */
@@ -585,6 +680,8 @@ export class EstateScene implements Scene {
       if (Math.abs(nx - MANSION.x) < MANSION.w / 2 + 3 && nz < MANSION.z + MANSION.d / 2 + 1 && nz > MANSION.z - MANSION.d) nz = MANSION.z + MANSION.d / 2 + 1;
       const fd = Math.hypot(nx, nz - 9);
       if (fd < 2.8) { nx = (nx / fd) * 2.8; nz = 9 + ((nz - 9) / fd) * 2.8; }
+      const gd = Math.hypot(nx + 33, nz + 19);
+      if (gd < 3.3) { nx = -33 + ((nx + 33) / gd) * 3.3; nz = -19 + ((nz + 19) / gd) * 3.3; }
       me.x = nx; me.z = nz;
       me.tr = Math.atan2(mx, mz);
     }
@@ -674,6 +771,7 @@ export class EstateScene implements Scene {
     r.draw(this.m.mtn, compose(0, -8, 0), { noCast: true });
     r.draw(this.m.lawn, I, { noCast: true });
     r.draw(this.m.world, I, { sway: 0.08 });
+    r.draw(this.m.glow, I, { unlit: true, emissive: 0.35 + this.night * 0.6 });
     r.draw(this.m.water, I, { wave: 1, alpha: 0.85 });
     drawWeather(r, this.mood, this.time, cam, this.night);
     const pose = (extra: Partial<BeaverPose> = {}): BeaverPose => ({ walk: 0, moving: 0, swim: 0, jump: 0, wave: 0, sled: 0, time: this.time, ...extra });

@@ -254,11 +254,27 @@ let titleT = 0;
 // it back when there's headroom). Keeps the game smooth on laptops with very sharp screens.
 let slowT = 0, fastT = 0, avgMs = 16;
 const perf = { update: 0, render: 0 };
+let calm = 0;
 function adaptResolution(ms: number, dt: number) {
-  avgMs = avgMs * 0.92 + Math.min(ms, 100) * 0.08;
-  if (avgMs > 24) { slowT += dt; fastT = 0; } else if (avgMs < 15) { fastT += dt; slowT = 0; } else { slowT = 0; fastT = 0; }
-  if (slowT > 1.5 && renderer.autoScale > 0.55) { renderer.autoScale = Math.max(0.55, renderer.autoScale - 0.1); slowT = 0; }
-  if (fastT > 5 && renderer.autoScale < 1) { renderer.autoScale = Math.min(1, renderer.autoScale + 0.05); fastT = 0; }
+  avgMs = avgMs * 0.9 + Math.min(ms, 100) * 0.1;
+  // Aim for a smooth ~50+ fps. When frames run slow, step down in order of how little each step
+  // is noticed: rendered resolution first, then sun shadows, then how far you can see. When there's
+  // headroom again, step back up the same ladder.
+  if (avgMs > 19) { slowT += dt; fastT = 0; } else if (avgMs < 13) { fastT += dt; slowT = 0; } else { slowT = 0; fastT = 0; }
+  if (slowT > 1) {
+    slowT = 0;
+    calm = 0;
+    if (renderer.autoScale > 0.6) renderer.autoScale = Math.max(0.6, renderer.autoScale - 0.1);
+    else if (renderer.shadowsEnabled) renderer.shadowsEnabled = false;
+    else if (renderer.autoDist > 0.6) renderer.autoDist = Math.max(0.6, renderer.autoDist - 0.1);
+  }
+  if (fastT > 4) {
+    fastT = 0;
+    if (renderer.autoDist < 1) renderer.autoDist = Math.min(1, renderer.autoDist + 0.1);
+    // Shadows come back only after a good long run of fast frames, so they don't flicker on and off.
+    else if (!renderer.shadowsEnabled) { if (++calm >= 4) { renderer.shadowsEnabled = true; calm = 0; } }
+    else if (renderer.autoScale < 1) renderer.autoScale = Math.min(1, renderer.autoScale + 0.05);
+  }
 }
 
 function frame(now: number) {

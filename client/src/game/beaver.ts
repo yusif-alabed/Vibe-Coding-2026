@@ -481,10 +481,13 @@ export function drawBeaver(r: Renderer, meshes: BeaverMeshes, root: Mat4, pose: 
   // Level of detail: far-away beavers skip the ink outline and the small face details.
   const cam = r.camPos;
   const camDist = Math.hypot(root[12] - cam[0], root[13] - cam[1], root[14] - cam[2]);
+  // Past the view distance the whole beaver is skipped at once, not part by part.
+  if (camDist > r.drawDistance * r.autoDist + 2) return;
   const near = camDist < 32;
   if (camDist > 16 && meshes.low) meshes = meshes.low;
   // A lighter outline keeps the individual animated pieces from reading as stacked blocks.
-  const opts = { outline: near ? 0.028 : 0, tint };
+  // Only nearby beavers cast sun shadows: far away the shadow is a few pixels nobody sees.
+  const opts = { outline: near ? 0.028 : 0, tint, noCast: camDist > 24 };
   const at = (name: PartName, rx: number, ry: number, rz: number) => {
     const [px, py, pz] = PIVOTS[name];
     return multiply(base, compose(px, py, pz, ry, rx, rz));

@@ -351,7 +351,10 @@ export interface Environment {
   sky: boolean;
 }
 
-interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number }
+interface Item { mesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number; ink: number }
+
+/** Beyond this the ink outline is thinner than a pixel, so its second pass is skipped. */
+const INK_DIST = 70;
 
 const NO_TINT: readonly [number, number, number, number] = [0, 0, 0, 0];
 /** Scratch for the per-draw uniform comparison, so `drawNow` allocates nothing. */
@@ -400,6 +403,8 @@ export class Renderer {
   drawDistance = Infinity;
   /** Resolution scale picked automatically from the frame rate (0.55..1). */
   autoScale = 1;
+  /** Set by the frame-rate governor: shortens every draw distance (1 = as chosen in settings). */
+  autoDist = 1;
   private frustum: Float32Array = new Float32Array(24);
   /** Draw calls submitted last frame (for the debug overlay). */
   debugQueue = false;
@@ -583,7 +588,7 @@ export class Renderer {
   resize(): void {
     // Phones get a slightly lower render resolution to keep the frame rate smooth.
     const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-    const dpr = (this.quality === "low" ? Math.min(1, window.devicePixelRatio || 1) : Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 1.75)) * this.autoScale;
+    const dpr = (this.quality === "low" ? Math.min(1, window.devicePixelRatio || 1) : Math.min(window.devicePixelRatio || 1, 1.5)) * this.autoScale;
     const w = Math.floor(this.canvas.clientWidth * dpr), h = Math.floor(this.canvas.clientHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas.width = w;
@@ -612,7 +617,7 @@ export class Renderer {
       for (const p of mesh.parts) this.draw(p, model, opts);
       return;
     }
-    let view = true, shadow = true, fade = 0;
+    let view = true, shadow = true, fade = 0, ink = opts.outline ?? 0;
     const b = mesh.bounds;
     if (b) {
       // World-space bounding sphere (model matrices here are rotation/translation/scale).
@@ -624,27 +629,43 @@ export class Renderer {
       const f = this.frustum;
       for (let i = 0; i < 6 && view; i++) if (f[i * 4] * x + f[i * 4 + 1] * y + f[i * 4 + 2] * z + f[i * 4 + 3] < -r) view = false;
       const dist = Math.hypot(x - this.camPos[0], z - this.camPos[2]) - r;
-      const limit = Math.min(opts.maxDist ?? Infinity, opts.always ? Infinity : this.drawDistance);
+      const limit = Math.min(opts.maxDist ?? Infinity, opts.always ? Infinity : this.drawDistance) * this.autoDist;
       if (dist > limit) view = false;
+      // Small things far away cover a pixel or two: not worth a draw call.
+      else if (!opts.always && r < dist * 0.005) view = false;
       else if (Number.isFinite(limit) && r < 60) fade = limit;
+      if (dist > INK_DIST) ink = 0;
       const sf = this.shadowFocus;
       shadow = !!sf && Math.hypot(x - sf[0], z - sf[2]) - r < SHADOW_EXTENT * 1.15 && (!Number.isFinite(limit) || dist < limit + 20);
     }
     if (!view && !(shadow && this.casts(opts))) { this.stats.culled++; return; }
     this.stats.items++;
-    if (view) this.stats.verts += mesh.count * (opts.outline ? 2 : 1);
+    if (view) this.stats.verts += mesh.count * (ink ? 2 : 1);
     if (shadow && this.casts(opts)) this.stats.shadowVerts += mesh.count;
-    this.queue.push({ mesh, model, opts, view, shadow, fade });
+    this.queue.push({ mesh, model, opts, view, shadow, fade, ink });
   }
 
   private casts(o: DrawOpts): boolean {
     return !o.unlit && !o.noCast && !o.noFog && !o.wave && (o.alpha ?? 1) >= 1;
   }
 
+  /** Frames since the shadow map was last drawn (it's redrawn every other frame). */
+  private shadowAge = 99;
+  private shadowAt: Vec3 = [1e9, 0, 1e9];
+  /** Redraw the sun's shadow map on every frame instead of every other one. */
+  shadowEveryFrame = false;
+
   private renderShadows(): boolean {
     const gl = this.gl;
     const f = this.shadowFocus;
-    if (!f || !this.shadowsEnabled || !this.shadowSupported || this.quality === "low") return false;
+    if (!f || !this.shadowsEnabled || !this.shadowSupported || this.quality === "low") { this.shadowAge = 99; return false; }
+    // The shadow map plus the light matrix it was drawn with stay consistent with each other, so
+    // reusing last frame's pair is exact for everything that didn't move and one frame late for
+    // what did. Halving the redraws saves the whole shadow pass on alternate frames.
+    const jumped = Math.hypot(f[0] - this.shadowAt[0], f[2] - this.shadowAt[2]) > 8; // a new scene or a teleport
+    if (!this.shadowEveryFrame && this.shadowAge === 0 && !jumped) { this.shadowAge++; return true; }
+    this.shadowAge = 0;
+    this.shadowAt = [f[0], f[1], f[2]];
     const L = this.env.lightDir;
     const len = Math.hypot(L[0], L[1], L[2]) || 1;
     const dist = 220;
@@ -765,7 +786,7 @@ export class Renderer {
       gl.disable(gl.BLEND);
     }
     gl.bindVertexArray(null);
-    if (this.debugQueue) this.lastQueue = this.queue;
+    if (this.debugQueue && this.queue.length) this.lastQueue = this.queue;
     this.queue = [];
     this.cutFocus = null;
     this.lastUniforms = null;
@@ -773,7 +794,7 @@ export class Renderer {
     this.drawDistance = Infinity; // scenes that want a draw distance set it every frame
   }
 
-  private drawNow({ mesh, model, opts, fade }: Item): void {
+  private drawNow({ mesh, model, opts, fade, ink }: Item): void {
     const gl = this.gl;
     gl.bindVertexArray(mesh.vao);
     gl.uniformMatrix4fv(this.u.uModel, false, model);
@@ -825,11 +846,11 @@ export class Renderer {
 
     gl.uniform1f(this.u.uOutline, 0);
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
-    if (opts.outline) {
+    if (ink) {
       // Push the hull slightly back so it never z-fights with the surface it outlines.
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(2, 4);
-      gl.uniform1f(this.u.uOutline, opts.outline);
+      gl.uniform1f(this.u.uOutline, ink);
       gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
       gl.uniform1f(this.u.uOutline, 0);
       gl.disable(gl.POLYGON_OFFSET_FILL);

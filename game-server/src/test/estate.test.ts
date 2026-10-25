@@ -113,4 +113,21 @@ describe("Downtown", () => {
     assert.ok(v.v.seats[1].isBot);
     a.ws.close();
   });
+
+  it("doesn't rubber-band a burst of moves after a network hiccup", async () => {
+    const a = await connect("Bursty");
+    const c = a.client();
+    const x0 = c.x, z0 = c.z;
+    await new Promise((r) => setTimeout(r, 300)); // a 300 ms hiccup, then three moves at once
+    a.send({ t: "move", x: x0 + 0.6, z: z0, ry: 0 });
+    a.send({ t: "move", x: x0 + 1.2, z: z0, ry: 0 });
+    a.send({ t: "move", x: x0 + 1.8, z: z0, ry: 0 });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.ok(Math.abs(c.x - (x0 + 1.8)) < 0.05, `server kept up (at ${(c.x - x0).toFixed(2)} of 1.8)`);
+    // …but you still can't teleport across the map.
+    a.send({ t: "move", x: x0 + 60, z: z0, ry: 0 });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.ok(c.x - x0 < 20);
+    a.ws.close();
+  });
 });

@@ -97,7 +97,8 @@ export class GolfRoom {
   }
 
   private broadcast(msg: ServerMsg): void {
-    for (const c of this.players) c.send(msg);
+    const json = JSON.stringify(msg);
+    for (const c of this.players) c.sendRaw(json);
   }
 
   dispose(): void {

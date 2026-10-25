@@ -70,6 +70,91 @@ function room(m: MeshBuilder, w: number, d: number, hgt: number, wall: string, f
   for (let i = 0; i < Math.ceil(w / 4); i++) m.box(compose(x0 + 2 + i * 4, hgt - 0.15, 0, 0, 0, 0, 0.25, 0.3, d), trim);
 }
 
+interface DressOpts { wainscot?: string; rug?: [string, string]; pictures?: number; plants?: boolean; pendants?: number; beams?: string }
+
+/**
+ * The finishing touches every room gets: a panelled dado with a chair rail, a rug, framed pictures,
+ * potted plants in the back corners and pendant lamps on chains. This is what makes a box with
+ * furniture feel like a room someone looks after.
+ */
+function dress(m: MeshBuilder, glow: MeshBuilder, solids: Solid[], w: number, d: number, h: number, o: DressOpts, seed = 1) {
+  const x0 = -w / 2, z0 = -d / 2;
+  if (o.wainscot) {
+    const wc = o.wainscot, dark = mixHex(wc, "#2a1a10", 0.25);
+    m.box(compose(0, 0.6, z0 + 0.05, 0, 0, 0, w, 1.2, 0.08), wc);
+    for (const s of [-1, 1]) m.box(compose(s * (w / 2 - 0.05), 0.6, 0, 0, 0, 0, 0.08, 1.2, d), wc);
+    m.box(compose(0, 1.22, z0 + 0.1, 0, 0, 0, w, 0.08, 0.12), dark);
+    for (const s of [-1, 1]) m.box(compose(s * (w / 2 - 0.1), 1.22, 0, 0, 0, 0, 0.12, 0.08, d), dark);
+    // Raised panels.
+    for (let x = x0 + 0.6; x < w / 2 - 0.4; x += 1.2) m.box(compose(x + 0.2, 0.62, z0 + 0.1, 0, 0, 0, 0.9, 0.8, 0.04), dark);
+    for (const s of [-1, 1]) for (let z = z0 + 0.6; z < d / 2 - 0.4; z += 1.2) m.box(compose(s * (w / 2 - 0.1), 0.62, z + 0.2, 0, 0, 0, 0.04, 0.8, 0.9), dark);
+  }
+  if (o.rug) {
+    const [a, b] = o.rug;
+    m.box(compose(0, 0.012, 0.6, 0, 0, 0, Math.min(w - 3, 7), 0.02, Math.min(d - 3, 4.6)), b);
+    m.box(compose(0, 0.02, 0.6, 0, 0, 0, Math.min(w - 3, 7) - 0.5, 0.02, Math.min(d - 3, 4.6) - 0.5), a);
+    for (let i = 0; i < 5; i++) m.box(compose(0, 0.025, 0.6 - 1.2 + i * 0.6, 0, 0, 0, Math.min(w - 3, 7) - 1.0, 0.02, 0.06), b);
+  }
+  const PAINT = ["#3f8a5a", "#2f6fb0", "#e8b84a", "#c8473a", "#7a52c7", "#5aa0c8"];
+  for (let i = 0; i < (o.pictures ?? 0); i++) {
+    const side = i % 3; // back, left, right
+    const t = (Math.floor(i / 3) + 0.5) / Math.ceil((o.pictures ?? 1) / 3);
+    const fw = 1.0 + hash2(i, seed) * 0.5, fh = 0.8 + hash2(seed, i) * 0.4, y = 2.2 + hash2(i + 3, seed) * 0.4;
+    const col = PAINT[(i + seed) % PAINT.length];
+    if (side === 0) {
+      const x = x0 + w * (0.18 + 0.64 * t) * (i % 2 ? 1 : 0.6);
+      m.box(compose(x, y, z0 + 0.06, 0, 0, 0, fw + 0.16, fh + 0.16, 0.06), "#6b4426");
+      m.box(compose(x, y, z0 + 0.1, 0, 0, 0, fw, fh, 0.03), col);
+      m.sphere(compose(x - fw * 0.15, y + fh * 0.1, z0 + 0.12, 0, 0, 0, fw * 0.18, fh * 0.2, 0.02), "#f2efe8", 3, 5); // a mountain-ish dab
+    } else {
+      const sx = side === 1 ? -1 : 1, z = z0 + d * (0.25 + 0.5 * t);
+      m.box(compose(sx * (w / 2 - 0.06), y, z, 0, 0, 0, 0.06, fh + 0.16, fw + 0.16), "#6b4426");
+      m.box(compose(sx * (w / 2 - 0.1), y, z, 0, 0, 0, 0.03, fh, fw), col);
+    }
+  }
+  if (o.plants) for (const s of [-1, 1]) {
+    const px = s * (w / 2 - 0.6), pz = z0 + 0.6;
+    if (solids.some(([sx, sz, hw, hd]) => Math.abs(px - sx) < hw + 0.4 && Math.abs(pz - sz) < hd + 0.4)) continue;
+    m.cylinder(compose(px, 0.3, pz, 0, 0, 0, 0.6, 0.6, 0.6), "#b0603a", 10, 0.5, 0.4);
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      m.sphere(compose(px + Math.cos(a) * 0.2, 0.9 + hash2(k, s) * 0.5, pz + Math.sin(a) * 0.2, a, 0, 0, 0.28, 0.4, 0.2), k % 2 ? "#3f7a3a" : "#4f8a42", 4, 6);
+    }
+    solids.push([px, pz, 0.45, 0.45]);
+  }
+  for (let i = 0; i < (o.pendants ?? 0); i++) {
+    const x = x0 + (w * (i + 0.5)) / (o.pendants ?? 1);
+    m.box(compose(x, h - 0.6, 0, 0, 0, 0, 0.03, 1.2, 0.03), "#2e2b2a");
+    m.cone(compose(x, h - 1.3, 0, 0, 0, 0, 0.8, 0.35, 0.8), "#2e4a3a", 10);
+    glow.sphere(compose(x, h - 1.42, 0, 0, 0, 0, 0.18), "#ffe2a0", 4, 6);
+  }
+  if (o.beams) for (let z = z0 + 1.5; z < d / 2 - 0.5; z += 2.5) m.box(compose(0, h - 0.2, z, 0, 0, 0, w, 0.32, 0.3), o.beams);
+}
+
+function mixHex(a: string, b: string, t: number): string {
+  const ca = hexToRgb(a), cb = hexToRgb(b);
+  const c = ca.map((v, i) => v + (cb[i] - v) * t);
+  return "#" + c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, "0")).join("");
+}
+
+/** A deep upholstered armchair facing direction ry. */
+function armchair(m: MeshBuilder, solids: Solid[], x: number, z: number, ry: number, col: string) {
+  const c = Math.cos(ry), s = Math.sin(ry);
+  const at = (lx: number, ly: number, lz: number, sx: number, sy: number, sz: number) => compose(x + lx * c + lz * s, ly, z - lx * s + lz * c, ry, 0, 0, sx, sy, sz);
+  m.box(at(0, 0.3, 0, 0.9, 0.4, 0.85), col);
+  m.box(at(0, 0.75, -0.35, 0.9, 0.9, 0.2), col);
+  for (const k of [-1, 1]) m.box(at(k * 0.45, 0.6, 0, 0.18, 0.4, 0.85), mixHex(col, "#000000", 0.15));
+  m.box(at(0, 0.53, 0.05, 0.62, 0.1, 0.6), mixHex(col, "#ffffff", 0.15));
+  solids.push([x, z, 0.55, 0.55]);
+}
+
+/** A fringed bar stool. */
+function stool(m: MeshBuilder, x: number, z: number, seat = "#c8473a") {
+  m.cylinder(compose(x, 0.4, z, 0, 0, 0, 0.08, 0.8, 0.08), "#2e2b2a", 6);
+  m.cylinder(compose(x, 0.05, z, 0, 0, 0, 0.4, 0.06, 0.4), "#2e2b2a", 8);
+  m.cylinder(compose(x, 0.84, z, 0, 0, 0, 0.45, 0.12, 0.45), seat, 10);
+}
+
 function counter(m: MeshBuilder, solids: Solid[], x: number, z: number, w: number, col = "#8a5a34", top = "#e8dcc4") {
   m.box(compose(x, 0.55, z, 0, 0, 0, w, 1.1, 0.8), col);
   m.box(compose(x, 1.13, z, 0, 0, 0, w + 0.1, 0.06, 0.9), top);
@@ -160,7 +245,13 @@ const ROOMS: Record<string, RoomDef> = {
         solids.push([x, -2.2, 0.6, 0.5]);
       });
       table(m, solids, 0, 2.5, 1.1);
-      for (const x of [-5, 0, 5]) lamp(glow, x, 0, 5.4, "#ffe2a0", 0.35);
+      dress(m, glow, solids, 16, 12, 6, { wainscot: "#6b4426", rug: ["#2f6f6a", "#e8b84a"], pictures: 3, pendants: 3, beams: "#5b3a24" }, 2);
+      armchair(m, solids, -5.6, 3.6, Math.PI * 0.8, "#2f6f6a");
+      armchair(m, solids, 5.6, 3.6, -Math.PI * 0.8, "#8a3b2e");
+      m.cylinder(compose(4, 0.5, 4.2, 0, 0, 0, 0.12, 1.0, 0.12), "#5b3a24", 6);
+      m.sphere(compose(4, 1.25, 4.2, 0, 0, 0.4, 0.35), (x, y) => (Math.sin(x * 9) + Math.cos(y * 7) > 0.6 ? C("#4f8a42") : C("#3a7fc0")), 6, 8);
+      m.torus(compose(4, 1.25, 4.2, 0, 0, 0.4, 0.4), "#c8a24a", 1, 0.03, 14, 4);
+      solids.push([4, 4.2, 0.4, 0.4]);
     },
     stations: (api) => WORD_GAMES.map((g, i) => ({ x: -4.5 + i * 3, z: -0.9, game: g, label: () => `${WORD_INFO[g].icon} Play ${WORD_INFO[g].name}`, run: () => api.queueWord(g) })),
   },
@@ -182,6 +273,21 @@ const ROOMS: Record<string, RoomDef> = {
         solids.push([s * 7, -4, 0.6, 0.6]);
       }
       sign(glow, 0, 4.6, -6.85, 6, "#e2483d");
+      dress(m, glow, solids, 18, 14, 6.5, { wainscot: "#4a5868", pictures: 5, plants: false, pendants: 3 }, 5);
+      for (let i = 0; i < 6; i++) {
+        m.box(compose(-8.6, 1.1, 2 + i * 0.75, 0, 0, 0, 0.6, 2.2, 0.72), i % 2 ? "#3a6fc4" : "#2f5aa8");
+        m.box(compose(-8.28, 1.7, 2 + i * 0.75, 0, 0, 0, 0.02, 0.3, 0.4), "#1d2a4a");
+      }
+      solids.push([-8.6, 3.9, 0.4, 2.4]);
+      m.box(compose(6.5, 0.45, 3.5, 0, 0, 0, 0.5, 0.12, 1.6), "#2e2b2a");
+      m.box(compose(6.5, 0.22, 3.5, 0, 0, 0, 0.3, 0.44, 1.2), "#55555f");
+      for (const s of [-1, 1]) { m.box(compose(6.5 + s * 0.6, 0.8, 3.0, 0, 0, 0, 0.06, 1.6, 0.06), "#9aa3a8"); }
+      m.cylinder(compose(6.5, 1.6, 3.0, 0, 0, Math.PI / 2, 0.06, 1.6, 0.06), "#9aa3a8", 6);
+      for (const s of [-1, 1]) m.cylinder(compose(6.5 + s * 0.7, 1.6, 3.0, 0, 0, Math.PI / 2, 0.5, 0.1, 0.5), "#2e2b2a", 10);
+      solids.push([6.5, 3.4, 0.9, 1.0]);
+      m.box(compose(8.4, 0.5, -0.5, 0, 0, 0, 0.6, 1.0, 2.4), "#55555f");
+      for (let i = 0; i < 5; i++) for (const s of [-0.25, 0.25]) m.cylinder(compose(8.4 + s, 1.05, -1.4 + i * 0.45, 0, Math.PI / 2, 0, 0.22, 0.12, 0.22), "#2e2b2a", 8);
+      solids.push([8.4, -0.5, 0.4, 1.3]);
     },
     stations: (api) => [
       { x: 0, z: 2.6, game: "shadowbox", label: () => `${ARCADE_INFO.shadowbox.icon} Step into the ring: ${ARCADE_INFO.shadowbox.name}`, run: () => api.queueGame("shadowbox") },
@@ -210,6 +316,15 @@ const ROOMS: Record<string, RoomDef> = {
       solids.push([5, -0.4, 1.9, 1.4]);
       for (const x of [-5, 0, 5]) { lamp(glow, x, -1, 5.1, "#ffe08a", 0.45); m.box(compose(x, 5.6, -1, 0, 0, 0, 0.04, 0.8, 0.04), "#c8a24a"); }
       sign(glow, 0, 4.2, -6.85, 6, "#3fd16a");
+      dress(m, glow, solids, 18, 14, 6, { wainscot: "#3a0f16", pictures: 4, plants: true }, 7);
+      for (const s of [-1, 1]) for (const z of [-4, 0, 4]) {
+        m.box(compose(s * 8.85, 3.2, z, 0, 0, 0, 0.12, 4.6, 1.6), "#9a1f2e");
+        m.box(compose(s * 8.8, 5.45, z, 0, 0, 0, 0.18, 0.2, 1.9), "#c8a24a");
+        m.cylinder(compose(s * 8.75, 2.2, z + 0.75, 0, 0, 0, 0.18, 0.12, 0.18), "#c8a24a", 6);
+      }
+      m.box(compose(0, 0.015, 3.6, 0, 0, 0, 2.2, 0.02, 6.6), "#9a1f2e");
+      m.box(compose(0, 0.02, 3.6, 0, 0, 0, 1.8, 0.02, 6.4), "#b8283a");
+      for (let i = 0; i < 4; i++) stool(m, 3.6 + i * 0.95, 1.4, "#3f9a5a");
     },
     stations: (api) => [
       { x: 0, z: -4.6, label: () => "🎰 Play the slot machines", run: () => api.casino("slots") },
@@ -232,6 +347,19 @@ const ROOMS: Record<string, RoomDef> = {
       counter(m, solids, 6.5, -4, 4, "#3a2f4a", "#7a52c7");
       for (let i = 0; i < 5; i++) glow.box(compose(5 + i * 0.7, 1.4, -4.4, 0, 0, 0, 0.12, 0.3, 0.12), ["#ff7eb3", "#7fd6ff", "#ffd93b"][i % 3]);
       glow.sphere(compose(0, 5.6, -1, 0, 0, 0, 0.5), "#e8e8ff", 6, 10); // disco ball
+      m.box(compose(0, 6.1, -1, 0, 0, 0, 0.03, 0.9, 0.03), "#888");
+      // Booths along the walls, stools at the bar, neon strips on the walls.
+      for (const s of [-1, 1]) for (const z of [1.5, 4.5]) {
+        m.box(compose(s * 8.3, 0.4, z, 0, 0, 0, 1.0, 0.5, 2.2), "#7a52c7");
+        m.box(compose(s * 8.75, 1.0, z, 0, 0, 0, 0.3, 1.4, 2.2), "#5a3a8f");
+        m.box(compose(s * 7.3, 0.75, z, 0, 0, 0, 0.9, 0.06, 1.4), "#2e2b2a");
+        m.cylinder(compose(s * 7.3, 0.38, z, 0, 0, 0, 0.12, 0.74, 0.12), "#2e2b2a", 6);
+        glow.sphere(compose(s * 7.3, 0.86, z, 0, 0, 0, 0.08), "#ffd93b", 3, 4);
+        solids.push([s * 7.9, z, 1.1, 1.2]);
+      }
+      for (let i = 0; i < 4; i++) stool(m, 5.3 + i * 0.9, -3.0, "#ff4fa3");
+      for (const s of [-1, 1]) for (const y of [2.4, 3.4]) glow.box(compose(s * 8.92, y, 0, 0, 0, 0, 0.03, 0.06, 13), y > 3 ? "#3ff0e0" : "#ff4fa3");
+      glow.box(compose(0, 3.4, -6.92, 0, 0, 0, 17.8, 0.06, 0.03), "#ffd93b");
       sign(glow, 0, 4.4, -6.85, 8, "#ff4fa3");
     },
     stations: (api) => [
@@ -250,6 +378,17 @@ const ROOMS: Record<string, RoomDef> = {
       m.box(compose(-6.8, 1.4, 1, 0, 0, 0, 0.08, 2.4, 1.4), "#cfe8f5"); // mirror
       m.box(compose(-6.85, 1.4, 1, 0, 0, 0, 0.06, 2.6, 1.6), "#8a5a34");
       table(m, solids, 4.5, 1.5, 0.8, "#c8a878", 2);
+      dress(m, glow, solids, 14, 11, 5.5, { wainscot: "#8a5a34", rug: ["#c8473a", "#f2e6c8"], pictures: 3, plants: true, beams: "#6b4426" }, 3);
+      for (const [x, z, hat] of [[-2.6, 1.8, "#e2483d"], [-1.2, 2.6, "#2fa7a2"], [2.2, 3.4, "#f5c242"]] as const) {
+        m.cylinder(compose(x, 0.7, z, 0, 0, 0, 0.08, 1.4, 0.08), "#5b3a24", 6);
+        m.cylinder(compose(x, 0.04, z, 0, 0, 0, 0.5, 0.08, 0.5), "#5b3a24", 8);
+        m.sphere(compose(x, 1.55, z, 0, 0, 0, 0.22, 0.26, 0.22), "#e8d8c0", 5, 8);
+        m.cone(compose(x, 1.85, z, 0, 0, 0, 0.42, 0.36, 0.42), hat, 8);
+        m.sphere(compose(x, 2.06, z, 0, 0, 0, 0.08), "#ffffff", 3, 4);
+        solids.push([x, z, 0.35, 0.35]);
+      }
+      m.box(compose(1.2, 1.32, -3.6, 0, 0, 0, 0.6, 0.35, 0.45), "#c8a24a");
+      m.box(compose(1.2, 1.55, -3.75, 0, -0.5, 0, 0.5, 0.2, 0.05), "#2e2b2a");
       windows(m, 14, 11, 2.2);
       lamp(glow, 0, -1, 5, "#ffe2a0", 0.3);
     },
@@ -271,6 +410,14 @@ const ROOMS: Record<string, RoomDef> = {
       glow.cone(compose(5, 0.55, -5.2, 0, 0, 0, 0.8, 0.8, 0.3), "#ff9a3c", 6);
       solids.push([5, -5.6, 1.7, 0.6]);
       table(m, solids, -3, 1.5, 0.8); table(m, solids, 3, 1.8, 0.8);
+      dress(m, glow, solids, 16, 12, 6, { wainscot: "#5b3a24", rug: ["#8a3b2e", "#e8b84a"], pictures: 3, plants: true, beams: "#4a3020" }, 4);
+      armchair(m, solids, 3.6, -3.4, 0.6, "#3f6b3a");
+      armchair(m, solids, 6.6, -3.2, -0.5, "#8a3b2e");
+      m.box(compose(-4, 2.6, -5.88, 0, 0, 0, 3.0, 1.4, 0.06), "#2e3b30");
+      m.box(compose(-4, 2.6, -5.84, 0, 0, 0, 3.2, 1.6, 0.03), "#6b4426");
+      for (let i = 0; i < 4; i++) m.box(compose(-4.9 + i * 0.6, 2.8 - (i % 2) * 0.35, -5.84, 0, 0, 0, 0.45, 0.06, 0.02), "#f2efe8");
+      glow.box(compose(-2.2, 1.45, -4.55, 0, 0, 0, 1.0, 0.5, 0.5), "#fff1cf");
+      for (let i = 0; i < 4; i++) m.sphere(compose(-2.55 + i * 0.24, 1.3, -4.5, 0, 0, 0, 0.1, 0.06, 0.1), i % 2 ? "#d9934a" : "#c47a2c", 3, 5);
       windows(m, 16, 12, 2.4);
       for (const x of [-4, 4]) lamp(glow, x, 0, 5.4, "#ffd88a", 0.35);
     },
@@ -289,6 +436,12 @@ const ROOMS: Record<string, RoomDef> = {
       for (let i = 0; i < 4; i++) m.cylinder(compose(-6.3 + i * 0.55, 1.8, -4.5, 0, 0, 0, 0.25, 0.5, 0.25), "#f5c242", 8);
       solids.push([-5.5, -4.6, 1.4, 0.5]);
       for (let i = 0; i < 5; i++) m.box(compose(5 + i * 0.25, 0.6, -4.6, 0, 0, 0.1, 0.05, 1.2, 0.05), "#9aa3a8");
+      dress(m, glow, solids, 14, 10, 5.5, { wainscot: "#5b3a24", rug: ["#2f5a3a", "#e8dcc4"], pictures: 4, plants: true, beams: "#5b3a24" }, 6);
+      armchair(m, solids, -4.5, 2.2, Math.PI * 0.85, "#8a3b2e");
+      armchair(m, solids, -2.8, 2.9, Math.PI, "#8a3b2e");
+      m.box(compose(3.0, 2.6, -4.94, 0, 0, 0, 2.6, 1.6, 0.06), "#6b4426");
+      m.box(compose(3.0, 2.6, -4.9, 0, 0, 0, 2.4, 1.4, 0.03), "#7fb069");
+      for (let i = 0; i < 5; i++) m.cylinder(compose(2.0 + i * 0.5, 2.5 + Math.sin(i) * 0.3, -4.87, 0, Math.PI / 2, 0, 0.18, 0.02, 0.18), "#9ad27a", 8);
       windows(m, 14, 10, 2.3);
       lamp(glow, 0, 0, 5, "#ffe2a0", 0.3);
     },
@@ -307,8 +460,14 @@ const ROOMS: Record<string, RoomDef> = {
         glow.box(compose(x + Math.sin(ry) * 0.41, 1.35, z + Math.cos(ry) * 0.41, ry, -0.2, 0, 0.8, 0.6, 0.02), ["#7fd6ff", "#ff7eb3", "#b6ff7a"][i % 3]);
         solids.push([x, z, 0.65, 0.65]);
       });
+      for (const s of [-1, 1]) glow.box(compose(s * 6.9, 5.2, 0, 0, 0, 0, 0.04, 0.08, 11), s < 0 ? "#ff4fa3" : "#3ff0e0");
+      glow.box(compose(0, 5.2, -5.45, 0, 0, 0, 14, 0.08, 0.04), "#ffd93b");
+      dress(m, glow, solids, 14, 11, 5.5, { rug: ["#3a2f5a", "#7fd6ff"], pictures: 0 }, 8);
+      counter(m, solids, 4.6, 3.6, 2.4, "#3a2f5a", "#7fd6ff");
+      for (let i = 0; i < 6; i++) m.sphere(compose(3.8 + i * 0.32, 1.32, 3.6, 0, 0, 0, 0.13), ["#ff7eb3", "#ffd93b", "#7fd6ff"][i % 3], 4, 6);
     },
     stations: (api) => ARCADE_GAMES.map((g, i) => {
+      void api;
       const { x, z, ry } = cabinet(i);
       return { x: x + Math.sin(ry) * 1.4, z: z + Math.cos(ry) * 1.4, label: () => `${ARCADE_INFO[g].icon} ${ARCADE_INFO[g].name} high scores`, run: () => api.life("leaderboard", g) };
     }),
@@ -320,6 +479,11 @@ const ROOMS: Record<string, RoomDef> = {
       const books = ["#c8473a", "#2f6fb0", "#3f8a5a", "#e8b84a", "#7a52c7"];
       for (const x of [-4.5, 0, 4.5]) shelf(m, solids, x, -4.6, 3.6, 0, books, Math.floor(x + 9));
       table(m, solids, 0, 1, 1.0, "#8a5a34", 4);
+      dress(m, glow, solids, 14, 10, 5.5, { wainscot: "#6b4426", rug: ["#2f5a7a", "#e8dcc4"], pictures: 2, plants: true, beams: "#5b3a24" }, 9);
+      armchair(m, solids, -5, 2.8, Math.PI * 0.85, "#2f5a7a");
+      armchair(m, solids, 5, 2.8, -Math.PI * 0.85, "#3f6b3a");
+      for (const s of [-1, 1]) m.box(compose(-2.4 + s * 0.25, 1.4, -4.1, 0, 0.18, 0, 0.06, 2.8, 0.06), "#8a5a34");
+      for (let i = 0; i < 6; i++) m.box(compose(-2.4, 0.3 + i * 0.45, -4.1 + i * 0.08, 0, 0, 0, 0.5, 0.05, 0.06), "#8a5a34");
       lamp(glow, 0, 1, 1.15, "#ffd88a", 0.12);
       windows(m, 14, 10, 2.3);
     },
@@ -338,6 +502,7 @@ const ROOMS: Record<string, RoomDef> = {
         m.cylinder(compose(x, 1.01, -2.6, 0, 0, 0, 1.0, 0.02, 1.0), c, 12);
         solids.push([x, -2.6, 0.7, 0.7]);
       });
+      dress(m, glow, solids, 10, 8, 5, { wainscot: "#7a52c7", pictures: 3, plants: true, pendants: 2 }, 10);
     },
     stations: (api) => [{ x: 0, z: -1, label: () => "🎨 Dye your hat, scarf or pack", run: () => api.shop("dye") }],
   },
@@ -347,6 +512,7 @@ const ROOMS: Record<string, RoomDef> = {
       room(m, 10, 8, 5, "#d8e0e8", "#8a7a66");
       counter(m, solids, 0, -2.4, 4, "#2f5ab0");
       for (let i = 0; i < 12; i++) m.box(compose(-3 + (i % 6) * 1.2, 1.8 + Math.floor(i / 6) * 0.6, -3.85, 0, 0, 0, 1, 0.5, 0.2), "#c8a878");
+      dress(m, glow, solids, 10, 8, 5, { wainscot: "#2f5ab0", rug: ["#2f5ab0", "#f2efe8"], pictures: 2, plants: true, pendants: 2 }, 11);
     },
     stations: (api) => [{ x: 0, z: -1, label: () => "📮 Send a photo postcard", run: () => api.photo() }],
   },
@@ -375,6 +541,9 @@ for (const [k, t] of Object.entries(TREATS)) {
       for (let i = 0; i < 8; i++) m.sphere(compose(-1.8 + i * 0.5, 1.28, -2.2, 0, 0, 0, 0.16), t.goods[i % t.goods.length], 4, 6);
       shelf(m, solids, 0, -3.6, 6, 0, t.goods, 7);
       lamp(glow, 0, 0, 4.5, "#ffe2a0", 0.3);
+      dress(m, glow, solids, 10, 8, 5, { wainscot: "#8a5a34", rug: [t.goods[0], "#f2efe8"], pictures: 2, plants: true }, 12);
+      table(m, solids, -2.6, 2.2, 0.55, "#c8a878", 2);
+      table(m, solids, 2.6, 2.2, 0.55, "#c8a878", 2);
     },
     stations: (api) => [{ x: 0, z: -0.9, label: () => (api.myAct() === t.act ? t.done : t.label), run: () => api.act(api.myAct() === t.act ? "stop" : t.act) }],
   };
@@ -413,7 +582,9 @@ export class Interior {
       this.floorTiles = ctx.r.upload(tiles.build());
     }
     this.stations = this.def.stations(api);
-    this.me.z = this.def.d / 2 - Math.min(this.def.d * 0.42, this.def.w > 20 ? 7.5 : 5);
+    // Start a few steps inside the door, on free floor (nudged sideways if furniture is in the way).
+    this.me.z = this.def.d / 2 - (this.def.w > 20 ? 6 : 2.4);
+    for (const dx of [0, 1.4, -1.4, 2.8, -2.8]) if (!this.blocked(dx, this.me.z)) { this.me.x = dx; break; }
     this.cam = [NaN, 0, 0];
     this.titleEl = h("div.pill", { style: "position:absolute;left:50%;top:12px;transform:translateX(-50%);font-weight:800" }, this.def.title);
     root.append(this.titleEl);

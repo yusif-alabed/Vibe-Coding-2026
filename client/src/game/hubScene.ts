@@ -56,6 +56,7 @@ import { PhotoMode } from "./photo";
 import { drawBeaver, emoteReaction, getBeaverMeshes, type Expression } from "./beaver";
 import { bridgeHeightAt, dockHeightAt, drawHub, ferrisSeat, heightAt, WATER_Y, type HubWorld } from "./hubWorld";
 import { openCasino, type CasinoPanel } from "../ui/casino";
+import { newTrack, pushSample, sampleAt, type Track } from "./smoothing";
 import { Interior, INTERIOR_KEYS, interiorTitle } from "./interiors";
 import { gondolaPoint, nextBoarding, railPoint, trainUnit } from "./village/transport";
 import { isFlyingPet, PetFollower, petMesh } from "./pets";
@@ -67,6 +68,8 @@ const PL = HUB_PLACES;
 
 interface Avatar {
   info: PlayerInfo;
+  /** Recent server positions, for smooth interpolation (other beavers only). */
+  track?: Track;
   x: number; z: number; ry: number;
   tx: number; tz: number; tr: number;
   walk: number; moving: number; swim: number;
@@ -534,6 +537,8 @@ export class HubScene implements Scene {
             continue;
           }
           a.tx = x; a.tz = z; a.tr = ry;
+          if (!a.track) a.track = newTrack(a.x, a.z);
+          pushSample(a.track, x, z);
         }
         break;
       case "joined":
@@ -1402,10 +1407,16 @@ export class HubScene implements Scene {
     // Animate all avatars.
     for (const a of this.avatars.values()) {
       if (a !== me) {
-        const k = Math.min(1, dt * 10);
         const before = { x: a.x, z: a.z };
-        a.x = lerp(a.x, a.tx, k);
-        a.z = lerp(a.z, a.tz, k);
+        if (a.track) {
+          const p = sampleAt(a.track);
+          a.x = p.x; a.z = p.z;
+        } else {
+          // Bots in solo mode move locally: the old gentle chase is fine for them.
+          const k = Math.min(1, dt * 10);
+          a.x = lerp(a.x, a.tx, k);
+          a.z = lerp(a.z, a.tz, k);
+        }
         const sp = Math.hypot(a.x - before.x, a.z - before.z) / Math.max(dt, 1e-4);
         a.moving = lerp(a.moving, sp > 0.6 ? 1 : 0, Math.min(1, dt * 8));
       }
@@ -1720,12 +1731,16 @@ export class HubScene implements Scene {
 
   private updateLabels() {
     const r = this.ctx.r;
+    // Only touch the DOM when something actually changed: with a busy village, rewriting every
+    // tag's style every frame was a big chunk of the frame (style recalcs and layout).
     const place = (el: HTMLElement, x: number, y: number, z: number, maxDepth = 140) => {
       const s = r.project(x, y, z);
-      if (!s || s.depth > maxDepth) { el.style.display = "none"; return; }
-      el.style.display = "";
-      el.style.left = `${s.x}px`;
-      el.style.top = `${s.y}px`;
+      const c = el as HTMLElement & { _v?: boolean; _x?: number; _y?: number };
+      if (!s || s.depth > maxDepth) { if (c._v !== false) { el.style.display = "none"; c._v = false; } return; }
+      if (c._v !== true) { el.style.display = ""; c._v = true; }
+      const px = Math.round(s.x), py = Math.round(s.y);
+      if (c._x !== px) { el.style.left = `${px}px`; c._x = px; }
+      if (c._y !== py) { el.style.top = `${py}px`; c._y = py; }
     };
     // Place names only pop up when you're nearby (the minimap shows the rest).
     const me = this.drawPos(this.me);
@@ -1733,8 +1748,10 @@ export class HubScene implements Scene {
       const el = this.placeEls[i];
       const d = Math.hypot(l.x - me.x, l.z - me.z);
       const near = 22, fade = 6;
-      if (d > near + fade) { el.style.display = "none"; return; }
-      el.style.opacity = String(Math.min(1, (near + fade - d) / fade));
+      const c = el as HTMLElement & { _v?: boolean; _o?: string };
+      if (d > near + fade) { if (c._v !== false) { el.style.display = "none"; c._v = false; } return; }
+      const o = Math.min(1, (near + fade - d) / fade).toFixed(2);
+      if (c._o !== o) { el.style.opacity = o; c._o = o; }
       place(el, l.x, heightAt(l.x, l.z) + l.y, l.z, 110);
     });
     for (const a of this.avatars.values()) {
