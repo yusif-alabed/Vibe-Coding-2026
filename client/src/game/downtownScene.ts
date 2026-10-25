@@ -54,6 +54,70 @@ function launcherHead(m: MeshBuilder) {
   m.sphere(compose(0, 1.45, 0.55, 0, 0, 0, 0.16, 0.22, 0.16), "#c47a2c", 4, 6);
 }
 
+type Kit = "sport" | "beach" | "winter";
+
+/**
+ * A little seated spectator beaver, baked into a static mesh: round body and cream belly, a head with
+ * ears, muzzle, nose, eyes and buck teeth, a flat paddle tail behind, and (by seed) cheering paws and
+ * a scarf, sunhat, sunglasses or toque. Faces +z when `ry` is 0.
+ */
+function spectator(m: MeshBuilder, x: number, y: number, z: number, ry: number, seed: number, kit: Kit) {
+  const c = Math.cos(ry), s = Math.sin(ry);
+  const r = (n: number) => hash2(seed * 7.3, n);
+  const part = (lx: number, ly: number, lz: number, sx: number, sy: number, sz: number, col: string, kind: "s" | "b" | "c" = "s", rx = 0, rz = 0) => {
+    const t = compose(x + lx * c + lz * s, y + ly, z - lx * s + lz * c, ry, rx, rz, sx, sy, sz);
+    if (kind === "s") m.sphere(t, col, 4, 7);
+    else if (kind === "b") m.box(t, col);
+    else m.cylinder(t, col, 8);
+  };
+  const furs = ["#7a5232", "#8f6038", "#a8743f", "#6a4628", "#b98a5a", "#5e4030"];
+  const fur = furs[Math.floor(r(1) * furs.length)];
+  const belly = "#e8c9a0", dark = "#3e2a1c";
+  part(0, 0.36, 0, 0.3, 0.34, 0.27, fur);
+  part(0, 0.36, 0.11, 0.21, 0.26, 0.18, belly);
+  part(0, 0.06, -0.3, 0.2, 0.05, 0.3, dark, "s", -0.25);
+  part(-0.13, 0.04, 0.2, 0.09, 0.05, 0.11, dark);
+  part(0.13, 0.04, 0.2, 0.09, 0.05, 0.11, dark);
+  // Head.
+  part(0, 0.84, 0.03, 0.24, 0.22, 0.22, fur);
+  for (const e of [-1, 1]) {
+    part(e * 0.16, 1.01, -0.01, 0.065, 0.065, 0.045, fur);
+    part(e * 0.16, 1.01, 0.02, 0.035, 0.035, 0.02, dark);
+    part(e * 0.085, 0.9, 0.2, 0.032, 0.036, 0.02, "#1a110b");
+    part(e * 0.075, 0.91, 0.215, 0.01, 0.01, 0.006, "#ffffff");
+  }
+  part(0, 0.79, 0.19, 0.13, 0.09, 0.09, "#d9b48a");
+  part(0, 0.83, 0.27, 0.05, 0.035, 0.035, "#2a1a12");
+  part(0, 0.71, 0.255, 0.065, 0.06, 0.02, "#fffaf0", "b");
+  // Paws: half the crowd is cheering.
+  const cheer = r(2) > 0.5;
+  for (const e of [-1, 1]) {
+    if (cheer) part(e * 0.27, 0.98, 0.06, 0.075, 0.12, 0.075, fur, "s", 0, -e * 0.4);
+    else part(e * 0.2, 0.42, 0.22, 0.08, 0.07, 0.08, fur);
+  }
+  // Kit.
+  const bright = ["#e2483d", "#2f7fd0", "#f5c242", "#3f9a5a", "#ff7eb3", "#7a52c7"][Math.floor(r(3) * 6)];
+  const pick = r(4);
+  if (kit === "beach") {
+    if (pick < 0.4) {
+      part(0, 1.02, 0.02, 0.4, 0.025, 0.4, "#f1dc9a", "c");
+      part(0, 1.08, 0.02, 0.2, 0.1, 0.2, "#f1dc9a", "c");
+      part(0, 1.04, 0.02, 0.205, 0.03, 0.205, bright, "c");
+    } else if (pick < 0.75) {
+      part(0, 0.91, 0.215, 0.2, 0.05, 0.02, "#1e1c1b", "b");
+    }
+  } else if (kit === "winter") {
+    part(0, 0.62, 0.02, 0.24, 0.07, 0.22, bright);
+    if (pick < 0.6) {
+      part(0, 1.0, 0.0, 0.23, 0.12, 0.22, bright);
+      part(0, 1.13, 0.0, 0.07, 0.07, 0.07, "#ffffff");
+    }
+  } else if (pick < 0.6) {
+    part(0, 0.62, 0.02, 0.24, 0.07, 0.22, bright);
+    part(0.1, 0.5, 0.2, 0.05, 0.14, 0.02, bright, "b");
+  }
+}
+
 function pinecone(m: MeshBuilder) {
   m.sphere(compose(0, 0, 0, 0, 0, 0, 0.18, 0.26, 0.18), "#c47a2c", 4, 6);
 }
@@ -61,16 +125,12 @@ function pinecone(m: MeshBuilder) {
 
 /** Crowds, lights and set dressing round each arena, so every game feels like somewhere real. */
 function dressArena(game: ArcadeGame, ground: MeshBuilder, props: MeshBuilder) {
-  const crowdCol = ["#c8473a", "#2f6fb0", "#f5c242", "#3f8a5a", "#ff7eb3", "#ffffff", "#8a5a34"];
-  /** A row of seated spectator beavers (simple rounded bodies with scarves). */
-  const crowd = (x0: number, x1: number, y: number, z: number, ry: number, seed: number) => {
-    for (let x = x0; x < x1; x += 0.75) {
+  /** A row of seated spectator beavers, facing `ry` (0 = towards +z). */
+  const crowd = (x0: number, x1: number, y: number, z: number, ry: number, seed: number, kit: Kit = "sport") => {
+    for (let x = x0; x < x1; x += 0.8) {
       const h = hash2(x * 3, seed);
-      if (h < 0.18) continue;
-      const fur = ["#6b4a2c", "#8a5a3b", "#c48a52", "#9a8f86"][Math.floor(h * 4)];
-      props.sphere(compose(x, y + 0.35, z, ry, 0, 0, 0.28, 0.34, 0.26), fur, 4, 6);
-      props.sphere(compose(x, y + 0.82, z, ry, 0, 0, 0.22, 0.21, 0.21), fur, 4, 6);
-      props.box(compose(x, y + 0.6, z + Math.cos(ry) * 0.18, ry, 0, 0, 0.42, 0.08, 0.08), crowdCol[Math.floor(hash2(seed, x) * crowdCol.length)]);
+      if (h < 0.15) continue;
+      spectator(props, x + (h - 0.5) * 0.2, y, z, ry + (hash2(seed, x) - 0.5) * 0.4, Math.floor(h * 997) + seed, kit);
     }
   };
   if (game === "spleef") {
@@ -84,7 +144,7 @@ function dressArena(game: ArcadeGame, ground: MeshBuilder, props: MeshBuilder) {
       props.box(compose(Math.cos(a) * r, -4.4, Math.sin(a) * r, 0, 0, 0, 0.18, 2.4, 0.18), "#5b3a24");
       props.sphere(compose(Math.cos(a) * r, -3.1, Math.sin(a) * r, 0, 0, 0, 0.25), "#ffe2a0", 4, 6);
     }
-    for (let k = 0; k < 3; k++) crowd(-9, 9, -5.6 + k * 0.6, -14.5 - k * 0.9, 0, 40 + k);
+    for (let k = 0; k < 3; k++) crowd(-9, 9, -5.6 + k * 0.6 + 0.15, -14.5 - k * 0.9, 0, 40 + k, "winter");
     for (let k = 0; k < 3; k++) props.box(compose(0, -5.75 + k * 0.6, -14.5 - k * 0.9, 0, 0, 0, 19, 0.3, 0.8), "#8a5a34");
   } else if (game === "td") {
     // Flowers along the trail, signposts, and the raccoons' den (a rock pile with a hollow log).
@@ -102,22 +162,69 @@ function dressArena(game: ArcadeGame, ground: MeshBuilder, props: MeshBuilder) {
       props.box(compose(x + 0.4, 1.6, z, 0.3, 0, 0, 0.9, 0.35, 0.06), "#8a5a34");
     }
   } else if (game === "volley") {
-    // A boardwalk behind the camera, a lifeguard tower, beach huts and a crowd on towels.
-    ground.box(compose(0, 0.05, 11, 0, 0, 0, 40, 0.15, 2.4), "#a77a4a");
-    for (let i = 0; i < 20; i++) ground.box(compose(-19 + i * 2, 0.14, 11, 0, 0, 0, 0.05, 0.02, 2.4), "#7a5534");
-    const tw = [-12.5, 0, -6];
-    props.box(compose(tw[0], 2.2, tw[2], 0, 0, 0, 2.0, 0.15, 2.0), "#f2efe8");
-    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) props.box(compose(tw[0] + x * 0.9, 1.1, tw[2] + z * 0.9, 0, 0, 0, 0.14, 2.2, 0.14), "#f2efe8");
-    props.box(compose(tw[0], 2.9, tw[2], 0, 0, 0, 1.6, 1.2, 1.6), "#e2483d");
-    props.cone(compose(tw[0], 3.85, tw[2], Math.PI / 4, 0, 0, 2.4, 0.7, 2.4), "#f2efe8", 4);
-    for (let i = 0; i < 4; i++) {
-      const x = 8 + i * 3;
-      props.box(compose(x, 1.1, -9, 0, 0, 0, 2.2, 2.2, 1.8), ["#7fd6ff", "#ff9ec7", "#ffd93b", "#9ad27a"][i]);
-      props.cone(compose(x, 2.6, -9, Math.PI / 4, 0, 0, 3.2, 0.9, 2.6), "#f2efe8", 4);
-      props.box(compose(x, 0.8, -8.09, 0, 0, 0, 0.8, 1.5, 0.04), "#5b3a24");
+    // A boardwalk along the front with rope posts, a lifeguard tower, striped beach huts, a stand of
+    // fans behind the court, sunbathers on towels and a sandcastle or two.
+    ground.box(compose(0, 0.08, 11.2, 0, 0, 0, 44, 0.16, 2.6), "#b0814f");
+    for (let i = 0; i < 44; i++) ground.box(compose(-21.75 + i, 0.165, 11.2, 0, 0, 0, 0.04, 0.01, 2.6), "#7a5534");
+    for (let i = 0; i < 12; i++) {
+      const x = -22 + i * 4;
+      props.cylinder(compose(x, 0.6, 9.95, 0, 0, 0, 0.16, 1.0, 0.16), "#8a5a34", 6);
+      props.sphere(compose(x, 1.12, 9.95, 0, 0, 0, 0.11), "#6b4426", 4, 6);
+      if (i < 11) props.cylinder(compose(x + 2, 0.92, 9.95, 0, 0, Math.PI / 2, 0.05, 4, 0.05), "#e6d3a8", 4);
     }
-    for (let i = 0; i < 6; i++) ground.box(compose(-10 + i * 2.2, 0.03, 6.5, 0.2, 0, 0, 0.9, 0.02, 1.8), ["#e2483d", "#2fa7a2", "#f5c242"][i % 3]);
-    crowd(-10, 4, 0, 6.6, Math.PI, 70);
+    // Lifeguard tower (left), on stilts with a red cabin and a flag.
+    const [tx, tz] = [-15, -8];
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) props.box(compose(tx + x * 0.9, 1.2, tz + z * 0.9, 0, x * 0.06, -z * 0.06, 0.16, 2.4, 0.16), "#f2efe8");
+    props.box(compose(tx, 2.4, tz, 0, 0, 0, 2.3, 0.15, 2.3), "#c8a26a");
+    props.box(compose(tx, 3.1, tz, 0, 0, 0, 1.7, 1.25, 1.7), "#e2483d");
+    props.box(compose(tx, 3.25, tz + 0.86, 0, 0, 0, 1.2, 0.55, 0.04), "#bfe4f2");
+    props.box(compose(tx, 3.1, tz + 0.87, 0, 0, 0, 1.75, 0.12, 0.04), "#ffffff");
+    props.cone(compose(tx, 4.05, tz, Math.PI / 4, 0, 0, 2.6, 0.75, 2.6), "#f2efe8", 4);
+    for (let k = 0; k < 6; k++) props.box(compose(tx + 1.05 + k * 0.12, 0.25 + k * 0.38, tz + 1.2, 0, 0, 0, 0.6, 0.06, 0.25), "#c8a26a");
+    props.box(compose(tx, 5.1, tz, 0, 0, 0, 0.05, 1.6, 0.05), "#5b3a24");
+    props.box(compose(tx + 0.35, 5.6, tz, 0, 0, 0, 0.7, 0.45, 0.02), "#ffd93b");
+    props.cylinder(compose(tx - 1.0, 2.9, tz + 0.95, 0, 0, Math.PI / 2, 0.28, 0.1, 0.28), "#ff7a2a", 10); // life ring
+    // Beach huts (right): striped walls, white trim, a door, bunting between them.
+    const hutCol = ["#5ec4e8", "#ff8fb8", "#ffd34a", "#8fd16a"];
+    for (let i = 0; i < 4; i++) {
+      const x = 13 + i * 2.9, z = -8.5;
+      for (let k = 0; k < 6; k++) props.box(compose(x - 0.92 + k * 0.37, 1.1, z, 0, 0, 0, 0.37, 2.2, 1.8), k % 2 ? "#ffffff" : hutCol[i]);
+      props.box(compose(x, 0.12, z + 0.3, 0, 0, 0, 2.6, 0.24, 2.6), "#c8a26a");
+      props.box(compose(x, 2.25, z, 0, 0, 0, 2.4, 0.1, 2.0), "#ffffff");
+      props.cone(compose(x, 2.75, z, Math.PI / 4, 0, 0, 3.1, 0.9, 2.6), hutCol[i], 4);
+      props.box(compose(x, 0.95, z + 0.91, 0, 0, 0, 0.8, 1.5, 0.04), "#6b4426");
+      props.sphere(compose(x + 0.28, 0.95, z + 0.95, 0, 0, 0, 0.05), "#ffd93b", 3, 4);
+      props.box(compose(x, 1.85, z + 0.92, 0, 0, 0, 1.5, 0.22, 0.03), "#ffffff");
+      if (i < 3) for (let f = 0; f < 5; f++) props.cone(compose(x + 0.5 + f * 0.48, 2.15 - Math.sin((f + 0.5) / 5 * Math.PI) * 0.25, z + 1.2, 0, 0, Math.PI, 0.22, 0.28, 0.03), hutCol[(i + f) % 4], 3);
+    }
+    // A little stand of fans behind the court: three benches stepping up.
+    for (let k = 0; k < 3; k++) {
+      const y = 0.25 + k * 0.45, z = -6.4 - k * 0.85;
+      props.box(compose(0, y, z, 0, 0, 0, 16, 0.14, 0.7), "#c8a26a");
+      props.box(compose(0, y / 2, z - 0.3, 0, 0, 0, 16, y, 0.08), "#9a6a3c");
+      crowd(-7.6, 7.6, y + 0.07, z, 0, 70 + k, "beach");
+    }
+    for (const s of [-1, 1]) props.box(compose(s * 8.05, 0.7, -7.25, 0, 0, 0, 0.12, 1.4, 2.6), "#9a6a3c");
+    // Sunbathers on towels, down the sides.
+    const towels = ["#e2483d", "#2fa7a2", "#f5c242", "#7a52c7", "#ff7eb3"];
+    [[-11, 3.5], [-12.5, 0.5], [11.2, 3.2], [12.6, 0.2], [-10.5, 6.8], [10.5, 6.6]].forEach(([x, z], i) => {
+      ground.box(compose(x, 0.02, z, 0.25 * (i % 2 ? 1 : -1), 0, 0, 1.0, 0.02, 1.9), towels[i % towels.length]);
+      for (let k = 0; k < 4; k++) ground.box(compose(x, 0.035, z - 0.75 + k * 0.5, 0.25 * (i % 2 ? 1 : -1), 0, 0, 1.0, 0.01, 0.1), "#ffffff");
+      spectator(props, x, 0.03, z - 0.2, Math.PI * (x > 0 ? -0.5 : 0.5) * 0.4, 300 + i, "beach");
+    });
+    // Sandcastles, a cooler, a spare ball and a bucket.
+    for (const [x, z, sc] of [[-9.5, 9, 1], [7.5, 8.6, 0.8]]) {
+      props.box(compose(x, 0.25 * sc, z, 0, 0, 0, 1.2 * sc, 0.5 * sc, 1.2 * sc), "#e0bb76");
+      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        props.cylinder(compose(x + dx * 0.55 * sc, 0.55 * sc, z + dz * 0.55 * sc, 0, 0, 0, 0.32 * sc, 1.1 * sc, 0.32 * sc), "#e6c27e", 8);
+        props.cone(compose(x + dx * 0.55 * sc, 1.25 * sc, z + dz * 0.55 * sc, 0, 0, 0, 0.36 * sc, 0.32 * sc, 0.36 * sc), "#dcb670", 8);
+      }
+      props.box(compose(x, 1.5 * sc, z, 0, 0, 0, 0.02, 0.6 * sc, 0.02), "#5b3a24");
+      props.box(compose(x + 0.16 * sc, 1.7 * sc, z, 0, 0, 0, 0.3 * sc, 0.2 * sc, 0.02), "#e2483d");
+    }
+    props.box(compose(9.6, 0.3, 4.8, 0.3, 0, 0, 0.9, 0.6, 0.55), "#2f7fb0");
+    props.box(compose(9.6, 0.63, 4.8, 0.3, 0, 0, 0.94, 0.08, 0.6), "#ffffff");
+    props.cylinder(compose(-8.4, 0.22, 8.4, 0, 0, 0.1, 0.32, 0.44, 0.32), "#ffd93b", 8);
   } else if (game === "penalty") {
     // Floodlight towers, ad boards and a crowd in the stands.
     for (const [x, z] of [[-14, -14], [14, -14]]) {
@@ -134,7 +241,7 @@ function dressArena(game: ArcadeGame, ground: MeshBuilder, props: MeshBuilder) {
   } else if (game === "shadowbox") {
     // Bleachers along the right wall, championship banners and a speed bag.
     for (let k = 0; k < 3; k++) props.box(compose(9.5 + k * 0.6, 0.35 + k * 0.45, -2, 0, 0, 0, 0.6, 0.12, 10), "#c8a26a");
-    for (let k = 0; k < 3; k++) crowd(-6.5, 3, 0.4 + k * 0.45, 9.5 + k * 0.6, -Math.PI / 2, 120 + k);
+    for (let k = 0; k < 3; k++) crowd(-6.5, 3, 0.41 + k * 0.45, 9.5 + k * 0.6, -Math.PI / 2, 120 + k);
     for (let i = 0; i < 4; i++) {
       props.box(compose(-9 + i * 6, 5.2, -11.8, 0, 0, 0, 1.4, 2.2, 0.05), ["#e2483d", "#2f6fb0", "#f5c242", "#3f8a5a"][i]);
       props.cone(compose(-9 + i * 6, 3.9, -11.8, 0, 0, Math.PI, 1.4, 0.5, 0.05), ["#e2483d", "#2f6fb0", "#f5c242", "#3f8a5a"][i], 3);
@@ -179,20 +286,45 @@ function buildArena(r: Renderer, game: ArcadeGame): Meshes {
       spruce(props, Math.cos(a) * d, 0, Math.sin(a) * d, 1 + hash2(i, 3) * 0.6, i);
     }
   } else if (game === "volley") {
-    ground.cylinder(compose(0, -0.5, 0, 0, 0, 0, 150, 1, 150), (x, _y, z) => (hash2(Math.floor(x * 9), Math.floor(z * 9)) > 0.5 ? hexToRgb("#e6c27e") : hexToRgb("#dcb670")), 40);
-    water = new MeshBuilder().box(compose(0, -0.05, -40, 0, 0, 0, 200, 0.1, 50), "#3fb6c4");
-    // Court lines, net and posts.
-    for (const [x, z, w, d] of [[0, -3, VOLLEY.half * 2, 0.1], [0, 3, VOLLEY.half * 2, 0.1], [-VOLLEY.half, 0, 0.1, 6], [VOLLEY.half, 0, 0.1, 6]]) props.box(compose(x, 0.02, z, 0, 0, 0, w, 0.03, d), "#ffffff");
-    for (const s of [-1, 1]) props.cylinder(compose(0, VOLLEY.net / 2 + 0.2, s * 3.4, 0, 0, 0, 0.14, VOLLEY.net + 0.4, 0.14), "#e2483d", 6);
-    props.box(compose(0, VOLLEY.net - 0.45, 0, 0, 0, 0, 0.04, 0.9, 6.8), (_x, y) => (Math.floor((y + 0.5) * 8) % 2 ? hexToRgb("#2e2b2a") : hexToRgb("#f2efe8")));
-    props.box(compose(0, VOLLEY.net, 0, 0, 0, 0, 0.08, 0.1, 6.8), "#ffffff");
-    // Beach umbrellas along the far side of the court, the lake behind them, pines at the ends.
-    for (let i = 0; i < 6; i++) {
-      const x = -14 + i * 5.6, z = -7 - hash2(i, 1) * 3;
-      props.cylinder(compose(x, 1.1, z, 0, 0, 0, 0.08, 2.2, 0.08), "#ddd", 5);
-      props.cone(compose(x, 2.3, z, 0, 0, 0, 2.4, 0.7, 2.4), ["#ff7eb3", "#2fa7a2", "#f5c242"][i % 3], 8);
+    // A sandy beach that runs down into the lake: dry sand, a strip of wet sand, foam, then water to the
+    // mountains, with a seabed underneath so the shallows look shallow.
+    const sand = (x: number, _y: number, z: number) => (hash2(Math.floor(x * 7), Math.floor(z * 7)) > 0.5 ? hexToRgb("#e0b66e") : hexToRgb("#d8ad66"));
+    ground.box(compose(0, -0.5, 14, 0, 0, 0, 260, 1, 60), sand);
+    ground.box(compose(0, -0.62, -17, 0, -0.06, 0, 260, 1, 4.4), "#c9a463");
+    ground.box(compose(0, -1.6, -200, 0, 0, 0, 900, 1, 360), "#3d8a92");
+    ground.box(compose(0, -1.15, -24, 0, 0, 0, 900, 1, 10), "#6fb5a3");
+    water = new MeshBuilder().box(compose(0, -0.12, -200, 0, 0, 0, 900, 0.06, 368), "#2f9fc0");
+    for (let i = 0; i < 3; i++) props.box(compose(0, -0.08, -16.6 - i * 1.6, 0, 0, 0, 260, 0.02, 0.18 - i * 0.04), "#f6fbff");
+    // Buoys, a swimming raft and a little sailboat out on the water.
+    for (let i = 0; i < 14; i++) props.sphere(compose(-26 + i * 4, -0.05, -30, 0, 0, 0, 0.28), i % 2 ? "#ff7a2a" : "#ffffff", 4, 6);
+    props.box(compose(6, -0.02, -38, 0.2, 0, 0, 4, 0.3, 3), "#b0814f");
+    props.box(compose(7.4, 0.9, -38.4, 0.2, 0, 0, 0.1, 1.8, 0.1), "#f2efe8");
+    const [sx, sz] = [-22, -60];
+    props.box(compose(sx, 0.05, sz, 0.4, 0, 0, 1.4, 0.6, 4.4), "#f2efe8");
+    props.box(compose(sx, 0.4, sz, 0.4, 0, 0, 1.45, 0.1, 4.45), "#2f7fb0");
+    props.box(compose(sx, 3.0, sz, 0.4, 0, 0, 0.1, 5, 0.1), "#8a5a34");
+    props.cone(compose(sx + 0.05, 3.1, sz + 0.2, 0.4 + Math.PI / 2, 0, 0, 0.05, 4.4, 2.6), "#ffffff", 3);
+    // The court: rope lines, then a proper net — padded posts, a black mesh, a white tape and antennas.
+    for (const [x, z, w, d] of [[0, -3, VOLLEY.half * 2, 0.12], [0, 3, VOLLEY.half * 2, 0.12], [-VOLLEY.half, 0, 0.12, 6], [VOLLEY.half, 0, 0.12, 6]]) props.box(compose(x, 0.02, z, 0, 0, 0, w, 0.04, d), "#2f6fb0");
+    for (const s of [-1, 1]) {
+      props.cylinder(compose(0, VOLLEY.net / 2 + 0.2, s * 3.6, 0, 0, 0, 0.12, VOLLEY.net + 0.4, 0.12), "#e8e4dc", 8);
+      props.cylinder(compose(0, 1.0, s * 3.6, 0, 0, 0, 0.26, 1.6, 0.26), "#2f6fb0", 8);
+      props.box(compose(0, 0.02, s * 3.6, 0, 0, 0, 0.6, 0.04, 0.6), "#9a6a3c");
+      props.box(compose(0, VOLLEY.net - 0.45, s * 3.0, 0, 0, 0, 0.03, 1.8, 0.03), (_x, y) => (Math.floor(y * 6) % 2 ? hexToRgb("#e2483d") : hexToRgb("#ffffff")));
     }
-    for (let i = 0; i < 24; i++) spruce(props, (i % 2 ? 1 : -1) * (20 + hash2(i, 1) * 10), 0, -12 + (i >> 1) * 2.5, 1.1 + hash2(i, 3) * 0.5, i);
+    props.box(compose(0, VOLLEY.net - 0.45, 0, 0, 0, 0, 0.03, 0.9, 7.1), (_x, y, z) => (Math.floor((y + 9) * 7) % 2 && Math.floor((z + 9) * 7) % 2 ? hexToRgb("#3b3936") : hexToRgb("#1e1c1b")));
+    props.box(compose(0, VOLLEY.net, 0, 0, 0, 0, 0.06, 0.14, 7.2), "#ffffff");
+    props.box(compose(0, VOLLEY.net - 0.9, 0, 0, 0, 0, 0.04, 0.05, 7.2), "#ffffff");
+    // Beach umbrellas either side of the stand, pines far off at the ends.
+    for (const [i, x, z] of [[0, -10, -6.5], [1, 10, -6.5], [2, -12.5, 4.8], [0, 12.5, 4.8]]) {
+      props.cylinder(compose(x, 1.2, z, 0, 0, 0.05, 0.07, 2.4, 0.07), "#f2efe8", 5);
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        props.cone(compose(x, 2.35, z, a, 0, 0, 1.4, 0.55, 1.4), (k % 2 ? "#ffffff" : ["#ff7eb3", "#2fa7a2", "#f5c242"][i]), 3);
+      }
+      props.sphere(compose(x, 2.95, z, 0, 0, 0, 0.08), "#ffffff", 3, 4);
+    }
+    for (let i = 0; i < 16; i++) spruce(props, (i % 2 ? 1 : -1) * (30 + hash2(i, 1) * 12), 0, -10 + (i >> 1) * 3.5, 1.1 + hash2(i, 3) * 0.5, i);
   } else if (game === "hoops") {
     // Indoors, in the Sports Centre's hall: four practice hoops along the back wall, one per shooter.
     mtn = null;
@@ -209,9 +341,6 @@ function buildArena(r: Renderer, game: ArcadeGame): Meshes {
     props.box(compose(0, H / 2, gz - 1.6, 0, 0, 0, W, H, 0.03), (x, y) => (Math.floor(x * 6) % 2 && Math.floor(y * 6) % 2 ? hexToRgb("#e8e8e8") : hexToRgb("#c8ccd0")));
     for (const s of [-1, 1]) props.box(compose((s * W) / 2, H / 2, gz - 0.8, 0, 0, 0, 0.03, H, 1.6), "#d8dcdf");
     props.box(compose(0, H, gz - 0.8, 0, 0, 0, W, 0.03, 1.6), "#d8dcdf");
-    // Stands full of (cardboard) fans.
-    for (let i = 0; i < 40; i++) props.box(compose(-20 + i, 1.5 + (i % 3) * 0.8, gz - 7 - (i % 3), 0, 0, 0, 0.7, 0.9, 0.3), ["#e2483d", "#2f7fb0", "#f5c242", "#ffffff"][i % 4]);
-    props.box(compose(0, 1, gz - 8, 0, 0, 0, 42, 2, 4), "#8a8f94");
   } else {
     // Shadow boxing: a gym with a ring, ropes and punching bags.
     mtn = null;
@@ -236,7 +365,15 @@ function buildArena(r: Renderer, game: ArcadeGame): Meshes {
   dressArena(game, ground, props);
   const block = new MeshBuilder().box(compose(0, 0, 0, 0, 0, 0, SPLEEF.cell * 0.98, 1, SPLEEF.cell * 0.98), (_x, y) => (y > 0.3 ? hexToRgb("#ffffff") : hexToRgb("#dbe8f2")));
   const ball = new MeshBuilder();
-  if (game === "volley") ball.sphere(compose(0, 0, 0, 0, 0, 0, 0.42), (x, y) => (y > 0 ? (x > 0 ? hexToRgb("#ffd93b") : hexToRgb("#ffffff")) : hexToRgb("#2fa7a2")), 6, 10);
+  if (game === "volley") {
+    // A classic three-panel volleyball: each face of a cube gets a colour, curved onto the sphere.
+    const pan = [hexToRgb("#ffffff"), hexToRgb("#ffd23a"), hexToRgb("#2f6fd0")];
+    ball.sphere(compose(0, 0, 0, 0, 0, 0, 0.42), (x, y, z) => {
+      const ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z);
+      const k = ax >= ay && ax >= az ? 0 : ay >= az ? 1 : 2;
+      return pan[(k + (x + y + z > 0 ? 0 : 1)) % 3];
+    }, 10, 16);
+  }
   else if (game === "hoops") ball.sphere(compose(0, 0, 0, 0, 0, 0, 0.3), (x, y) => (Math.abs(x) < 0.02 || Math.abs(y) < 0.02 ? hexToRgb("#2e2b2a") : hexToRgb("#e8742a")), 6, 10);
   else ball.sphere(compose(0, 0, 0, 0, 0, 0, 0.22), (x, y, z) => (Math.floor((Math.atan2(z, x) + 4) * 2) % 2 && y > -0.1 ? hexToRgb("#2e2b2a") : hexToRgb("#ffffff")), 6, 10);
   const foe = new MeshBuilder(); raccoon(foe);
@@ -611,7 +748,8 @@ export class DowntownScene implements Scene {
     r.time = this.time;
     // The gym is indoors: always bright.
     const indoors = this.game === "shadowbox" || this.game === "hoops";
-    this.night = applyTimeOfDay(r, indoors ? 0.45 : dayPhase(this.ctx.prefs.time));
+    // The beach is always a bright sunny day: low sun streaked long shadows right across the court.
+    this.night = applyTimeOfDay(r, indoors ? 0.45 : this.game === "volley" ? 0.42 : dayPhase(this.ctx.prefs.time));
     this.mood = currentMood(this.ctx.prefs);
     if (this.game === "spleef") this.mood = { ...this.mood, season: "winter" };
     if (this.game === "shadowbox" || this.game === "hoops" || this.game === "volley") this.mood = { ...this.mood, weather: { ...this.mood.weather, kind: "clear" } };
