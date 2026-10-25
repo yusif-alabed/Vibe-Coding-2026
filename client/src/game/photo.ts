@@ -1,5 +1,6 @@
 import type { Vec3 } from "../engine/math";
 import { h, toast } from "../ui/dom";
+import { fillSpriteText } from "../ui/sprites";
 import type { Expression } from "./beaver";
 import type { Ctx } from "./scene";
 
@@ -219,12 +220,12 @@ export class PhotoMode {
       g.fillStyle = "#3b251b";
       g.textBaseline = "middle";
       g.font = `700 ${size}px Fredoka, "Baloo 2", ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif`;
-      g.fillText(this.caption.trim() || "Beaver Banff", pad * 1.4, hgt + pad + bottom * 0.52);
+      fillSpriteText(g, this.caption.trim() || "Beaver Banff", pad * 1.4, hgt + pad + bottom * 0.52, size);
       g.font = `700 ${Math.round(size * 0.55)}px Nunito, ui-rounded, system-ui, sans-serif`;
       g.textAlign = "right";
       g.fillStyle = "#7a6656";
       const date = new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-      g.fillText(`🦫 Beaver Banff · ${date}`, out.width - pad * 1.4, hgt + pad + bottom * 0.55);
+      fillSpriteText(g, `🦫 Beaver Banff · ${date}`, out.width - pad * 1.4, hgt + pad + bottom * 0.55, Math.round(size * 0.55));
     }
     return out.toDataURL("image/jpeg", 0.92);
   }

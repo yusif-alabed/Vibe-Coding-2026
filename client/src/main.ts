@@ -23,6 +23,7 @@ import { OnlineNet, type Net } from "./net/net";
 import { h, toast } from "./ui/dom";
 import { icon, logoMountains } from "./ui/icons";
 import { CSS } from "./ui/style";
+import { installSprites } from "./ui/sprites";
 import { loadPrefs } from "./prefs";
 
 declare const __GAME_SERVER_URL__: string;
@@ -36,6 +37,7 @@ canvas.id = "game";
 const ui = h("div");
 ui.id = "ui";
 document.body.append(canvas, ui);
+installSprites(document.body);
 
 function storageGet(k: string): string | null {
   try { return localStorage.getItem(k); } catch { return null; }

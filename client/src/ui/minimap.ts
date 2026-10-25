@@ -1,6 +1,7 @@
 import { HUB, HUB_COLLIDERS, HUB_PLACES, LODGE, TOWN_BUILDINGS, TRAILS, TRAIN } from "@beaver/shared";
 import { heightAt, plazaEdge, riverDist, WATER_Y, type HubWorld } from "../game/hubWorld";
 import { h } from "./dom";
+import { spriteImage } from "./sprites";
 
 /**
  * Minimap in the corner: turns with your camera so "up" is always the way you're facing.
@@ -177,7 +178,7 @@ export class Minimap {
     g.imageSmoothingEnabled = true;
     g.drawImage(bg, -SPAN / 2, -SPAN / 2, SPAN, SPAN);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    // Landmarks (emoji stay upright).
+    // Landmarks (their sprites stay upright).
     const em = Math.round((this.big ? 15 : 13) * dpr);
     g.textAlign = "center";
     g.textBaseline = "middle";
@@ -186,7 +187,9 @@ export class Minimap {
       if (sx < -20 || sy < -20 || sx > size + 20 || sy > size + 20) continue;
       const [icon, ...rest] = l.text.split(" ");
       g.font = `${em}px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-      g.fillText(icon, sx, sy);
+      const im = spriteImage(icon);
+      if (im) g.drawImage(im, sx - em * 0.6, sy - em * 0.6, em * 1.2, em * 1.2);
+      else g.fillText(icon, sx, sy);
       if (this.big) {
         g.font = `800 ${Math.round(10 * dpr)}px Nunito, ui-rounded, system-ui, sans-serif`;
         g.lineWidth = 3 * dpr;
