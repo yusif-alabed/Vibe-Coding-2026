@@ -50,7 +50,21 @@ const params = new URLSearchParams(location.search);
 const builtUrl = typeof __GAME_SERVER_URL__ === "string" ? __GAME_SERVER_URL__ : "";
 // A hosted build talks to the same server that served the page.
 const sameOrigin = builtUrl === "same-origin" && /^https?:$/.test(location.protocol) ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}` : "";
-const serverUrl = params.get("server") ?? (builtUrl === "same-origin" ? sameOrigin : builtUrl);
+
+/** Turns what a person types ("abc.ngrok-free.app", "https://…") into a ws:// or wss:// address. */
+function normalizeServer(raw: string): string {
+  let v = raw.trim();
+  if (!v) return "";
+  v = v.replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+  if (!/^wss?:\/\//i.test(v)) v = (/^(localhost|127\.|10\.|192\.168\.|\[)/i.test(v) ? "ws://" : "wss://") + v;
+  try { return new URL(v).origin.replace(/^http/, "ws"); } catch { return ""; }
+}
+
+// Which game server to use: a link that names one (?server=…), then the page's own server if it
+// is hosted by one, then the address saved from the title screen, then whatever was built in.
+const linkServer = normalizeServer(params.get("server") ?? "");
+if (linkServer) storageSet("bb-server", linkServer);
+let serverUrl = linkServer || (builtUrl === "same-origin" ? sameOrigin : normalizeServer(storageGet("bb-server") ?? "") || builtUrl);
 
 let renderer: Renderer;
 try {
@@ -96,6 +110,37 @@ function showTitle() {
   const go = (room?: string) => start(name.value, room, recovery.value.trim() || undefined);
   name.addEventListener("keydown", (e) => { if (e.key === "Enter") go("public"); });
 
+  const srvInput = h("input.field.pe", { placeholder: "Server address, e.g. abc-123.ngrok-free.app", value: storageGet("bb-server") ?? "", style: "font-size:15px" }) as HTMLInputElement;
+  const srvStatus = h("div.hint", { style: "margin:4px 0 0" });
+  const applyServer = async (raw: string) => {
+    const u = normalizeServer(raw);
+    if (!u) { srvStatus.textContent = "That doesn't look like a server address."; return; }
+    srvStatus.textContent = "Checking…";
+    let found = "";
+    try {
+      const r = await fetch(u.replace(/^ws/, "http") + "/health", { headers: { "ngrok-skip-browser-warning": "1" }, signal: AbortSignal.timeout(7000) });
+      const j = await r.json();
+      if (j?.ok) found = `✅ Server found — ${(j.hubs ?? []).reduce((n: number, x: { players: number }) => n + x.players, 0)} beavers in the village`;
+    } catch { /* fall through */ }
+    storageSet("bb-server", u);
+    storageSet("bb-name", name.value);
+    serverUrl = u;
+    titleEl?.remove();
+    showTitle();
+    toast(ui, found || "Saved. Couldn't reach it just now — try Play online anyway.", 4200);
+  };
+  const serverPanel = h("details.pe", { style: "text-align:left;font-size:15px;color:var(--ink)", open: !serverUrl }, [
+    h("summary", {}, serverUrl ? "Game server: " + serverUrl.replace(/^wss?:\/\//, "") : "🌐 Play with friends online"),
+    h("div", { style: "margin-top:6px;display:grid;gap:6px" }, [
+      srvInput,
+      h("div.row", {}, [
+        h("button.btn.dark.small.pe", { onclick: () => applyServer(srvInput.value) }, "Connect"),
+        serverUrl && builtUrl !== "same-origin" ? h("button.btn.cream.small.pe", { onclick: () => { storageSet("bb-server", ""); serverUrl = ""; storageSet("bb-name", name.value); titleEl?.remove(); showTitle(); } }, "Solo only") : null,
+      ]),
+      srvStatus,
+    ]),
+  ]);
+
   const buttons = serverUrl
     ? [
         invitedRoom ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom.toUpperCase()) }, `🎉 Join your friend's cabin ${invitedRoom.toUpperCase()}`) : null,
@@ -105,8 +150,9 @@ function showTitle() {
         h("div.row", {}, [code, h("button.btn.dark.pe", { onclick: () => code.value.trim() && go(code.value.trim().toUpperCase()) }, "Join")]),
         h("button.btn.cream.small.pe", { onclick: () => go(undefined) }, "🦫 Play solo with bot beavers"),
         h("details.pe", { style: "text-align:left;font-size:15px;color:var(--ink)" }, [h("summary", {}, "Playing on a new device?"), h("div", { style: "margin-top:6px" }, recovery)]),
+        builtUrl === "same-origin" ? null : serverPanel,
       ]
-    : [h("button.btn.orange.pe", { onclick: () => go(undefined) }, [icon("mountains"), "Let's go!"])];
+    : [h("button.btn.orange.pe", { onclick: () => go(undefined) }, [icon("mountains"), "Let's go!"]), serverPanel];
 
   titleEl = h("div.title", {}, h("div.signpost.pe", {}, [
     h("div.sign-head", {}, [
@@ -122,7 +168,7 @@ function showTitle() {
       h("div.stack", {}, buttons),
       h("div.hint", {}, serverUrl
         ? [h("b", {}, "Online: "), "every game is played with real beavers — no bots. ", h("b", {}, "Private cabin: "), "share the code with friends."]
-        : [h("b", {}, "Solo preview: "), "runs right in your browser with friendly bot beavers. Run the game server (see README) to play together online."]),
+        : [h("b", {}, "Solo: "), "runs right in your browser with friendly bot beavers. To play with friends, paste the server address from whoever is hosting into the box above."]),
     ])),
   ]));
   ui.append(titleEl);
@@ -142,11 +188,16 @@ function inviteCard(text: string, onYes: () => void, onNo: () => void) {
   setTimeout(() => card.remove(), 30000);
 }
 
+/** How many times in a row we've tried to get back after a dropped connection. */
+let retry = 0;
+
 function start(rawName: string, room?: string, recovery?: string) {
   const name = rawName.trim().slice(0, NAME_MAX) || `Beaver${Math.floor(Math.random() * 900 + 100)}`;
   storageSet("bb-name", name);
   storageSet("bb-fur", titleLook.fur);
   const net: Net = room && serverUrl ? new OnlineNet(serverUrl) : new OfflineNet();
+  let welcomed = false;
+  let lastRoom = room;
   ctx = {
     r: renderer, input, net, ui, sound, prefs,
     state: { you: "", name, coins: 0, owned: [], look: titleLook, furniture: {}, quests: null, account: null, friends: [], party: { leader: null, members: [] }, life: null, club: null, neighbours: null, leaderboard: null },
@@ -160,6 +211,9 @@ function start(rawName: string, room?: string, recovery?: string) {
     if (!ctx) return;
     if (m.t === "welcome") {
       loading.remove();
+      welcomed = true;
+      retry = 0;
+      lastRoom = m.room.isPrivate && m.room.code ? m.room.code : room === "private-new" ? undefined : lastRoom;
       if (m.token && m.token !== "solo") storageSet("bb-token", m.token);
       scene?.dispose();
       scene = new HubScene(ctx, hub, m);
@@ -243,11 +297,32 @@ function start(rawName: string, room?: string, recovery?: string) {
     scene = null;
     ctx = null;
     sound.setMode("title");
+    // A dropped connection (Wi-Fi blip, tunnel hiccup, server restart): quietly try to get back
+    // into the same village or cabin before giving up.
+    if (net.mode === "online" && (welcomed || retry > 0) && retry < 6) {
+      retry++;
+      toast(ui, retry === 1 ? "📡 Connection dropped — reconnecting…" : `📡 Still trying to reconnect… (${retry}/6)`, 2500);
+      setTimeout(() => start(name, lastRoom ?? "public", recovery), Math.min(4000, 600 * retry));
+      return;
+    }
+    retry = 0;
     toast(ui, "Lost connection to the game server. You can play solo while it's away.", 5000);
     showTitle();
   });
   net.send({ t: "join", name, look: titleLook, room: room === undefined ? undefined : room, token: storageGet("bb-token") ?? undefined, recovery });
 }
+
+// A tiny connection badge at the top: your ping to the game server (online play only).
+const pingBadge = h("div", { style: "position:absolute;top:6px;left:50%;transform:translateX(-50%);font:600 11px system-ui,sans-serif;padding:2px 9px;border-radius:10px;background:rgba(0,0,0,.38);color:#fff;pointer-events:none;z-index:5;display:none" });
+ui.append(pingBadge);
+setInterval(() => {
+  const n = ctx?.net;
+  if (!n || n.mode !== "online" || n.rtt == null) { pingBadge.style.display = "none"; return; }
+  const ms = Math.round(n.rtt);
+  pingBadge.style.display = "block";
+  pingBadge.textContent = `● ${ms} ms`;
+  pingBadge.style.color = ms < 70 ? "#8ee08e" : ms < 150 ? "#ffd54a" : "#ff8a7a";
+}, 1000);
 
 // ---------- Main loop ----------
 let last = performance.now();

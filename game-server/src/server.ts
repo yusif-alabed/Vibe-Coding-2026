@@ -120,9 +120,22 @@ export class GameServer {
 
   constructor(server: HttpServer, opts: { dataFile?: string | null } = {}) {
     this.store = new PlayerStore(opts.dataFile ?? null);
-    this.wss = new WebSocketServer({ server, maxPayload: 4096 });
+    // No per-message compression: it costs CPU and adds latency to messages this small.
+    this.wss = new WebSocketServer({ server, maxPayload: 4096, perMessageDeflate: false });
     this.wss.on("connection", (ws) => this.onConnection(ws));
+    // A closed laptop or a dropped tunnel never says goodbye. Ping everyone every 15 seconds and
+    // drop whoever didn't answer the last one, so ghost beavers don't stand around the village.
+    this.heartbeat = setInterval(() => {
+      for (const ws of this.wss.clients) {
+        if ((ws as WebSocket & { alive?: boolean }).alive === false) { ws.terminate(); continue; }
+        (ws as WebSocket & { alive?: boolean }).alive = false;
+        try { ws.ping(); } catch { /* closing */ }
+      }
+    }, 15000);
+    this.heartbeat.unref();
   }
+
+  private heartbeat: ReturnType<typeof setInterval>;
 
   stats() {
     return {
@@ -134,6 +147,10 @@ export class GameServer {
 
   private onConnection(ws: WebSocket): void {
     let joined = false;
+    (ws as WebSocket & { alive?: boolean }).alive = true;
+    ws.on("pong", () => { (ws as WebSocket & { alive?: boolean }).alive = true; });
+    // Any message at all proves the player is there too (some proxies swallow pongs).
+    ws.on("message", () => { (ws as WebSocket & { alive?: boolean }).alive = true; });
     ws.on("message", (data) => {
       let msg: ClientMsg;
       try {
@@ -1223,6 +1240,9 @@ export class GameServer {
     for (const s of this.spaces.values()) s.dispose();
     for (const b of this.boards.values()) b.dispose();
     for (const l of this.lobbies.values()) if (l.timer) clearTimeout(l.timer);
+    clearInterval(this.heartbeat);
+    // wss.close() only stops new connections; hang up on everyone so the process can really exit.
+    for (const ws of this.wss.clients) ws.terminate();
     this.wss.close();
   }
 }

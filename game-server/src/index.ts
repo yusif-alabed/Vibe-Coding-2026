@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,8 +24,27 @@ const MIME: Record<string, string> = {
   ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".ico": "image/x-icon", ".woff2": "font/woff2",
 };
 
+/** Text files are gzipped once and kept in memory: the script is ~800 KB, and a tunnel is slow. */
+const packed = new Map<string, { mtime: number; raw: Buffer; gz: Buffer | null }>();
+function load(file: string) {
+  const mtime = statSync(file).mtimeMs;
+  let e = packed.get(file);
+  if (!e || e.mtime !== mtime) {
+    const raw = readFileSync(file);
+    const text = /\.(html|js|css|json|svg)$/.test(file);
+    e = { mtime, raw, gz: text ? gzipSync(raw, { level: 6 }) : null };
+    packed.set(file, e);
+  }
+  return e;
+}
+
 const http = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-max-age": "86400" });
+    res.end();
+    return;
+  }
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
     res.end(JSON.stringify({ ok: true, ...game.stats() }));
@@ -35,11 +55,14 @@ const http = createServer((req, res) => {
     let file = resolve(staticDir, rel || "index.html");
     if (!file.startsWith(staticDir)) { res.writeHead(403); res.end(); return; }
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(staticDir, "index.html");
+    const e = load(file);
+    const gz = e.gz !== null && /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
     res.writeHead(200, {
       "content-type": MIME[extname(file)] ?? "application/octet-stream",
       "cache-control": file.endsWith("index.html") ? "no-cache" : "public, max-age=3600",
+      ...(gz ? { "content-encoding": "gzip", vary: "accept-encoding" } : {}),
     });
-    res.end(req.method === "HEAD" ? undefined : readFileSync(file));
+    res.end(req.method === "HEAD" ? undefined : gz ? e.gz : e.raw);
     return;
   }
   res.writeHead(404);
@@ -56,5 +79,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     game.close();
     http.close(() => process.exit(0));
+    http.closeAllConnections?.();
+    setTimeout(() => process.exit(0), 2000).unref(); // never hang on shutdown
   });
 }

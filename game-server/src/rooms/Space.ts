@@ -144,7 +144,7 @@ export class Space {
       c.moved = false;
       p.push([c.id, Math.round(c.x * 100) / 100, Math.round(c.z * 100) / 100, Math.round(c.ry * 100) / 100]);
     }
-    if (p.length) this.broadcast({ t: "state", p });
+    if (p.length) this.broadcast({ t: "state", p, ts: Date.now() });
   }
 
   dispose(): void {

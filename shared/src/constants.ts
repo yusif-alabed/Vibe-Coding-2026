@@ -11,9 +11,12 @@ export const HUB = {
   /** Allowance for network jitter when validating movement. */
   speedTolerance: 1.35,
   /** How often the server broadcasts positions (Hz). */
-  tickRate: 12,
+  tickRate: 20,
   capacity: 50,
 } as const;
+
+/** Seconds between a client's position updates. Matches the server's broadcast rate so nothing waits. */
+export const MOVE_SEND_INTERVAL = 1 / HUB.tickRate;
 
 /** Places in the village. Used for scenery on the client and collision/validation on the server. */
 export const HUB_PLACES = {

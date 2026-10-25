@@ -69,7 +69,7 @@ export class Others {
       case "state":
         for (const [id, x, z, ry] of m.p) {
           const o = this.list.get(id);
-          if (o) { o.tx = x; o.tz = z; o.tr = ry; pushSample(o.track, x, z); }
+          if (o) { o.tx = x; o.tz = z; o.tr = ry; pushSample(o.track, x, z, undefined, m.ts); }
         }
         return true;
       case "look": {

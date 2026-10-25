@@ -3,6 +3,8 @@ import type { ClientMsg, ServerMsg } from "@beaver/shared";
 /** Anything that speaks the game protocol: the real WebSocket server, or the offline simulation. */
 export interface Net {
   readonly mode: "online" | "offline";
+  /** Round-trip time to the server in ms (online only; null until the first answer). */
+  readonly rtt?: number | null;
   send(msg: ClientMsg): void;
   onMessage(cb: (msg: ServerMsg) => void): void;
   onClose(cb: () => void): void;
@@ -16,6 +18,9 @@ export class OnlineNet implements Net {
   private closeListeners: (() => void)[] = [];
   private queue: string[] = [];
   private ping: number;
+  private pingSentAt = 0;
+  /** Smoothed round-trip time in ms, null until the server has answered once. */
+  rtt: number | null = null;
 
   constructor(url: string) {
     this.ws = new WebSocket(url);
@@ -30,13 +35,23 @@ export class OnlineNet implements Net {
       } catch {
         return;
       }
+      if (m.t === "pong" && this.pingSentAt) {
+        const ms = performance.now() - this.pingSentAt;
+        this.pingSentAt = 0;
+        this.rtt = this.rtt === null ? ms : this.rtt * 0.7 + ms * 0.3;
+      }
       for (const l of this.listeners) l(m);
     };
     this.ws.onclose = () => {
       clearInterval(this.ping);
       for (const l of this.closeListeners) l();
     };
-    this.ping = window.setInterval(() => this.send({ t: "ping" }), 20000);
+    // Every few seconds: keeps idle connections alive through proxies and measures the ping.
+    this.ping = window.setInterval(() => {
+      if (this.ws.readyState !== WebSocket.OPEN) return;
+      this.pingSentAt = performance.now();
+      this.send({ t: "ping" });
+    }, 2500);
   }
 
   send(msg: ClientMsg): void {

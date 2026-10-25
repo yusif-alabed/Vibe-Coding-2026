@@ -1,4 +1,4 @@
-import { type ServerMsg } from "@beaver/shared";
+import { MOVE_SEND_INTERVAL, type ServerMsg } from "@beaver/shared";
 import { compose, fbm2, hash2, hexToRgb, lerp, lerpAngle, lookAt, mixRgb, perspective, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
@@ -247,8 +247,8 @@ export class SummitScene implements Scene {
   /** Tells the others where you are, a few times a second while you're moving. */
   private sendMove(dt: number) {
     this.sendAcc += dt;
-    if (this.sendAcc < 0.1) return;
-    this.sendAcc = 0;
+    if (this.sendAcc < MOVE_SEND_INTERVAL) return;
+    this.sendAcc = Math.min(this.sendAcc - MOVE_SEND_INTERVAL, MOVE_SEND_INTERVAL);
     const me = this.me, l = this.lastSent;
     if (Math.hypot(me.x - l.x, me.z - l.z) < 0.02 && Math.abs(me.tr - l.ry) < 0.02) return;
     this.lastSent = { x: me.x, z: me.z, ry: me.tr };

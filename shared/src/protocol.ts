@@ -180,7 +180,7 @@ export interface LeaderRow { name: string; score: number; me?: boolean }
 
 export type ServerMsg =
   | { t: "welcome"; you: string; token: string; room: RoomInfo; players: PlayerInfo[]; coins: number; owned: string[]; look: Look }
-  | { t: "state"; p: [string, number, number, number][] } // id, x, z, ry
+  | { t: "state"; p: [string, number, number, number][]; ts?: number } // id, x, z, ry; ts = server clock (ms)
   | { t: "joined"; p: PlayerInfo }
   | { t: "left"; id: string }
   | { t: "look"; id: string; look: Look }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
-import { DEFAULT_LOOK, type ServerMsg } from "@beaver/shared";
+import { DEFAULT_LOOK, validateMove, type ServerMsg } from "@beaver/shared";
 import { GameServer } from "../server";
 
 let http: Server;
@@ -51,8 +51,10 @@ describe("game server", () => {
 
     const start = a.welcome.players.find((p) => p.id === a.welcome.you)!;
     await new Promise((r) => setTimeout(r, 200));
+    // Spawns are random, so +1 may be solid (a bench, the fountain): expect what the shared rules allow.
+    const want = validateMove(start, { x: start.x + 1, z: start.z }, 1000);
     a.send({ t: "move", x: start.x + 1, z: start.z, ry: 1 });
-    const st = await b.waitFor("state", (m) => m.p.some(([id, x]) => id === a.welcome.you && Math.abs(x - (start.x + 1)) < 0.01));
+    const st = await b.waitFor("state", (m) => m.p.some(([id, x, z]) => id === a.welcome.you && Math.abs(x - want.x) < 0.02 && Math.abs(z - want.z) < 0.02));
     assert.ok(st);
     a.ws.close();
     b.ws.close();

@@ -87,14 +87,11 @@ Vercel site up to date:
 2. In Vercel → your project → **Settings → Git**, the connected repository must be
    `yusif-alabed/Vibe-Coding-2026` with production branch `main`. Every push to `main` then deploys.
 
-**Why the Vercel and GitHub Pages sites have no multiplayer:** those pages are static, and online play
-needs the always-on game server (WebSockets), which Vercel can't run. Multiplayer is still in the
-code — host the server (see [Put it online](#put-it-online-so-friends-anywhere-can-play)) and either:
-
-- share the server's own URL (it serves the game too, with "Play online" on the title screen), or
-- keep the Vercel page and point it at your server: build it with
-  `GAME_SERVER_URL=wss://your-server node client/build.mjs preview`, or open the existing page with
-  `?server=wss://your-server` on the end of the link.
+**Why a Vercel or GitHub Pages link can't be multiplayer on its own:** those sites are static, and
+online play needs an always-on game server (WebSockets), which Vercel can't run. The multiplayer code is
+all still here. The page has a **"Play with friends online"** box on its title screen: paste the address of
+a running game server and it connects (and remembers it). Whoever hosts the server can also send a link
+that does it for you: `https://your-page/?server=wss://their-server`.
 
 ## Put it online (so friends anywhere can play)
 
@@ -103,6 +100,23 @@ The game server also serves the game itself, so hosting is one service and one l
 ```bash
 npm start            # builds the client and starts everything on http://localhost:2567
 ```
+
+### Fastest: host it from your own computer (no accounts to create)
+
+```bash
+npm run online
+```
+
+That builds the game, starts the server, opens a public tunnel (uses `ngrok` if it's installed and
+signed in, otherwise `cloudflared`), and prints links to send friends — one that opens this repo's Vercel
+page already pointed at your server, and one that serves the game straight from your computer. Keep the
+window open and the computer awake while people play. Saves go in `game-server/data/players.json`.
+
+How it stays smooth: the server sends positions 20 times a second stamped with its own clock, the client
+draws other beavers a short, self-adjusting moment in the past (it measures how late updates run), your own
+beaver moves instantly with no waiting for the server, dropped connections reconnect automatically into the
+same village or cabin, and the server drops dead connections within about 30 seconds. A small badge at the
+top shows your ping.
 
 Deploy the included **`Dockerfile`** to any host that runs containers:
 

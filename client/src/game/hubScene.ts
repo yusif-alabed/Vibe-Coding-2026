@@ -4,6 +4,7 @@ import {
   EMOTES,
   FUR_COLORS,
   HUB,
+  MOVE_SEND_INTERVAL,
   HUB_COLLIDERS,
   HUB_PLACES,
   PORTAL_RADIUS,
@@ -538,7 +539,7 @@ export class HubScene implements Scene {
           }
           a.tx = x; a.tz = z; a.tr = ry;
           if (!a.track) a.track = newTrack(a.x, a.z);
-          pushSample(a.track, x, z);
+          pushSample(a.track, x, z, undefined, m.ts);
         }
         break;
       case "joined":
@@ -1314,8 +1315,8 @@ export class HubScene implements Scene {
     this.updateLife(dt);
 
     this.sendAcc += dt;
-    if (this.sendAcc > 1 / 12) {
-      this.sendAcc = 0;
+    if (this.sendAcc > MOVE_SEND_INTERVAL) {
+      this.sendAcc = Math.min(this.sendAcc - MOVE_SEND_INTERVAL, MOVE_SEND_INTERVAL);
       if (me.x !== this.lastSent.x || me.z !== this.lastSent.z || me.tr !== this.lastSent.ry) {
         // Centimetres are plenty: full-precision floats made each move twice as long on the wire.
         this.ctx.net.send({ t: "move", x: Math.round(me.x * 100) / 100, z: Math.round(me.z * 100) / 100, ry: Math.round(me.tr * 100) / 100 });

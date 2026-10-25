@@ -1,6 +1,7 @@
 import {
   BOARD_INFO, FUR_COLORS, GW_QUESTIONS, GW_SUSPECTS, hashString, isDark, MY_COLORS, MY_ITEMS, MY_ROOMS, MY_SUSPECTS, roomDistance, TY, TY_BOARD, TY_GROUPS, ownsSet,
   cardName, type BoardAction, type BoardGame, type BoardView, type LobbyWire, type Look, type ServerMsg, type TycoonState,
+  MOVE_SEND_INTERVAL,
 } from "@beaver/shared";
 import { compose, hash2, hexToRgb, lerp, lerpAngle, lookAt, mixRgb, perspective, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
@@ -426,8 +427,8 @@ export class EstateScene implements Scene {
   /** Tells the others where you are, a few times a second while you're moving. */
   private sendMove(dt: number) {
     this.sendAcc += dt;
-    if (this.sendAcc < 0.1) return;
-    this.sendAcc = 0;
+    if (this.sendAcc < MOVE_SEND_INTERVAL) return;
+    this.sendAcc = Math.min(this.sendAcc - MOVE_SEND_INTERVAL, MOVE_SEND_INTERVAL);
     const me = this.me, l = this.lastSent;
     if (Math.hypot(me.x - l.x, me.z - l.z) < 0.02 && Math.abs(me.tr - l.ry) < 0.02) return;
     this.lastSent = { x: me.x, z: me.z, ry: me.tr };
