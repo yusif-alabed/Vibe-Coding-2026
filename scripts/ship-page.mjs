@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, encoding: "utf8", ...opts });
-  if (r.status !== 0) { console.error((r.stderr || r.stdout || `${cmd} failed`).trim()); process.exit(1); }
-  return r.stdout.trim();
+  if (r.status !== 0) { console.error(((r.stderr || r.stdout || "") || `${cmd} failed`).trim()); process.exit(1); }
+  return (r.stdout ?? "").trim();
 };
 
 if (!existsSync(`${root}/servers.json`)) { console.error("No servers.json yet. Run `npm run online` once first: it records where your game is reachable."); process.exit(1); }
