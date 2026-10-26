@@ -1,4 +1,4 @@
-import { buildTrack, DEFAULT_LOOK, FUR_COLORS, TRACK, type Look, type RaceGame, type RaceSnapshot, type ServerMsg, type TrackLayout } from "@beaver/shared";
+import { buildTrack, DEFAULT_LOOK, FUR_COLORS, predictLateral, TRACK, type Look, type RaceGame, type RaceSnapshot, type ServerMsg, type TrackLayout } from "@beaver/shared";
 import { compose, lerp, lookAt, multiply, perspective, type Vec3 } from "../engine/math";
 import { h } from "../ui/dom";
 import { drawBeaver, getBeaverMeshes } from "./beaver";
@@ -40,6 +40,11 @@ export class RaceScene implements Scene {
   private time = 0;
   private lastSteer = 0;
   private steerAcc = 0;
+  /** Our steering over the last second or so, so we can replay what the server hasn't seen yet. */
+  private steerLog: { t: number; v: number }[] = [];
+  /** The server's latest word on our own sled, and when it reached us. */
+  private srvMe: { x: number; steer: number; stun: boolean; at: number } | null = null;
+  private lastSnapAt = 0;
   private lastCount = -1;
   private collected = new Set<number>();
   private particles: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; gold: boolean }[] = [];
@@ -100,6 +105,9 @@ export class RaceScene implements Scene {
 
   private applySnapshot(snap: RaceSnapshot, t: number) {
     this.raceTime = t;
+    this.lastSnapAt = performance.now();
+    const mineSnap = snap.find((x) => x.id === this.ctx.state.you);
+    if (mineSnap) this.srvMe = { x: mineSnap.x, steer: mineSnap.steer, stun: mineSnap.stun, at: this.lastSnapAt };
     for (const s of snap) {
       const r = this.racers.find((x) => x.id === s.id);
       if (!r) continue;
@@ -161,6 +169,8 @@ export class RaceScene implements Scene {
     if (inp.down("a", "arrowleft")) steer -= 1;
     if (inp.down("d", "arrowright")) steer += 1;
     steer = Math.max(-1, Math.min(1, steer));
+    this.steerLog.push({ t: now, v: steer });
+    while (this.steerLog.length > 2 && this.steerLog[1].t < now - 1500) this.steerLog.shift();
     this.steerAcc += dt;
     if (!this.finished && (steer !== this.lastSteer || this.steerAcc > 0.25)) {
       this.ctx.net.send({ t: "steer", v: steer });
@@ -168,11 +178,17 @@ export class RaceScene implements Scene {
       this.steerAcc = 0;
     }
 
+    // The server's picture is always about a round trip behind our fingers. Hide that: carry the
+    // server's last word on our sled forward through the steering it hasn't seen yet, and carry
+    // everyone's progress along the track forward by how old their news is.
+    const rtt = this.ctx.net.rtt ?? 0;
+    const predX = this.me && this.srvMe && rtt > 25 && !this.me.done && !this.finished ? predictLateral(this.srvMe, this.steerLog, now, Math.min(rtt, 500)) : null;
+    const age = Math.min(0.3, (now - this.lastSnapAt + rtt / 2) / 1000);
     for (const r of this.racers) {
-      // Extrapolate along the slope a little and ease toward the server position.
-      const ahead = r.done ? r.tz : r.tz + r.speed * 0.05;
+      // Extrapolate along the slope and ease toward the server position.
+      const ahead = r.done ? r.tz : r.tz + r.speed * (this.lastSnapAt ? age : 0.05);
       r.z = r.z < 1 && r.tz < 1 ? r.tz : lerp(r.z, ahead, Math.min(1, dt * 12));
-      r.x = lerp(r.x, r.tx, Math.min(1, dt * 12));
+      r.x = r === this.me && predX !== null ? lerp(r.x, predX, Math.min(1, dt * 30)) : lerp(r.x, r.tx, Math.min(1, dt * 12));
       if (r.speed > 6 && !r.done) {
         const [wx, wy0, wz] = trackToWorld(r.x, r.z - 1);
         const wy = this.game === "canoe" ? waterY(r.z - 1) : wy0;

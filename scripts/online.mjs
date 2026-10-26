@@ -7,7 +7,7 @@
 //
 // Keep this window open and the computer awake while people play. Ctrl+C stops everything.
 //
-// Environment: PORT (default 2567), PAGE_URL (the static site that should offer the game with
+// Environment: NGROK_REGION (e.g. eu, ap, in, us — if your friends' ping is high, try another), PORT (default 2567), PAGE_URL (the static site that should offer the game with
 // the tunnel pre-filled, default https://beaver-banff.vercel.app), NO_TUNNEL=1 to skip step 3.
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -57,7 +57,8 @@ let publicUrl = "";
 if (!process.env.NO_TUNNEL) {
   if (has("ngrok")) {
     say("🌐 Opening an ngrok tunnel…");
-    const t = spawn("ngrok", ["http", String(port), "--log=stdout"], { stdio: ["ignore", "pipe", "pipe"] });
+    const region = process.env.NGROK_REGION ? ["--region", process.env.NGROK_REGION] : [];
+    const t = spawn("ngrok", ["http", String(port), "--log=stdout", ...region], { stdio: ["ignore", "pipe", "pipe"] });
     procs.push(t);
     t.stdout.on("data", () => {});
     t.stderr.on("data", (d) => process.stderr.write(d));
@@ -101,7 +102,8 @@ if (publicUrl) {
   say("  No public link (tunnel not running).");
 }
 say();
-say(`  On this computer:   http://localhost:${port}`);
+say(`  ★ PLAYING ON THIS COMPUTER? Use  http://localhost:${port}  — no tunnel in the way, so your ping is ~0 ms.`);
+say("    (Friends use the links above; their ping is whatever the tunnel and their internet give.)");
 if (lan) say(`  Same Wi-Fi:         http://${lan}:${port}`);
 say();
 say("  Keep this window open and your computer awake. Ctrl+C stops the game.");

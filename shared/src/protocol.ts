@@ -95,7 +95,7 @@ export type ClientMsg =
   | { t: "partyLeave" }
   | { t: "act"; a: HubAct }
   | { t: "join"; name: string; look: Look; room?: "public" | "private-new" | string; token?: string; recovery?: string }
-  | { t: "move"; x: number; z: number; ry: number }
+  | { t: "move"; x: number; z: number; ry: number; n?: number } // n = sequence number, echoed back in "state"
   | { t: "chat"; text: string }
   | { t: "quick"; i: number }
   | { t: "emote"; i: number }
@@ -180,7 +180,7 @@ export interface LeaderRow { name: string; score: number; me?: boolean }
 
 export type ServerMsg =
   | { t: "welcome"; you: string; token: string; room: RoomInfo; players: PlayerInfo[]; coins: number; owned: string[]; look: Look }
-  | { t: "state"; p: [string, number, number, number][]; ts?: number } // id, x, z, ry; ts = server clock (ms)
+  | { t: "state"; p: [string, number, number, number, number?][]; ts?: number } // id, x, z, ry, last move # processed; ts = server clock (ms)
   | { t: "joined"; p: PlayerInfo }
   | { t: "left"; id: string }
   | { t: "look"; id: string; look: Look }

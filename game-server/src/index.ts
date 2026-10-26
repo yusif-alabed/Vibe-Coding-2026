@@ -57,9 +57,20 @@ const http = createServer((req, res) => {
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(staticDir, "index.html");
     const e = load(file);
     const gz = e.gz !== null && /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    // The game page and script are checked with the server on every load (a tiny 304 when nothing
+    // changed), so an update reaches everyone straight away instead of after an hour of caching.
+    // Textures and sounds never change under the same name, so those can be kept.
+    const live = /\.(html|js|css)$/.test(file);
+    const etag = `"${Math.round(e.mtime)}-${e.raw.length}${gz ? "-gz" : ""}"`;
+    if (live && req.headers["if-none-match"] === etag) {
+      res.writeHead(304, { etag, "cache-control": "no-cache" });
+      res.end();
+      return;
+    }
     res.writeHead(200, {
       "content-type": MIME[extname(file)] ?? "application/octet-stream",
-      "cache-control": file.endsWith("index.html") ? "no-cache" : "public, max-age=3600",
+      "cache-control": live ? "no-cache" : "public, max-age=3600",
+      ...(live ? { etag } : {}),
       ...(gz ? { "content-encoding": "gzip", vary: "accept-encoding" } : {}),
     });
     res.end(req.method === "HEAD" ? undefined : gz ? e.gz : e.raw);

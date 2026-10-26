@@ -61,7 +61,8 @@ export class Space {
     return true;
   }
 
-  move(c: Client, x: number, z: number, ry: number): void {
+  move(c: Client, x: number, z: number, ry: number, n?: number): void {
+    if (Number.isInteger(n)) c.moveSeq = n as number;
     const now = Date.now();
     // Moves arrive in bursts on real networks (two packets 5 ms apart after a 150 ms hiccup).
     // Judging each one against the gap since the last would clamp the burst, leave the server
@@ -138,11 +139,11 @@ export class Space {
     const full = this.ticks % HUB.tickRate === 0;
     if (!this.dirty && !full) return;
     this.dirty = false;
-    const p: [string, number, number, number][] = [];
+    const p: [string, number, number, number, number][] = [];
     for (const c of this.clients.values()) {
       if (!full && !c.moved) continue;
       c.moved = false;
-      p.push([c.id, Math.round(c.x * 100) / 100, Math.round(c.z * 100) / 100, Math.round(c.ry * 100) / 100]);
+      p.push([c.id, Math.round(c.x * 100) / 100, Math.round(c.z * 100) / 100, Math.round(c.ry * 100) / 100, c.moveSeq]);
     }
     if (p.length) this.broadcast({ t: "state", p, ts: Date.now() });
   }

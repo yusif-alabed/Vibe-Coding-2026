@@ -210,10 +210,10 @@ export class GameServer {
     switch (msg.t) {
       case "move": {
         if (!hub) {
-          here?.move(c, Number(msg.x), Number(msg.z), Number(msg.ry));
+          here?.move(c, Number(msg.x), Number(msg.z), Number(msg.ry), msg.n);
           break;
         }
-        hub.move(c, Number(msg.x), Number(msg.z), Number(msg.ry));
+        hub.move(c, Number(msg.x), Number(msg.z), Number(msg.ry), msg.n);
         const place = visitedPlace(c.x, c.z);
         if (place && place !== c.lastVisit) this.sendAll(c, recordVisit(c.record, c.record.token, place));
         c.lastVisit = place;

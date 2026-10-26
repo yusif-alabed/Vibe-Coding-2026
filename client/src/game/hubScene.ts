@@ -5,6 +5,7 @@ import {
   FUR_COLORS,
   HUB,
   MOVE_SEND_INTERVAL,
+  MoveReconciler,
   HUB_COLLIDERS,
   HUB_PLACES,
   PORTAL_RADIUS,
@@ -526,15 +527,28 @@ export class HubScene implements Scene {
     this.countEl.textContent = String(this.avatars.size);
   }
 
+  /** Judges the server's answers about our own position (see reconcile.ts). */
+  private readonly moves = new MoveReconciler();
+
+  private reconcile(a: Avatar, x: number, z: number, n: number | undefined) {
+    if (n === undefined) { // an old server without numbered moves: only react to big jumps
+      if (Math.hypot(a.x - x, a.z - z) > 6) { a.x = x; a.z = z; a.tx = x; a.tz = z; }
+      return;
+    }
+    const fix = this.moves.ack(n, x, z);
+    if (!fix) return;
+    a.x += fix.dx; a.z += fix.dz; a.tx = a.x; a.tz = a.z;
+    this.lastSent = { x: -1e9, z: -1e9, ry: this.lastSent.ry }; // tell the server where we really are now
+  }
+
   handle(m: ServerMsg) {
     switch (m.t) {
       case "state":
-        for (const [id, x, z, ry] of m.p) {
+        for (const [id, x, z, ry, n] of m.p) {
           const a = this.avatars.get(id);
           if (!a) continue;
           if (a === this.me) {
-            // Server correction (e.g. walked into something solid).
-            if (Math.hypot(a.x - x, a.z - z) > 3) { a.x = x; a.z = z; }
+            this.reconcile(a, x, z, n);
             continue;
           }
           a.tx = x; a.tz = z; a.tr = ry;
@@ -1319,7 +1333,9 @@ export class HubScene implements Scene {
       this.sendAcc = Math.min(this.sendAcc - MOVE_SEND_INTERVAL, MOVE_SEND_INTERVAL);
       if (me.x !== this.lastSent.x || me.z !== this.lastSent.z || me.tr !== this.lastSent.ry) {
         // Centimetres are plenty: full-precision floats made each move twice as long on the wire.
-        this.ctx.net.send({ t: "move", x: Math.round(me.x * 100) / 100, z: Math.round(me.z * 100) / 100, ry: Math.round(me.tr * 100) / 100 });
+        const sx = Math.round(me.x * 100) / 100, sz = Math.round(me.z * 100) / 100;
+        const n = this.moves.record(sx, sz);
+        this.ctx.net.send({ t: "move", x: sx, z: sz, ry: Math.round(me.tr * 100) / 100, n });
         this.lastSent = { x: me.x, z: me.z, ry: me.tr };
       }
     }

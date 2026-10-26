@@ -7,6 +7,7 @@
 import * as esbuild from "esbuild";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] ?? "build";
@@ -71,10 +72,12 @@ if (mode === "dev") {
   const { port } = await ctx.serve({ servedir: here("./dev"), port: 5173 });
   console.log(`\n🦫 Beaver Banff client: http://localhost:${port}  (game server: ${serverUrl || "none — solo mode"})\n`);
 } else if (mode === "build" || mode === "hosted") {
-  await mkdir(here("./dist"), { recursive: true });
-  await copyPublic(here("./dist"));
-  await esbuild.build({ ...options, outfile: here("./dist/app.js") });
-  await writeFile(here("./dist/index.html"), injectApp(html, '<script type="module" src="./app.js"></script>'));
+  // OUT_DIR lets a test build go somewhere else, so a server that is serving client/dist isn't disturbed.
+  const out = process.env.OUT_DIR ? resolve(process.env.OUT_DIR) : here("./dist");
+  await mkdir(out, { recursive: true });
+  await copyPublic(out);
+  await esbuild.build({ ...options, outfile: join(out, "app.js") });
+  await writeFile(join(out, "index.html"), injectApp(html, '<script type="module" src="./app.js"></script>'));
 } else if (mode === "preview") {
   const out = await esbuild.build({ ...options, write: false, format: "iife" });
   const js = (await inlineAssets(out.outputFiles[0].text)).replace(/<\/script/gi, "<\\/script");

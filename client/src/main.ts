@@ -325,16 +325,19 @@ function start(rawName: string, room?: string, recovery?: string) {
   net.send({ t: "join", name, look: titleLook, room: room === undefined ? undefined : room, token: storageGet("bb-token") ?? undefined, recovery });
 }
 
-// A tiny connection badge at the top: your ping to the game server (online play only).
-const pingBadge = h("div", { style: "position:absolute;top:6px;left:50%;transform:translateX(-50%);font:600 11px system-ui,sans-serif;padding:2px 9px;border-radius:10px;background:rgba(0,0,0,.38);color:#fff;pointer-events:none;z-index:5;display:none" });
+// A tiny badge at the top: your ping to the game server (online play) and your frame rate. When
+// something feels laggy, this says whether it's the network (ping) or the graphics (fps).
+const pingBadge = h("div", { style: "position:absolute;top:6px;left:50%;transform:translateX(-50%);font:600 11px system-ui,sans-serif;padding:2px 9px;border-radius:10px;background:rgba(0,0,0,.38);color:#fff;pointer-events:none;z-index:5;display:none;white-space:nowrap" });
 ui.append(pingBadge);
 setInterval(() => {
   const n = ctx?.net;
-  if (!n || n.mode !== "online" || n.rtt == null) { pingBadge.style.display = "none"; return; }
-  const ms = Math.round(n.rtt);
+  if (!n || n.mode !== "online") { pingBadge.style.display = "none"; return; }
+  const ms = n.rtt == null ? null : Math.round(n.rtt);
+  const fps = Math.min(120, Math.round(1000 / Math.max(avgMs, 4)));
   pingBadge.style.display = "block";
-  pingBadge.textContent = `● ${ms} ms`;
-  pingBadge.style.color = ms < 70 ? "#8ee08e" : ms < 150 ? "#ffd54a" : "#ff8a7a";
+  pingBadge.textContent = `${ms === null ? "…" : `● ${ms} ms`} · ${fps} fps`;
+  const bad = (ms !== null && ms >= 150) || fps < 30, ok = (ms === null || ms < 70) && fps >= 50;
+  pingBadge.style.color = bad ? "#ff8a7a" : ok ? "#8ee08e" : "#ffd54a";
 }, 1000);
 
 // ---------- Main loop ----------

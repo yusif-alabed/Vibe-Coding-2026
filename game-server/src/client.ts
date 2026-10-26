@@ -10,6 +10,8 @@ export class Client {
   lastMoveAt = Date.now();
   /** Walking time banked since the last move (see Space.move). */
   moveCredit = 0;
+  /** Number of the last move the client sent that we processed (echoed so it can reconcile). */
+  moveSeq = 0;
   /** Moved since the last position broadcast. */
   moved = false;
   steer = 0;

@@ -1,4 +1,6 @@
 export * from "./constants";
+export * from "./reconcile";
+export * from "./racePredict";
 export * from "./rng";
 export * from "./protocol";
 export * from "./cosmetics";
