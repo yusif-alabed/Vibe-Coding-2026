@@ -84,8 +84,10 @@ if (!process.env.NO_TUNNEL) {
     else writeFileSync(lastFile, publicUrl);
   } else if (kind === "cloudflared" && has("cloudflared")) {
     say("🌐 Opening a Cloudflare tunnel…");
-    // CF_PROTOCOL=http2 if your network blocks the default (QUIC) connection.
-    const proto = process.env.CF_PROTOCOL ? ["--protocol", process.env.CF_PROTOCOL] : [];
+    // Over TCP ("http2") the tunnel attaches to the data centre nearest you (Dubai from the UAE). The default
+    // QUIC connection landed in Tokyo from there: ~140 ms instead of ~37 ms through the tunnel. Set
+    // CF_PROTOCOL=quic to use QUIC anyway.
+    const proto = ["--protocol", process.env.CF_PROTOCOL || "http2"];
     const t = spawn("cloudflared", ["tunnel", "--no-autoupdate", ...proto, "--url", `http://127.0.0.1:${port}`], { stdio: ["ignore", "pipe", "pipe"] });
     procs.push(t);
     const found = new Promise((resolve) => {
