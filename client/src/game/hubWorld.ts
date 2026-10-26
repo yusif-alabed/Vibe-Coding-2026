@@ -3,7 +3,7 @@ import { compose, fbm2, hash2, hexToRgb, mixRgb, noise2, type Vec3 } from "../en
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
 import { P, rgb } from "./palette";
-import { bench, canoe, cliff, dock, fencePost, fenceRails, Frame, fountain, grandLodge, lanternPost, timberCabin, box } from "./village/architecture";
+import { bench, canoe, cliff, dock, fencePost, fenceRails, Frame, fountain, grandLodge, LANTERN_SPOTS, lanternPost, timberCabin, box } from "./village/architecture";
 import { buildMountainMesh, type MountainOpts } from "./village/mountains";
 import { buildTown, type FerrisInfo } from "./village/town";
 import { buildNeon } from "./village/neon";
@@ -182,6 +182,8 @@ export interface HubWorld {
   /** Colourful night lights: bright cores and soft halos (halos only show after dark). */
   neon: GpuMesh;
   neonHalo: GpuMesh;
+  /** Soft stepped pools of warm light on the ground under every lantern (drawn after dark). */
+  pools: GpuMesh;
   townGlass: GpuMesh;
   townIce: GpuMesh;
   spins: { mesh: GpuMesh; x: number; y: number; z: number; ry: number; speed: number; axis: "z" | "y"; mode: "lit" | "glow" | "beam" }[];
@@ -272,7 +274,31 @@ function stoneTile(m: MeshBuilder, x: number, y: number, z: number, rx: number, 
 
 const COBBLES = ["#b4a794", "#a39684", "#c6b9a3", "#968a7a", "#bfae92", "#a89a8a"].map(C);
 
+/**
+ * A warm, stepped pool of light on the ground under each lantern: three stacked discs that follow the
+ * terrain, each faintly translucent, so the middle is brightest and the edge falls away in painted bands
+ * (in keeping with the toon look). One mesh for the whole village, drawn only at night.
+ */
+function buildLightPools(heightAt: (x: number, z: number) => number): MeshBuilder {
+  const pools = new MeshBuilder();
+  const warm: Vec3 = [1.0, 0.78, 0.42];
+  const segs = 14;
+  for (const [px, , pz] of LANTERN_SPOTS) {
+    for (const rad of [3.5, 2.4, 1.3]) {
+      const c: Vec3 = [px, heightAt(px, pz) + 0.2, pz];
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+        const x0 = px + Math.cos(a0) * rad, z0 = pz + Math.sin(a0) * rad;
+        const x1 = px + Math.cos(a1) * rad, z1 = pz + Math.sin(a1) * rad;
+        pools.tri(c, [x0, heightAt(x0, z0) + 0.2, z0], [x1, heightAt(x1, z1) + 0.2, z1], warm);
+      }
+    }
+  }
+  return pools;
+}
+
 export function buildHub(r: Renderer): HubWorld {
+  LANTERN_SPOTS.length = 0;
   const groundNormal = (x: number, z: number): Vec3 => {
     const e = 0.6;
     const nx = heightAt(x - e, z) - heightAt(x + e, z);
@@ -805,6 +831,7 @@ export function buildHub(r: Renderer): HubWorld {
     props: [...props, r.uploadChunked(town.body.build()), r.uploadChunked(neonWire.build())],
     neon: r.uploadChunked(neon.core.build()),
     neonHalo: r.uploadChunked(neon.halo.build()),
+    pools: r.uploadChunked(buildLightPools(heightAt).build()),
     glow: r.uploadChunked(glow.merge(town.glow).build()),
     water: r.upload(w.build()),
     falls: r.upload(falls.build()),
@@ -899,6 +926,7 @@ export function drawHub(r: Renderer, w: HubWorld, time: number, night = 0) {
   const flicker = 1 + Math.sin(time * 2.1) * 0.06 + Math.sin(time * 7.3) * 0.03;
   r.draw(w.neon, I, { unlit: true, emissive: (0.1 + night * 1.5) * flicker, noCast: true, cut: true });
   if (night > 0.05) r.draw(w.neonHalo, I, { unlit: true, emissive: 0.6, alpha: 0.22 * night, noCast: true, noFog: true });
+  if (night > 0.05 && r.fxOn) r.draw(w.pools, I, { unlit: true, alpha: 0.15 * night, noCast: true, noFog: true });
   r.draw(w.townIce, I, { unlit: true, emissive: 0.05, noCast: true });
   r.draw(w.townGlass, I, { alpha: 0.38, cut: true });
   for (const sp of w.spins) {

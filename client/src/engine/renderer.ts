@@ -55,6 +55,7 @@ uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureSca
 uniform float uWave; uniform float uTime; uniform float uEmissive;
 uniform float uSeasonOn; uniform vec4 uSeasonCol; uniform float uSnow; uniform float uWet;
 uniform float uCutOn; uniform vec3 uCutFocus; uniform float uCutRadius; uniform float uCutPass;
+uniform float uFx; uniform float uCloudShade;
 uniform vec2 uFade;
 uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel;
 out vec4 outColor;
@@ -72,6 +73,8 @@ float shadowAt() {
   vec2 e = smoothstep(0.0, 0.06, c.xy) * smoothstep(0.0, 0.06, 1.0 - c.xy);
   return mix(1.0, s, e.x * e.y);
 }
+
+float hash21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
 vec3 skyColor(vec3 d) {
   vec3 L = normalize(uLightDir);
@@ -181,6 +184,12 @@ void main() {
     // Wrapped diffuse keeps rounded forms soft and painterly rather than hard-edged.
     float wrap = clamp((ndl + 0.25) / 1.25, 0.0, 1.0);
     float sh = shadowAt();
+    // Cloud shadows: soft patches of shade drifting slowly across the land (a few sines, daytime only).
+    if (uCloudShade > 0.0) {
+      vec2 q = vWorld.xz * 0.021 + vec2(uTime * 0.011, uTime * 0.0045);
+      float c = sin(q.x * 1.7 + sin(q.y * 2.3)) * sin(q.y * 1.3 - q.x * 0.9) * 0.5 + 0.5;
+      sh *= 1.0 - uCloudShade * smoothstep(0.35, 0.8, c);
+    }
     vec3 sky = mix(uGround, uSkyTop, n.y * 0.5 + 0.5);
     vec3 light = uSunColor * uSunIntensity * wrap * sh + sky * uAmbient;
     // Golden backlight halo on silhouettes when looking toward the sun.
@@ -188,6 +197,27 @@ void main() {
     vec3 H = normalize(L + V);
     float spec = pow(max(dot(n, H), 0.0), 36.0) * 0.12 * sh;
     col = base * light + uSunColor * (rim * 0.32 + spec);
+    if (uFx > 0.5) {
+      float up = smoothstep(0.6, 0.9, n.y);
+      float camD = length(vWorld - uCamPos);
+      // Fresh snow glitters: tiny round prism-coloured glints that twinkle (they must be coloured: a white
+      // glint on white snow would never show), up close only.
+      if (uSnow > 0.1 && uSeasonOn > 0.5 && up > 0.0 && camD < 38.0) {
+        vec2 gp = vWorld.xz * 11.0;
+        float hs = hash21(floor(gp));
+        float tw = pow(0.5 + 0.5 * sin(uTime * 2.4 + hs * 60.0), 2.0);
+        float dot2 = smoothstep(0.3, 0.05, length(fract(gp) - 0.5));
+        float g = step(0.92, hs) * tw * dot2 * up * uSnow * smoothstep(38.0, 12.0, camD);
+        vec3 prism = 0.62 + 0.38 * cos(6.2832 * (hs * 9.0 + vec3(0.0, 0.33, 0.67)));
+        col = mix(col, prism * 1.15, clamp(g * 0.9, 0.0, 0.9));
+      }
+      // Wet ground in the rain: a glassy sheen that mirrors the sky, and a sharper sun glint.
+      if (uWet > 0.05) {
+        float fr = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+        col += mix(uSkyHorizon, uSkyTop, 0.35) * fr * up * uWet * 0.4;
+        col += uSunColor * pow(max(dot(n, H), 0.0), 80.0) * 0.45 * uWet * up * sh;
+      }
+    }
     col = tonemap(col);
     // Warm highlights, slightly cooler shadows: a gentle golden-hour grade.
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
@@ -234,7 +264,7 @@ precision highp float;
 in vec2 vNdc;
 uniform mat4 uInvViewProj; uniform vec3 uLightDir; uniform vec3 uSunColor;
 uniform vec3 uSkyTop; uniform vec3 uSkyHorizon; uniform float uTime; uniform float uClouds;
-uniform float uStars; uniform vec3 uMoonDir;
+uniform float uStars; uniform vec3 uMoonDir; uniform float uFx;
 out vec4 outColor;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -276,6 +306,17 @@ void main() {
     float md = max(dot(d, M), 0.0);
     col += vec3(0.75, 0.82, 1.0) * pow(md, 40.0) * 0.25 * uStars;
     col = mix(col, vec3(0.97, 0.96, 0.9), smoothstep(0.99955, 0.9998, md) * uStars);
+  }
+  if (uFx > 0.5 && uStars > 0.35 && h > 0.06) {
+    // Aurora: slow green-to-violet curtains that ripple high in the north, hidden behind cloud.
+    vec2 ap = d.xz / (h + 0.32) * 0.9;
+    float t = uTime * 0.05;
+    float fold = noise(ap * 0.9 + vec2(t, -t * 0.6));
+    float ribbon = exp(-pow((fold - 0.5) * 8.5, 2.0));
+    float rays = 0.25 + 0.75 * noise(vec2(ap.x * 11.0 + t * 7.0, ap.y * 1.5));
+    float fade = smoothstep(0.06, 0.2, h) * (1.0 - smoothstep(0.5, 0.9, h));
+    vec3 aur = mix(vec3(0.1, 0.95, 0.55), vec3(0.5, 0.3, 0.95), smoothstep(0.22, 0.6, h));
+    col += aur * ribbon * rays * fade * smoothstep(0.35, 0.8, uStars) * (1.0 - clamp(uClouds * 0.7, 0.0, 1.0)) * 1.7;
   }
   if (uClouds > 0.0 && h > 0.0) {
     vec2 uv = d.xz / (h + 0.1) * 0.85 + vec2(uTime * 0.004, uTime * 0.0015);
@@ -425,6 +466,12 @@ export class Renderer {
   drawDistance = Infinity;
   /** Resolution scale picked automatically from the frame rate (0.55..1). */
   autoScale = 1;
+  /**
+   * Extra atmosphere (aurora, cloud shadows, snow glitter, wet sheen, light pools). The first thing the
+   * adaptive-quality ladder gives up when frames run slow, and the last it brings back.
+   */
+  fx = true;
+  get fxOn(): boolean { return this.fx && this.quality !== "low"; }
   /** Set by the frame-rate governor: shortens every draw distance (1 = as chosen in settings). */
   autoDist = 1;
   private frustum: Float32Array = new Float32Array(24);
@@ -475,13 +522,13 @@ export class Renderer {
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
     this.prog = this.link(VS, FS, ["aPos", "aNrm", "aCol", "aSmooth"]);
-    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutPass", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel", "uFade"]) {
+    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutPass", "uFx", "uCloudShade", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel", "uFade"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
     this.shadowProg = this.link(SHADOW_VS, SHADOW_FS, ["aPos", "", "", "aSmooth"]);
     for (const name of ["uModel", "uLightVP", "uSway", "uTime"]) this.us[name] = gl.getUniformLocation(this.shadowProg, name);
     this.skyProg = this.link(SKY_VS, SKY_FS, ["aPos"]);
-    for (const name of ["uInvViewProj", "uLightDir", "uSunColor", "uSkyTop", "uSkyHorizon", "uTime", "uClouds", "uStars", "uMoonDir"]) this.uk[name] = gl.getUniformLocation(this.skyProg, name);
+    for (const name of ["uInvViewProj", "uLightDir", "uSunColor", "uSkyTop", "uSkyHorizon", "uTime", "uClouds", "uStars", "uMoonDir", "uFx"]) this.uk[name] = gl.getUniformLocation(this.skyProg, name);
 
     // Fullscreen triangle for the sky.
     this.skyVao = gl.createVertexArray()!;
@@ -833,15 +880,17 @@ export class Renderer {
     gl.uniform3fv(this.uk.uSkyTop, e.skyTop);
     gl.uniform3fv(this.uk.uSkyHorizon, e.skyHorizon);
     gl.uniform1f(this.uk.uTime, this.time);
+    gl.uniform1f(this.uk.uFx, this.fxOn ? 1 : 0);
     gl.uniform1f(this.uk.uClouds, e.clouds);
     gl.uniform1f(this.uk.uStars, e.stars);
     gl.uniform3fv(this.uk.uMoonDir, e.moonDir);
+    // Drawn after everything solid, and only where nothing solid was drawn (the depth test), so the
+    // sky's heavy cloud and star maths never runs on pixels that a hill or a house then covers.
     gl.depthMask(false);
-    gl.disable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.skyVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
+    gl.useProgram(this.prog);
   }
 
   end(): void {
@@ -853,7 +902,7 @@ export class Renderer {
     const [r, g, b] = this.env.skyHorizon;
     gl.clearColor(r, g, b, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    if (this.env.sky) this.drawSky();
+    // (the sky is drawn further down, after the solid things)
 
     gl.useProgram(this.prog);
     const e = this.env;
@@ -879,6 +928,10 @@ export class Renderer {
     gl.uniform1f(this.u.uCutRadius, this.cutFocus ? this.cutRadius : 0);
     gl.uniform1f(this.u.uCutPass, 0);
     this.cutPass = 0;
+    gl.uniform1f(this.u.uFx, this.fxOn ? 1 : 0);
+    // Cloud shadows only by day, and more of them when it's cloudier.
+    const dayness = Math.max(0, Math.min(1, (e.sunIntensity - 1.0) / 0.4));
+    gl.uniform1f(this.u.uCloudShade, this.fxOn ? Math.min(0.45, 0.14 + 0.2 * e.clouds) * dayness : 0);
     gl.uniform1f(this.u.uSnow, e.snow);
     gl.uniform1f(this.u.uWet, e.wet);
     gl.uniform1f(this.u.uShadowTexel, 1 / SHADOW_SIZE);
@@ -915,6 +968,7 @@ export class Renderer {
     opaque.sort((a, b) => a.depth! - b.depth!);
     for (const it of opaque) this.drawNow(it);
     for (const it of inked) this.drawNow(it);
+    if (this.env.sky) this.drawSky();
     // See-through ghosts: the solid things that were cut open around your line of sight, redrawn
     // translucent where they were cut (see the shader). Only those the window actually touches.
     const focus = this.cutFocus;

@@ -387,9 +387,13 @@ export function bench(m: MeshBuilder, x: number, y: number, z: number, ry: numbe
   log(m, f, 0, 1.05, -0.28, 2.4, 0.09, "x", LOG);
 }
 
+/** Where each lantern hangs (on the ground beneath it), so the village can pool its light there at night. */
+export const LANTERN_SPOTS: Vec3[] = [];
+
 /** Rustic post lantern: timber post with an iron lantern hanging from a bracket. */
 export function lanternPost(m: MeshBuilder, glow: MeshBuilder, x: number, y: number, z: number, ry: number, h = 2.8) {
   const f = new Frame(x, y, z, ry);
+  LANTERN_SPOTS.push(f.p(0.55, 0, 0));
   stoneBlock(m, f.m(0, 0.12, 0, 0.36, 0.2, 0.36), x * 7 + z);
   box(m, f, 0, h / 2, 0, 0.2, h, 0.2, LOG_DARK);
   box(m, f, 0.32, h - 0.1, 0, 0.7, 0.1, 0.1, LOG_DARK);

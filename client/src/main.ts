@@ -380,6 +380,10 @@ function start(rawName: string, room?: string, recovery?: string, server?: strin
   net.send({ t: "join", name, look: titleLook, room: room === undefined ? undefined : room, token: storageGet("bb-token") ?? undefined, recovery });
 }
 
+// A gentle vignette: the corners fall away a little toward a warm, deep tone, which frames the picture and
+// draws the eye to the middle. One static layer under the HUD, so it costs nothing per frame.
+ui.prepend(h("div", { style: "position:absolute;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse 80% 75% at 50% 48%, rgba(0,0,0,0) 58%, rgba(34,16,26,.30) 100%)" }));
+
 // A small connection badge at the top. It stays out of the way until something is wrong (a slow
 // connection or low frame rate); press F3 to keep ping and fps on screen.
 let statsPinned = storageGet("bb-stats") === "1";
@@ -410,7 +414,7 @@ let titleT = 0;
 // it back when there's headroom). Keeps the game smooth on laptops with very sharp screens.
 let slowT = 0, fastT = 0, avgMs = 16;
 const perf = { update: 0, render: 0 };
-let calm = 0;
+let calm = 0, calmFx = 0;
 function adaptResolution(ms: number, dt: number) {
   avgMs = avgMs * 0.9 + Math.min(ms, 100) * 0.1;
   // Aim for a smooth ~50+ fps. When frames run slow, step down in order of how little each step
@@ -420,7 +424,9 @@ function adaptResolution(ms: number, dt: number) {
   if (slowT > 1) {
     slowT = 0;
     calm = 0;
-    if (renderer.autoScale > 0.6) renderer.autoScale = Math.max(0.6, renderer.autoScale - 0.1);
+    // The extra atmosphere (aurora, cloud shadows, glitter, light pools) goes first: it costs least to lose.
+    if (renderer.fx) renderer.fx = false;
+    else if (renderer.autoScale > 0.6) renderer.autoScale = Math.max(0.6, renderer.autoScale - 0.1);
     else if (renderer.shadowsEnabled) renderer.shadowsEnabled = false;
     else if (renderer.autoDist > 0.6) renderer.autoDist = Math.max(0.6, renderer.autoDist - 0.1);
   }
@@ -430,6 +436,8 @@ function adaptResolution(ms: number, dt: number) {
     // Shadows come back only after a good long run of fast frames, so they don't flicker on and off.
     else if (!renderer.shadowsEnabled) { if (++calm >= 4) { renderer.shadowsEnabled = true; calm = 0; } }
     else if (renderer.autoScale < 1) renderer.autoScale = Math.min(1, renderer.autoScale + 0.05);
+    // ...and comes back last, after a long run of fast frames at full resolution.
+    else if (!renderer.fx) { if (++calmFx >= 3) { renderer.fx = true; calmFx = 0; } }
   }
 }
 
