@@ -53,8 +53,12 @@ if (health?.ok) {
 
 // 3. A public tunnel.
 let publicUrl = "";
+// Which tunnel: set TUNNEL=ngrok or TUNNEL=cloudflared to choose. Otherwise cloudflared when it's installed
+// (from the UAE it reaches a Dubai data centre, so friends nearby never route through another country),
+// else ngrok.
+const kind = process.env.TUNNEL || (has("cloudflared") ? "cloudflared" : has("ngrok") ? "ngrok" : "");
 if (!process.env.NO_TUNNEL) {
-  if (has("ngrok")) {
+  if (kind === "ngrok" && has("ngrok")) {
     say("🌐 Opening a tunnel…");
     const region = process.env.NGROK_REGION ? ["--region", process.env.NGROK_REGION] : [];
     // Reuse last time's address if ngrok will give it to us again (a free account has one fixed
@@ -78,9 +82,11 @@ if (!process.env.NO_TUNNEL) {
     }
     if (!publicUrl) say("ngrok didn't give a link. Is it signed in? Try `ngrok config check`, or run `ngrok http " + port + "` yourself.");
     else writeFileSync(lastFile, publicUrl);
-  } else if (has("cloudflared")) {
-    say("🌐 Opening a cloudflared tunnel…");
-    const t = spawn("cloudflared", ["tunnel", "--url", `http://127.0.0.1:${port}`], { stdio: ["ignore", "pipe", "pipe"] });
+  } else if (kind === "cloudflared" && has("cloudflared")) {
+    say("🌐 Opening a Cloudflare tunnel…");
+    // CF_PROTOCOL=http2 if your network blocks the default (QUIC) connection.
+    const proto = process.env.CF_PROTOCOL ? ["--protocol", process.env.CF_PROTOCOL] : [];
+    const t = spawn("cloudflared", ["tunnel", "--no-autoupdate", ...proto, "--url", `http://127.0.0.1:${port}`], { stdio: ["ignore", "pipe", "pipe"] });
     procs.push(t);
     const found = new Promise((resolve) => {
       const onData = (d) => { const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/); if (m) resolve(m[0]); };
@@ -89,13 +95,13 @@ if (!process.env.NO_TUNNEL) {
     });
     publicUrl = (await Promise.race([found, wait(30000).then(() => "")])) || "";
   } else {
-    say("No tunnel tool found (install ngrok: `brew install ngrok`), so only people on your Wi-Fi can join.");
+    say("No tunnel tool found (install one: `brew install cloudflared` or `brew install ngrok`), so only people on your Wi-Fi can join.");
   }
 }
 
 // Tell the page builder where this game lives (kept out of git: it is your own address).
 let addressChanged = false;
-if (publicUrl) {
+if (publicUrl && kind === "ngrok") {
   const entry = [{ name: "Beaver Banff", url: publicUrl.replace(/^https/, "wss") }];
   const file = `${root}/servers.json`;
   const before = existsSync(file) ? readFileSync(file, "utf8") : "";
@@ -113,8 +119,12 @@ if (publicUrl) {
   say("  Send friends this link (anywhere in the world):");
   say();
   say(`  ▸ ${publicUrl}`);
-  say("      (it may show a one-time 'Visit Site' notice from the tunnel the first time;");
-  say("       to avoid it, publish your own page with `npm run page`)");
+  if (kind === "cloudflared") {
+    say("      (no warning page. This link is new every time you start the game, so send the fresh one each session.)");
+  } else {
+    say("      (it may show a one-time 'Visit Site' notice from the tunnel the first time;");
+    say("       to avoid it, publish your own page with `npm run page`)");
+  }
   if (addressChanged) {
     say();
     say("  ⚠ Your address changed since last time. If you publish your own page, run `npm run page`");
