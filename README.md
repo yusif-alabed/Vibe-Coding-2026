@@ -87,13 +87,12 @@ Vercel site up to date:
 2. In Vercel → your project → **Settings → Git**, the connected repository must be
    `yusif-alabed/Vibe-Coding-2026` with production branch `main`. Every push to `main` then deploys.
 
-**Why a Vercel or GitHub Pages link can't be multiplayer on its own:** those sites are static, and
-online play needs an always-on game server (WebSockets), which Vercel can't run. The multiplayer code is
-all still here. The page has a **"Play with friends online"** box on its title screen: paste the address of
-a running game server and it connects (and remembers it). Whoever hosts the server can also send a link
-that suggests it: `https://your-page/?server=wss://their-server`. A link never switches servers by itself — the
-title screen shows who it wants to connect to and waits for you to press Connect, because your saved login is
-sent to whichever server you join.
+**Multiplayer on a static page:** Vercel and GitHub Pages only host files, and online play needs an always-on
+game server (WebSockets), which they can't run. The page's title screen offers **Join Server** whenever it was
+built with a server list (see `servers.json` below); the player picks a server, then a lobby on it (the public
+village, or a private cabin). With no server list it simply offers solo play. A link can carry
+`?server=wss://…` to suggest someone else's server, but it never switches servers by itself: the title screen
+asks first, because a player's saved login is sent to whichever server they join.
 
 ## Put it online (so friends anywhere can play)
 
@@ -110,15 +109,27 @@ npm run online
 ```
 
 That builds the game, starts the server, opens a public tunnel (uses `ngrok` if it's installed and
-signed in, otherwise `cloudflared`), and prints links to send friends — one that opens this repo's Vercel
-page already pointed at your server, and one that serves the game straight from your computer. Keep the
-window open and the computer awake while people play. Saves go in `game-server/data/players.json`.
+signed in, otherwise `cloudflared`), and prints the link to send friends. It remembers the address between runs
+and asks ngrok for the same one (a free account has one fixed address), and writes it to `servers.json` (kept out
+of git, since it's your own address). Keep the window open and the computer awake while people play. Saves go in
+`game-server/data/players.json`. If you're playing on the computer that hosts, use `http://localhost:2567`: no
+tunnel, so ~0 ms ping.
+
+To give friends a clean link on your own website (no tunnel notice, with **Join Server** already pointing at
+your computer), publish the page with the address built in:
+
+```bash
+npm run page         # builds it, and prepares a commit for your site's repo (set it in .page-repo)
+```
+
+It prints the one `git push` that publishes it. The address only ever lives in that commit: `index.html` in
+this public repo stays address-free.
 
 How it stays smooth: the server sends positions 20 times a second stamped with its own clock, the client
 draws other beavers a short, self-adjusting moment in the past (it measures how late updates run), your own
 beaver moves instantly with no waiting for the server, dropped connections reconnect automatically into the
-same village or cabin, and the server drops dead connections within about 30 seconds. A small badge at the
-top shows your ping.
+same village or cabin, and the server drops dead connections within about 30 seconds. A small badge appears
+at the top only if your connection or frame rate is struggling (press F3 to keep ping and fps on screen).
 
 Deploy the included **`Dockerfile`** to any host that runs containers:
 

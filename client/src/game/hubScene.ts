@@ -277,7 +277,8 @@ export class HubScene implements Scene {
   private actionKey = "";
   private blocked = new Set<string>();
   private questsEl: HTMLElement;
-  private questsOpen = typeof innerWidth === "number" ? innerWidth > 560 : true;
+  /** Quests stay tucked away until asked for, and remember how you left them. */
+  private questsOpen = (() => { try { return localStorage.getItem("bb-quests") === "1"; } catch { return false; } })();
   private cones: { id: number; x: number; z: number }[] = [];
   private conesGot = new Set<number>();
   private conePending = new Set<number>();
@@ -340,7 +341,7 @@ export class HubScene implements Scene {
     this.root.append(
       h("div.hud-top", {}, [
         h("div.row", {}, [
-          h("div.pill", { title: room.id }, [room.isPrivate ? `🏡 ${room.code === "SOLO" ? "Solo village" : `Cabin ${room.code}`}` : `🏔️ ${room.id}`]),
+          h("div.pill", {}, [room.isPrivate ? `🏡 ${room.code === "SOLO" ? "Solo village" : `Cabin ${room.code}`}` : `🏔️ ${(() => { const n = /^village-(\d+)$/.exec(room.id)?.[1]; return n && n !== "1" ? `Public Village ${n}` : "Public Village"; })()}`]),
           h("div.pill", { title: "Beavers here" }, ["🦫", this.countEl]),
         ]),
         h("div.row.plank", {}, [
@@ -378,7 +379,7 @@ export class HubScene implements Scene {
         h("button.btn.gold.icon.pe", { title: "Outfitter & wardrobe", onclick: () => this.openShop("hat") }, "🎒"),
       ]),
     );
-    this.questsEl = h("div.card.quests.pe", { onclick: () => { this.questsOpen = !this.questsOpen; this.renderQuests(); } });
+    this.questsEl = h("div.card.quests.pe", { onclick: () => { this.questsOpen = !this.questsOpen; try { localStorage.setItem("bb-quests", this.questsOpen ? "1" : "0"); } catch { /* ignore */ } this.renderQuests(); } });
     this.root.append(this.questsEl);
     this.renderQuests();
     this.root.append(h("div.dock.plank", {}, [

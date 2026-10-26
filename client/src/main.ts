@@ -27,6 +27,7 @@ import { installSprites } from "./ui/sprites";
 import { loadPrefs } from "./prefs";
 
 declare const __GAME_SERVER_URL__: string;
+declare const __SERVERS__: string;
 
 const style = document.createElement("style");
 style.textContent = CSS;
@@ -60,14 +61,47 @@ function normalizeServer(raw: string): string {
   try { return new URL(v).origin.replace(/^http/, "ws"); } catch { return ""; }
 }
 
-// Which game server to use: the page's own server if it is hosted by one, otherwise the address
-// saved from the title screen, otherwise whatever was built in. A link (?server=…) can only
-// *suggest* a server: your saved login is sent to whichever server you connect to, so a link never
-// switches servers by itself. The title screen asks "Connect to this server?" first.
+/** A game server players can join. */
+interface ServerEntry { name: string; url: string }
+interface ServerStatus { online: boolean; players: number }
+
+/**
+ * The servers this page offers: the one hosting the page itself, or the ones built into it. Your
+ * saved login is sent to whichever server you join, so a link (?server=…) can only *suggest* a
+ * server: it is never listed or used until the player says yes.
+ */
+const builtServers: ServerEntry[] = (() => {
+  if (builtUrl === "same-origin") return sameOrigin ? [{ name: "Beaver Banff", url: sameOrigin }] : [];
+  const list: ServerEntry[] = [];
+  try {
+    for (const e of JSON.parse(typeof __SERVERS__ === "string" ? __SERVERS__ : "[]") as { name?: string; url?: string }[]) {
+      const url = normalizeServer(e.url ?? "");
+      if (url && !list.some((x) => x.url === url)) list.push({ name: e.name || "Beaver Banff", url });
+    }
+  } catch { /* no servers built in */ }
+  const single = normalizeServer(builtUrl);
+  if (single && !list.some((x) => x.url === single)) list.push({ name: "Beaver Banff", url: single });
+  return list;
+})();
 const linkServer = builtUrl === "same-origin" ? "" : normalizeServer(params.get("server") ?? "");
-const savedServer = normalizeServer(storageGet("bb-server") ?? "");
-let pendingServer = linkServer && linkServer !== savedServer ? linkServer : "";
-let serverUrl = builtUrl === "same-origin" ? sameOrigin : savedServer || builtUrl;
+/** A friend's server the player has accepted (remembered). */
+let friendServer = normalizeServer(storageGet("bb-server") ?? "");
+let pendingServer = linkServer && linkServer !== friendServer && !builtServers.some((x) => x.url === linkServer) ? linkServer : "";
+const serverList = (): ServerEntry[] => (friendServer && !builtServers.some((x) => x.url === friendServer) ? [...builtServers, { name: "Friend's server", url: friendServer }] : builtServers);
+/** The server we are playing on (used to get back after a dropped connection). */
+let activeServer = "";
+
+/** Asks a server who is on it. Never throws: an unreachable server is simply offline. */
+async function pollServer(s: ServerEntry): Promise<ServerStatus> {
+  try {
+    const r = await fetch(s.url.replace(/^ws/, "http") + "/health", { headers: { "ngrok-skip-browser-warning": "1" }, signal: AbortSignal.timeout(6000), cache: "no-store" });
+    const j = await r.json();
+    if (!j?.ok) return { online: false, players: 0 };
+    return { online: true, players: (j.hubs ?? []).filter((x: { private: boolean }) => !x.private).reduce((n: number, x: { players: number }) => n + x.players, 0) };
+  } catch {
+    return { online: false, players: 0 };
+  }
+}
 
 let renderer: Renderer;
 try {
@@ -99,93 +133,113 @@ let ctx: Ctx | null = null;
 let titleEl: HTMLElement | null = null;
 const titleLook: Look = { ...DEFAULT_LOOK, fur: storageGet("bb-fur") ?? DEFAULT_LOOK.fur };
 
-function showTitle() {
-  const name = h("input.field.pe", { value: storageGet("bb-name") ?? "", placeholder: "Your beaver name", maxLength: NAME_MAX }) as HTMLInputElement;
+let titleName = storageGet("bb-name") ?? "";
+let titleRecovery = "";
+
+function showTitle(view: "home" | "servers" = "home") {
+  titleEl?.remove();
+  const list = serverList();
+  const name = h("input.field.pe", { value: titleName, placeholder: "Your beaver name", maxLength: NAME_MAX }) as HTMLInputElement;
+  name.addEventListener("input", () => { titleName = name.value; });
   const swatches = h("div.swatches");
   const drawSwatches = () => swatches.replaceChildren(...FUR_COLORS.map((c) =>
     h("div.swatch.pe" + (c === titleLook.fur ? ".on" : ""), { style: { background: c }, title: "Fur colour", onclick: () => { titleLook.fur = c; drawSwatches(); } }),
   ));
   drawSwatches();
-  const code = h("input.field.code.pe", { placeholder: "Cabin code", maxLength: 5, value: (params.get("room") ?? "").toUpperCase().slice(0, 5) }) as HTMLInputElement;
-  const invitedRoom = params.get("room");
+  const invitedRoom = (params.get("room") ?? "").toUpperCase().slice(0, 5);
   const invitedFriend = params.get("friend");
-  const recovery = h("input.field.pe", { placeholder: "Recovery code (from your other device)", maxLength: 12, style: "text-transform:uppercase" }) as HTMLInputElement;
-  const go = (room?: string) => start(name.value, room, recovery.value.trim() || undefined);
-  name.addEventListener("keydown", (e) => { if (e.key === "Enter") go("public"); });
-
-  const srvInput = h("input.field.pe", { placeholder: "Server address, e.g. abc-123.ngrok-free.app", value: storageGet("bb-server") ?? "", style: "font-size:15px" }) as HTMLInputElement;
-  const srvStatus = h("div.hint", { style: "margin:4px 0 0" });
-  const applyServer = async (raw: string) => {
-    const u = normalizeServer(raw);
-    if (!u) { srvStatus.textContent = "That doesn't look like a server address."; return; }
-    srvStatus.textContent = "Checking…";
-    let found = "";
-    try {
-      const r = await fetch(u.replace(/^ws/, "http") + "/health", { headers: { "ngrok-skip-browser-warning": "1" }, signal: AbortSignal.timeout(7000) });
-      const j = await r.json();
-      if (j?.ok) found = `✅ Server found — ${(j.hubs ?? []).reduce((n: number, x: { players: number }) => n + x.players, 0)} beavers in the village`;
-    } catch { /* fall through */ }
-    storageSet("bb-server", u);
-    storageSet("bb-name", name.value);
-    serverUrl = u;
-    titleEl?.remove();
-    showTitle();
-    toast(ui, found || "Saved. Couldn't reach it just now — try Play online anyway.", 4200);
-  };
-  const serverPanel = h("details.pe", { style: "text-align:left;font-size:15px;color:var(--ink)", open: !serverUrl }, [
-    h("summary", {}, serverUrl ? "Game server: " + serverUrl.replace(/^wss?:\/\//, "") : "🌐 Play with friends online"),
-    h("div", { style: "margin-top:6px;display:grid;gap:6px" }, [
-      srvInput,
-      h("div.row", {}, [
-        h("button.btn.dark.small.pe", { onclick: () => applyServer(srvInput.value) }, "Connect"),
-        serverUrl && builtUrl !== "same-origin" ? h("button.btn.cream.small.pe", { onclick: () => { storageSet("bb-server", ""); serverUrl = ""; storageSet("bb-name", name.value); titleEl?.remove(); showTitle(); } }, "Solo only") : null,
-      ]),
-      srvStatus,
-    ]),
-  ]);
+  const recovery = h("input.field.pe", { placeholder: "Recovery code (from your other device)", maxLength: 12, value: titleRecovery, style: "text-transform:uppercase" }) as HTMLInputElement;
+  recovery.addEventListener("input", () => { titleRecovery = recovery.value; });
+  /** A cabin invite belongs to the server the link came from, if the player accepted it. */
+  const inviteServer = list.find((x) => x.url === linkServer) ?? list[0];
+  const go = (room: string | undefined, server?: ServerEntry) => start(name.value, room, titleRecovery.trim() || undefined, server?.url);
+  const open = (v: "home" | "servers") => { titleName = name.value; showTitle(v); };
 
   const suggestion = pendingServer
-    ? h("div.pe", { style: "margin:0 0 10px;padding:10px;border-radius:12px;background:#fff3d6;border:2px solid #c9a56b;text-align:center;font-size:15px;color:var(--ink)" }, [
-        h("div", { style: "margin-bottom:8px" }, ["🔗 This link wants to connect you to ", h("b", {}, pendingServer.replace(/^wss?:\/\//, "")), ". Only continue if a friend sent it to you."]),
-        h("div.row", { style: "justify-content:center" }, [
-          h("button.btn.small.pe", { onclick: () => { storageSet("bb-server", pendingServer); serverUrl = pendingServer; pendingServer = ""; storageSet("bb-name", name.value); titleEl?.remove(); showTitle(); } }, "✅ Connect"),
-          h("button.btn.small.cream.pe", { onclick: () => { pendingServer = ""; storageSet("bb-name", name.value); titleEl?.remove(); showTitle(); } }, "No thanks"),
+    ? h("div.pe.invite-note", {}, [
+        h("div", {}, "🔗 This link wants to connect you to a different game server. Only continue if a friend sent it to you."),
+        h("div.row", { style: "justify-content:center;margin-top:8px" }, [
+          h("button.btn.small.pe", { onclick: () => { friendServer = pendingServer; storageSet("bb-server", pendingServer); pendingServer = ""; open("servers"); } }, "Continue"),
+          h("button.btn.small.cream.pe", { onclick: () => { pendingServer = ""; open("home"); } }, "No thanks"),
         ]),
       ])
     : null;
 
-  const buttons = serverUrl
-    ? [
-        invitedRoom ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom.toUpperCase()) }, `🎉 Join your friend's cabin ${invitedRoom.toUpperCase()}`) : null,
-        invitedFriend ? h("div.hint", { style: "margin:0" }, "👋 A friend invited you! Play online and you'll get a friend request to them.") : null,
-        h("button.btn.orange.pe", { onclick: () => go("public") }, [icon("mountains"), "Play online"]),
-        h("button.btn.pe", { onclick: () => go("private-new") }, [icon("house"), "New private cabin"]),
-        h("div.row", {}, [code, h("button.btn.dark.pe", { onclick: () => code.value.trim() && go(code.value.trim().toUpperCase()) }, "Join")]),
-        h("button.btn.cream.small.pe", { onclick: () => go(undefined) }, "🦫 Play solo with bot beavers"),
-        h("details.pe", { style: "text-align:left;font-size:15px;color:var(--ink)" }, [h("summary", {}, "Playing on a new device?"), h("div", { style: "margin-top:6px" }, recovery)]),
-        builtUrl === "same-origin" ? null : serverPanel,
-      ]
-    : [h("button.btn.orange.pe", { onclick: () => go(undefined) }, [icon("mountains"), "Let's go!"]), serverPanel];
+  let body: (HTMLElement | null)[];
+  if (view === "servers" && list.length) {
+    // ---- Server browser: pick a server, then a lobby on it ----
+    const status = new Map<string, ServerStatus | null>();
+    const codeInput = h("input.field.code.pe", { placeholder: "Cabin code", maxLength: 5, value: invitedRoom }) as HTMLInputElement;
+    const listEl = h("div.srvlist");
+    const card = (s: ServerEntry): HTMLElement => {
+      const st = status.get(s.url);
+      const cls = st === undefined || st === null ? "wait" : st.online ? "on" : "off";
+      return h("div.srv." + cls, {}, [
+        h("div.srv-head", {}, [
+          h("span.srv-dot"),
+          h("b", {}, s.name),
+          h("span.srv-meta", {}, st === undefined || st === null ? "Checking…" : st.online ? `${st.players} online` : "Offline"),
+        ]),
+        st && st.online
+          ? h("div.srv-lobbies", {}, [
+              h("div.srv-lobby", {}, [icon("mountains"), h("div", {}, [h("b", {}, "Public Village"), h("span.srv-meta", {}, st.players === 1 ? "1 beaver here now" : `${st.players} beavers here now`)]), h("button.btn.small.orange.pe", { onclick: () => go("public", s) }, "Join")]),
+              h("div.srv-lobby", {}, [icon("house"), h("div", {}, [h("b", {}, "Private Cabin"), h("span.srv-meta", {}, "Just you and your friends")]), h("button.btn.small.pe", { onclick: () => go("private-new", s) }, "Create")]),
+              h("div.row.srv-code", {}, [codeInput, h("button.btn.dark.small.pe", { onclick: () => codeInput.value.trim() && go(codeInput.value.trim().toUpperCase(), s) }, "Join cabin")]),
+            ])
+          : st
+            ? h("div.hint", { style: "margin:8px 0 0" }, ["This server isn't responding right now — it may be starting up. ", h("a.pe", { href: "#", onclick: (e: Event) => { e.preventDefault(); refresh(); } }, "Try again")])
+            : null,
+      ]);
+    };
+    const render = () => listEl.replaceChildren(...list.map(card));
+    const refresh = () => {
+      for (const s of list) status.set(s.url, null);
+      render();
+      for (const s of list) pollServer(s).then((r) => { status.set(s.url, r); render(); });
+    };
+    refresh();
+    body = [
+      invitedRoom && inviteServer ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom, inviteServer) }, `Join your friend's cabin ${invitedRoom}`) : null,
+      h("div.label", {}, [icon("mountains"), "Servers"]),
+      listEl,
+      h("div.stack", { style: "margin-top:12px" }, [h("button.btn.cream.small.pe", { onclick: () => open("home") }, "‹ Back")]),
+    ];
+  } else {
+    // ---- Home ----
+    const restore = h("details.pe.restore", {}, [h("summary", {}, "Restore my beaver"), h("div", { style: "margin-top:6px" }, recovery)]);
+    body = list.length
+      ? [
+          suggestion,
+          h("div.stack", {}, [
+            invitedFriend ? h("div.hint", { style: "margin:0;text-align:center" }, "A friend invited you — join a server and you'll get a friend request to them.") : null,
+            invitedRoom ? h("button.btn.gold.pe", { onclick: () => go(invitedRoom, inviteServer) }, `Join your friend's cabin ${invitedRoom}`) : null,
+            h("button.btn.orange.pe", { onclick: () => open("servers") }, [icon("mountains"), "Join Server"]),
+            h("button.btn.cream.small.pe", { onclick: () => go(undefined) }, "Play Solo"),
+            restore,
+          ]),
+        ]
+      : [
+          suggestion,
+          h("div.stack", {}, [h("button.btn.orange.pe", { onclick: () => go(undefined) }, [icon("mountains"), "Let's go!"]), restore]),
+        ];
+    name.addEventListener("keydown", (e) => { if (e.key === "Enter") (list.length ? open("servers") : go(undefined)); });
+  }
 
   titleEl = h("div.title", {}, h("div.signpost.pe", {}, [
     h("div.sign-head", {}, [
       logoMountains(),
       h("h1.logo", {}, ["Beaver ", h("span", {}, "Banff")]),
-      h("div.tagline", {}, "Explore the mountains · meet friends · race toboggans · dress up"),
+      h("div.tagline", {}, "Explore the mountains, meet friends, race and dress up"),
     ]),
     h("div.sign-body", {}, h("div.card", {}, [
       h("div.label", {}, [icon("tree"), "Name"]),
       name,
-      h("div.label", {}, [icon("paw"), "Fur colour"]),
-      swatches,
-      h("div.stack", {}, [suggestion, ...buttons]),
-      h("div.hint", {}, serverUrl
-        ? [h("b", {}, "Online: "), "every game is played with real beavers — no bots. ", h("b", {}, "Private cabin: "), "share the code with friends."]
-        : [h("b", {}, "Solo: "), "runs right in your browser with friendly bot beavers. To play with friends, paste the server address from whoever is hosting into the box above."]),
+      ...(view === "servers" && list.length ? [] : [h("div.label", {}, [icon("paw"), "Fur colour"]), swatches]),
+      ...body,
     ])),
   ]));
   ui.append(titleEl);
-  setTimeout(() => name.focus(), 50);
+  if (view === "home") setTimeout(() => name.focus(), 50);
 }
 
 function inviteCard(text: string, onYes: () => void, onNo: () => void) {
@@ -204,11 +258,12 @@ function inviteCard(text: string, onYes: () => void, onNo: () => void) {
 /** How many times in a row we've tried to get back after a dropped connection. */
 let retry = 0;
 
-function start(rawName: string, room?: string, recovery?: string) {
+function start(rawName: string, room?: string, recovery?: string, server?: string) {
   const name = rawName.trim().slice(0, NAME_MAX) || `Beaver${Math.floor(Math.random() * 900 + 100)}`;
   storageSet("bb-name", name);
   storageSet("bb-fur", titleLook.fur);
-  const net: Net = room && serverUrl ? new OnlineNet(serverUrl) : new OfflineNet();
+  if (room && server) activeServer = server;
+  const net: Net = room && activeServer ? new OnlineNet(activeServer) : new OfflineNet();
   let welcomed = false;
   let lastRoom = room;
   ctx = {
@@ -314,19 +369,26 @@ function start(rawName: string, room?: string, recovery?: string) {
     // into the same village or cabin before giving up.
     if (net.mode === "online" && (welcomed || retry > 0) && retry < 6) {
       retry++;
-      toast(ui, retry === 1 ? "📡 Connection dropped — reconnecting…" : `📡 Still trying to reconnect… (${retry}/6)`, 2500);
-      setTimeout(() => start(name, lastRoom ?? "public", recovery), Math.min(4000, 600 * retry));
+      toast(ui, retry === 1 ? "Connection lost — reconnecting…" : `Reconnecting… (${retry}/6)`, 2500);
+      setTimeout(() => start(name, lastRoom ?? "public", recovery, activeServer), Math.min(4000, 600 * retry));
       return;
     }
     retry = 0;
-    toast(ui, "Lost connection to the game server. You can play solo while it's away.", 5000);
+    toast(ui, "Couldn't reconnect. You can keep playing solo.", 5000);
     showTitle();
   });
   net.send({ t: "join", name, look: titleLook, room: room === undefined ? undefined : room, token: storageGet("bb-token") ?? undefined, recovery });
 }
 
-// A tiny badge at the top: your ping to the game server (online play) and your frame rate. When
-// something feels laggy, this says whether it's the network (ping) or the graphics (fps).
+// A small connection badge at the top. It stays out of the way until something is wrong (a slow
+// connection or low frame rate); press F3 to keep ping and fps on screen.
+let statsPinned = storageGet("bb-stats") === "1";
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "F3") return;
+  e.preventDefault();
+  statsPinned = !statsPinned;
+  storageSet("bb-stats", statsPinned ? "1" : "0");
+});
 const pingBadge = h("div", { style: "position:absolute;top:6px;left:50%;transform:translateX(-50%);font:600 11px system-ui,sans-serif;padding:2px 9px;border-radius:10px;background:rgba(0,0,0,.38);color:#fff;pointer-events:none;z-index:5;display:none;white-space:nowrap" });
 ui.append(pingBadge);
 setInterval(() => {
@@ -334,10 +396,11 @@ setInterval(() => {
   if (!n || n.mode !== "online") { pingBadge.style.display = "none"; return; }
   const ms = n.rtt == null ? null : Math.round(n.rtt);
   const fps = Math.min(120, Math.round(1000 / Math.max(avgMs, 4)));
+  const slowNet = ms !== null && ms >= 150, slowGfx = fps < 30;
+  if (!statsPinned && !slowNet && !slowGfx) { pingBadge.style.display = "none"; return; }
   pingBadge.style.display = "block";
-  pingBadge.textContent = `${ms === null ? "…" : `● ${ms} ms`} · ${fps} fps`;
-  const bad = (ms !== null && ms >= 150) || fps < 30, ok = (ms === null || ms < 70) && fps >= 50;
-  pingBadge.style.color = bad ? "#ff8a7a" : ok ? "#8ee08e" : "#ffd54a";
+  pingBadge.textContent = statsPinned ? `${ms === null ? "…" : `● ${ms} ms`} · ${fps} fps` : slowNet ? `Slow connection · ${ms} ms` : `Low frame rate · ${fps} fps`;
+  pingBadge.style.color = slowNet || slowGfx ? "#ff8a7a" : ms !== null && ms < 70 && fps >= 50 ? "#8ee08e" : "#ffd54a";
 }, 1000);
 
 // ---------- Main loop ----------

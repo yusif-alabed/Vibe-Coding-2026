@@ -14,6 +14,11 @@ const mode = process.argv[2] ?? "build";
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const serverUrl = mode === "hosted" ? "same-origin" : process.env.VITE_GAME_SERVER_URL ?? process.env.GAME_SERVER_URL ?? (mode === "dev" ? "ws://localhost:2567" : "");
 
+// The servers a static page offers on its title screen: GAME_SERVERS (a JSON list of {name, url}),
+// or servers.json at the top of the repo (kept out of git: it holds your own address). A page that a
+// game server hosts itself (mode "hosted") just uses that server.
+const serversJson = mode === "hosted" ? "[]" : process.env.GAME_SERVERS ?? (existsSync(here("../servers.json")) ? await readFile(here("../servers.json"), "utf8") : "[]");
+
 const options = {
   entryPoints: [here("./src/main.ts")],
   bundle: true,
@@ -21,7 +26,7 @@ const options = {
   target: "es2020",
   sourcemap: mode === "dev",
   minify: mode !== "dev" && !process.env.NO_MINIFY,
-  define: { __GAME_SERVER_URL__: JSON.stringify(serverUrl) },
+  define: { __GAME_SERVER_URL__: JSON.stringify(serverUrl), __SERVERS__: JSON.stringify(serversJson) },
   alias: { "@beaver/shared": here("../shared/src/index.ts") },
   logLevel: "info",
 };
@@ -85,9 +90,12 @@ if (mode === "dev") {
   const page = injectApp(html, `<script>${js}</script>`);
   await writeFile(here("./dist/beaver-banff.html"), page);
   // Also refresh the ready-to-play copy at the top of the repo, so anyone can just open index.html.
-  await writeFile(here("../index.html"), page);
+  // A page with a server address baked in (servers.json) is for your own site only: it is written to
+  // dist/ and left out of index.html, which gets committed to a public repo. `npm run page` publishes it.
+  const baked = serversJson.trim() !== "[]";
+  if (!baked) await writeFile(here("../index.html"), page);
   // Artifact version: page content only (the host adds the document skeleton).
   const head = html.match(/<head>([\s\S]*?)<\/head>/)[1].replace(/<meta charset[^>]*>|<meta name="viewport"[^>]*>/g, "").trim();
   await writeFile(here("./dist/beaver-banff.artifact.html"), `${head}\n<style>html,body{height:100%;background:#ffd9b0}</style>\n<script>${js}</script>\n`);
-  console.log("Wrote dist/beaver-banff.html");
+  console.log(baked ? "Wrote dist/beaver-banff.html (with your server baked in; index.html left alone)" : "Wrote dist/beaver-banff.html");
 }

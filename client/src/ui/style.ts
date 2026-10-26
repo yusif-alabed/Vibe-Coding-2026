@@ -117,7 +117,7 @@ input.field.code::placeholder, input.field.code { letter-spacing: 3px; text-tran
 .logo { font-family: var(--font-display); font-weight: 700; font-size: clamp(42px, 11vw, 64px); line-height: 1; margin: 0; letter-spacing: .5px;
   color: var(--ink); -webkit-text-stroke: 1.6px var(--ink); text-shadow: 0 2px 0 rgba(255,250,235,.8), 0 3px 0 rgba(61,37,22,.18); }
 .logo span { color: inherit; }
-.tagline { font: 400 17px/1.25 var(--font-body); color: var(--ink-soft); margin: 4px auto 0; max-width: 300px; }
+.tagline { font: 400 17px/1.25 var(--font-body); color: var(--ink-soft); margin: 4px auto 0; max-width: 320px; text-wrap: balance; }
 .sign-body { position: relative; width: calc(100% - 26px); margin-top: 18px; padding: 9px; z-index: 1;
   background: var(--grain), linear-gradient(180deg, #8a5530, #6b3e1f); border: 3px solid var(--ink); border-radius: 14px 10px 16px 9px / 10px 16px 9px 14px;
   box-shadow: inset 0 0 0 2px rgba(255,210,150,.18), 0 16px 30px rgba(0,0,0,.42); }
@@ -228,13 +228,42 @@ details[open] summary::before { transform: rotate(90deg); }
 .help h2 { font-family: var(--font-display); margin: 0 0 8px; font-size: 30px; }
 .help kbd, kbd { font: 700 14px var(--font-display); background: var(--paper-hi); border: 2px solid var(--ink); border-radius: 6px 8px 5px 7px; padding: 0 7px; box-shadow: 0 2px 0 var(--ink); }
 
+/* ---- Server browser ---- */
+.srvlist { display: grid; gap: 10px; }
+.srv { border: 2.5px solid var(--ink); border-radius: var(--wob); background: var(--paper-hi); padding: 10px 12px 11px; box-shadow: 0 2px 0 rgba(61,37,22,.3), inset 0 0 14px rgba(150,100,45,.12); }
+.srv-head { display: flex; align-items: center; gap: 9px; font: 700 21px/1.1 var(--font-display); }
+.srv-head .srv-meta { margin-left: auto; }
+.srv-meta { font: 400 15px/1.2 var(--font-body); color: var(--muted); }
+.srv .srv-dot { width: 13px; height: 13px; flex: none; border-radius: 50%; border: 2px solid var(--ink); background: var(--paper-3); }
+.srv.on .srv-dot { background: #62c06d; box-shadow: 0 0 0 3px rgba(98,192,109,.28); }
+.srv.off .srv-dot { background: var(--red); }
+.srv.wait .srv-dot { animation: srvpulse 1s ease-in-out infinite; }
+@keyframes srvpulse { 50% { opacity: .3; } }
+.srv-lobbies { display: grid; gap: 7px; margin-top: 10px; }
+.srv-lobby { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 12px 10px 13px 9px / 9px 13px 10px 12px; background: rgba(61,37,22,.07); }
+.srv-lobby > div { display: grid; line-height: 1.15; min-width: 0; }
+.srv-lobby b { font: 700 18px var(--font-display); }
+.srv-lobby .ic { width: 28px; height: 28px; color: var(--ink-soft); }
+.srv-code { margin-top: 2px; }
+.srv-code .field { min-width: 0; flex: 1; }
+.invite-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #fff3d6; border: 2px solid #c9a56b; text-align: center; font-size: 15px; line-height: 1.3; }
+.restore { text-align: center; font-size: 15px; color: var(--muted); }
+.restore summary { cursor: pointer; display: inline-block; text-decoration: underline; text-decoration-style: dotted; }
+.restore[open] summary { margin-bottom: 2px; }
+.srv a { color: var(--teal-dk); font-weight: 700; }
+
 /* ---- Daily quests ---- */
 .quests { position: absolute; top: calc(78px + env(safe-area-inset-top, 0px)); right: calc(14px + env(safe-area-inset-right, 0px)); width: min(300px, calc(100vw - 28px)); padding: 10px 14px 12px; cursor: pointer; }
 .quests header { display: flex; justify-content: space-between; align-items: center; font: 700 21px var(--font-display); gap: 8px; }
 .quests header > span:first-child { display: inline-flex; align-items: center; gap: 8px; }
 .quests header .ic { width: 28px; height: 28px; }
 .quests header .n { font-size: 16px; background: transparent; border: 2px solid var(--ink); border-radius: var(--wob-pill); padding: 0 12px; white-space: nowrap; }
+@media (min-width: 640px) { .quests { right: calc(100px + env(safe-area-inset-right, 0px)); } }
 .quests.closed .ql { display: none; }
+.quests.closed { width: auto; padding: 6px 12px 7px; }
+.quests.closed header { font-size: 18px; gap: 10px; }
+.quests.closed header .ic { width: 24px; height: 24px; }
+.quests.closed header .n { font-size: 15px; padding: 0 9px; }
 .ql { margin-top: 4px; }
 .quest { display: grid; grid-template-columns: 38px 1fr; gap: 3px 10px; align-items: center; padding: 8px 0 9px; font-size: 16px; line-height: 1.2; border-bottom: 2px solid rgba(61,37,22,.16); }
 .quest .qi { font-size: 30px; grid-row: span 2; text-align: center; filter: drop-shadow(0 2px 1px rgba(61,37,22,.3)); }

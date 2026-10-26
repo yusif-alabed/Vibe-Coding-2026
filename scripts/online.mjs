@@ -7,16 +7,15 @@
 //
 // Keep this window open and the computer awake while people play. Ctrl+C stops everything.
 //
-// Environment: NGROK_REGION (e.g. eu, ap, in, us — if your friends' ping is high, try another), PORT (default 2567), PAGE_URL (the static site that should offer the game with
-// the tunnel pre-filled, default https://beaver-banff.vercel.app), NO_TUNNEL=1 to skip step 3.
+// Environment: NGROK_REGION (e.g. eu, ap, in, us: if friends' ping is high, try another), PORT (default 2567),
+// NO_TUNNEL=1 to skip step 3.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT ?? 2567);
-const pageUrl = (process.env.PAGE_URL ?? "https://beaver-banff.vercel.app").replace(/\/$/, "");
 const procs = [];
 const say = (s = "") => console.log(s);
 
@@ -56,18 +55,29 @@ if (health?.ok) {
 let publicUrl = "";
 if (!process.env.NO_TUNNEL) {
   if (has("ngrok")) {
-    say("🌐 Opening an ngrok tunnel…");
+    say("🌐 Opening a tunnel…");
     const region = process.env.NGROK_REGION ? ["--region", process.env.NGROK_REGION] : [];
-    const t = spawn("ngrok", ["http", String(port), "--log=stdout", ...region], { stdio: ["ignore", "pipe", "pipe"] });
-    procs.push(t);
-    t.stdout.on("data", () => {});
-    t.stderr.on("data", (d) => process.stderr.write(d));
-    for (let i = 0; i < 30 && !publicUrl; i++) {
-      await wait(1000);
-      const j = await getJson("http://127.0.0.1:4040/api/tunnels");
-      publicUrl = j?.tunnels?.find((x) => x.public_url?.startsWith("https://"))?.public_url ?? "";
+    // Reuse last time's address if ngrok will give it to us again (a free account has one fixed
+    // address), so the link you share and the page you publish keep working between sessions.
+    const lastFile = `${root}/game-server/data/public-url.txt`;
+    const last = existsSync(lastFile) ? readFileSync(lastFile, "utf8").trim() : "";
+    const attempts = last ? [["--url", last], []] : [[]];
+    for (const extra of attempts) {
+      const t = spawn("ngrok", ["http", String(port), "--log=stdout", ...region, ...extra], { stdio: ["ignore", "pipe", "pipe"] });
+      let exited = false;
+      t.on("exit", () => { exited = true; });
+      t.stdout.on("data", () => {});
+      t.stderr.on("data", (d) => process.stderr.write(d));
+      for (let i = 0; i < 30 && !publicUrl && !exited; i++) {
+        await wait(1000);
+        const j = await getJson("http://127.0.0.1:4040/api/tunnels");
+        publicUrl = j?.tunnels?.find((x) => x.public_url?.startsWith("https://"))?.public_url ?? "";
+      }
+      if (publicUrl) { procs.push(t); break; }
+      try { t.kill(); } catch { /* already gone */ }
     }
     if (!publicUrl) say("ngrok didn't give a link. Is it signed in? Try `ngrok config check`, or run `ngrok http " + port + "` yourself.");
+    else writeFileSync(lastFile, publicUrl);
   } else if (has("cloudflared")) {
     say("🌐 Opening a cloudflared tunnel…");
     const t = spawn("cloudflared", ["tunnel", "--url", `http://127.0.0.1:${port}`], { stdio: ["ignore", "pipe", "pipe"] });
@@ -83,6 +93,16 @@ if (!process.env.NO_TUNNEL) {
   }
 }
 
+// Tell the page builder where this game lives (kept out of git: it is your own address).
+let addressChanged = false;
+if (publicUrl) {
+  const entry = [{ name: "Beaver Banff", url: publicUrl.replace(/^https/, "wss") }];
+  const file = `${root}/servers.json`;
+  const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const now = JSON.stringify(entry, null, 2) + "\n";
+  if (before !== now) { writeFileSync(file, now); addressChanged = before !== ""; }
+}
+
 // 4. The links.
 const lan = Object.values(networkInterfaces()).flat().find((i) => i && i.family === "IPv4" && !i.internal)?.address;
 say();
@@ -90,14 +110,16 @@ say("═════════════════════════
 say("  🦫 BEAVER BANFF IS ONLINE");
 say("════════════════════════════════════════════════════════════");
 if (publicUrl) {
-  say("  Send friends ONE of these (anywhere in the world):");
-  say();
-  say(`  ▸ ${pageUrl}/?server=${publicUrl.replace(/^https/, "wss")}`);
-  say("      (the Vercel page, already pointed at your server — no ngrok warning page)");
+  say("  Send friends this link (anywhere in the world):");
   say();
   say(`  ▸ ${publicUrl}`);
-  say("      (the game served straight from your computer; ngrok may show a one-time");
-  say("       'Visit Site' page first)");
+  say("      (it may show a one-time 'Visit Site' notice from the tunnel the first time;");
+  say("       to avoid it, publish your own page with `npm run page`)");
+  if (addressChanged) {
+    say();
+    say("  ⚠ Your address changed since last time. If you publish your own page, run `npm run page`");
+    say("    again and push it, or friends will see the server as offline.");
+  }
 } else {
   say("  No public link (tunnel not running).");
 }

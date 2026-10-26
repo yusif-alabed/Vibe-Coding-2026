@@ -11,3 +11,7 @@ data/
 game-server/data/
 public/
 .vercel
+
+# Where this computer's game is reachable (written by npm run online; baked into the page you publish)
+servers.json
+.page-repo
