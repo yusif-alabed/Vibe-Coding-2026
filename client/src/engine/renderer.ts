@@ -54,7 +54,7 @@ uniform vec4 uTint; uniform float uUnlit; uniform float uNoFog; uniform float uO
 uniform sampler2D uTexture; uniform float uUseTexture; uniform float uTextureScale; uniform float uTextureStrength;
 uniform float uWave; uniform float uTime; uniform float uEmissive;
 uniform float uSeasonOn; uniform vec4 uSeasonCol; uniform float uSnow; uniform float uWet;
-uniform float uCutOn; uniform vec3 uCutFocus; uniform float uCutRadius;
+uniform float uCutOn; uniform vec3 uCutFocus; uniform float uCutRadius; uniform float uCutPass;
 uniform vec2 uFade;
 uniform sampler2DShadow uShadowMap; uniform float uShadowOn; uniform float uShadowTexel;
 out vec4 outColor;
@@ -107,21 +107,28 @@ void main() {
     float dz = fract(sin(dot(floor(gl_FragCoord.xy), vec2(41.13, 289.71))) * 13758.5453);
     if (k > dz) discard;
   }
+  // See-through, in two clean layers instead of random noise. Anything between the camera and your
+  // beaver, inside a round window around that line of sight, is cut out of the solid pass (uCutPass 0)
+  // and redrawn in the translucent pass (uCutPass 1), fading smoothly from solid at the window's rim to
+  // a faint ghost in the middle. So you see yourself through the wall, and the wall is still there.
+  float cutGhost = 1.0;
   if (uCutOn > 0.5 && uCutRadius > 0.0) {
-    // See-through: anything between the camera and your beaver dissolves (dithered, so it fades softly),
-    // so you can always see yourself when the camera passes through a tree or a wall.
     vec3 seg = uCutFocus - uCamPos;
     float len = length(seg);
     vec3 dir = seg / max(len, 1e-3);
     vec3 rel = vWorld - uCamPos;
     float t = dot(rel, dir);
+    bool inWindow = false;
+    float edge = 1.0;
     if (t > 0.0 && t < len - 0.6) {
       float d = length(rel - dir * t);
       float rad = uCutRadius * mix(0.45, 1.0, clamp(t / len, 0.0, 1.0));
-      float k = smoothstep(rad, rad * 0.6, d);
-      float dither = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
-      if (k > dither) discard;
+      if (d < rad) { inWindow = true; edge = smoothstep(rad * 0.45, rad, d); }
     }
+    if (uCutPass < 0.5) { if (inWindow) discard; }
+    else { if (!inWindow) discard; cutGhost = mix(0.045, 1.0, edge * edge); }
+  } else if (uCutPass > 0.5) {
+    discard;
   }
   if (uOutline > 0.0) {
     // Only the back of the hull is drawn, so it reads as an outline around the silhouette.
@@ -196,7 +203,7 @@ void main() {
     vec3 fc = mix(uSkyHorizon, uSunColor * 0.92, sunAmt * 0.45);
     col = mix(col, fc, clamp(fog, 0.0, 1.0));
   }
-  outColor = vec4(clamp(col, 0.0, 1.0), alpha);
+  outColor = vec4(clamp(col, 0.0, 1.0), alpha * cutGhost);
 }`;
 
 const SHADOW_VS = `#version 300 es
@@ -364,7 +371,7 @@ export interface Environment {
   sky: boolean;
 }
 
-interface Item { mesh: GpuMesh; smesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number; ink: number; depth?: number }
+interface Item { mesh: GpuMesh; smesh: GpuMesh; model: Mat4; opts: DrawOpts; view: boolean; shadow: boolean; fade: number; ink: number; depth?: number; ghost?: boolean }
 
 /** Beyond this the ink outline is thinner than a pixel, so its second pass is skipped. */
 const INK_DIST = 45;
@@ -410,6 +417,8 @@ export class Renderer {
   /** When set, draws marked `cut` turn see-through between the camera and this point (the player). */
   cutFocus: Vec3 | null = null;
   cutRadius = 1.8;
+  /** Which see-through layer the shader is currently drawing (0 solid, 1 ghost). */
+  private cutPass = 0;
   /** Graphics setting: "low" renders at 1x resolution without sun shadows. */
   quality: "high" | "low" = "high";
   /** How far (metres, from the camera) world detail is drawn; things fade in as you approach. */
@@ -466,7 +475,7 @@ export class Renderer {
     if (!gl) throw new Error("WebGL2 is not available in this browser.");
     this.gl = gl;
     this.prog = this.link(VS, FS, ["aPos", "aNrm", "aCol", "aSmooth"]);
-    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel", "uFade"]) {
+    for (const name of ["uModel", "uViewProj", "uShadowMat", "uOutline", "uTime", "uWave", "uSway", "uLightDir", "uSunColor", "uSunIntensity", "uCamPos", "uSkyTop", "uSkyHorizon", "uGround", "uFogNear", "uFogDensity", "uFogHeight", "uAmbient", "uExposure", "uTint", "uUnlit", "uInk", "uAlpha", "uNoFog", "uTexture", "uUseTexture", "uTextureScale", "uTextureStrength", "uEmissive", "uCutOn", "uCutPass", "uCutFocus", "uCutRadius", "uSeasonOn", "uSeasonCol", "uSnow", "uWet", "uShadowMap", "uShadowOn", "uShadowTexel", "uFade"]) {
       this.u[name] = gl.getUniformLocation(this.prog, name);
     }
     this.shadowProg = this.link(SHADOW_VS, SHADOW_FS, ["aPos", "", "", "aSmooth"]);
@@ -868,6 +877,8 @@ export class Renderer {
     gl.uniform4fv(this.u.uSeasonCol, e.seasonCol);
     gl.uniform3fv(this.u.uCutFocus, this.cutFocus ?? [0, 0, 0]);
     gl.uniform1f(this.u.uCutRadius, this.cutFocus ? this.cutRadius : 0);
+    gl.uniform1f(this.u.uCutPass, 0);
+    this.cutPass = 0;
     gl.uniform1f(this.u.uSnow, e.snow);
     gl.uniform1f(this.u.uWet, e.wet);
     gl.uniform1f(this.u.uShadowTexel, 1 / SHADOW_SIZE);
@@ -904,6 +915,29 @@ export class Renderer {
     opaque.sort((a, b) => a.depth! - b.depth!);
     for (const it of opaque) this.drawNow(it);
     for (const it of inked) this.drawNow(it);
+    // See-through ghosts: the solid things that were cut open around your line of sight, redrawn
+    // translucent where they were cut (see the shader). Only those the window actually touches.
+    const focus = this.cutFocus;
+    if (focus && this.cutRadius > 0) {
+      const sx = focus[0] - c0[0], sy = focus[1] - c0[1], sz = focus[2] - c0[2];
+      const sl = Math.hypot(sx, sy, sz) || 1;
+      const dx = sx / sl, dy = sy / sl, dz = sz / sl;
+      for (const it of opaque) {
+        if (!it.opts.cut) continue;
+        const b = it.mesh.bounds;
+        if (b) {
+          const m = it.model;
+          const sc = Math.max(Math.hypot(m[0], m[1], m[2]), Math.hypot(m[4], m[5], m[6]), Math.hypot(m[8], m[9], m[10]));
+          const x = m[0] * b.c[0] + m[4] * b.c[1] + m[8] * b.c[2] + m[12] - c0[0];
+          const y = m[1] * b.c[0] + m[5] * b.c[1] + m[9] * b.c[2] + m[13] - c0[1];
+          const z = m[2] * b.c[0] + m[6] * b.c[1] + m[10] * b.c[2] + m[14] - c0[2];
+          const t = x * dx + y * dy + z * dz;
+          const r = b.r * sc + this.cutRadius;
+          if (t < -r || t > sl + r || Math.hypot(x - dx * t, y - dy * t, z - dz * t) > r) continue;
+        }
+        clear.push({ ...it, ghost: true });
+      }
+    }
     if (clear.length) {
       // Far to near, so overlapping translucent things blend correctly.
       const c = this.camPos;
@@ -915,6 +949,7 @@ export class Renderer {
       for (const it of clear) this.drawNow(it);
       gl.depthMask(true);
       gl.disable(gl.BLEND);
+      gl.uniform1f(this.u.uCutPass, 0);
     }
     gl.bindVertexArray(null);
     if (this.debugQueue && this.queue.length) this.lastQueue = this.queue;
@@ -925,9 +960,11 @@ export class Renderer {
     this.drawDistance = Infinity; // scenes that want a draw distance set it every frame
   }
 
-  private drawNow({ mesh, model, opts, fade, ink }: Item): void {
+  private drawNow({ mesh, model, opts, fade, ink, ghost }: Item): void {
     const gl = this.gl;
     gl.bindVertexArray(mesh.vao);
+    const pass = ghost ? 1 : 0;
+    if (pass !== this.cutPass) { gl.uniform1f(this.u.uCutPass, pass); this.cutPass = pass; }
     gl.uniformMatrix4fv(this.u.uModel, false, model);
 
     const tint = opts.tint ?? NO_TINT;

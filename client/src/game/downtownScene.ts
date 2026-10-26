@@ -2,6 +2,7 @@ import {
   ARCADE_INFO, BOX, boxCues, DEFAULT_LOOK, FUR_COLORS, hoopMeter, HOOPS, PENS, SPLEEF, TD, tdPoint, TD_PATH_LEN, VOLLEY,
   type ArcadeGame, type BoxMove, type Look, type ServerMsg,
 } from "@beaver/shared";
+import { OwnPrediction } from "./ownPrediction";
 import { compose, hash2, hexToRgb, lerp, lookAt, perspective, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
@@ -425,6 +426,8 @@ export class DowntownScene implements Scene {
   private startAt: number;
   private time = 0;
   private gameTime = 0;
+  /** Runs your own character ahead of the server in Spleef and Fort Timber. */
+  private own: OwnPrediction;
   private lastCount = -1;
   private sendAcc = 0;
   private lastInput = "";
@@ -461,6 +464,7 @@ export class DowntownScene implements Scene {
       return { id: p.id, name: p.name, look, isBot: p.isBot, x: 0, y: 0, z: 0, ry: 0, tx: 0, ty: 0, tz: 0, score: 0, tag, s: {} };
     });
     this.me = this.players.find((p) => p.id === ctx.state.you) ?? null;
+    this.own = new OwnPrediction(this.game);
     const info = ARCADE_INFO[this.game];
     this.countdownEl = h("div.countdown", {}, "");
     this.boardEl = h("div.card.scoreboard", {});
@@ -534,12 +538,13 @@ export class DowntownScene implements Scene {
       for (const q of s.p) {
         const p = this.byId(q.id); if (!p) continue;
         p.tx = q.x; p.tz = q.z; p.ry = q.ry;
+        if (p === this.me) this.own.server(q.x, q.z);
         if (q.out && !p.s.out) { this.fallen[p.id] = this.time; this.ctx.sound.play("splash"); if (p === this.me) { this.flash("SPLASH! 💦"); buzz(this.ctx, [60, 40, 60]); } }
         p.s = q;
         p.score = q.out ? 0 : t;
       }
     } else if (g === "td") {
-      for (const q of s.p) { const p = this.byId(q.id); if (!p) continue; p.tx = q.x; p.tz = q.z; p.ry = q.ry; if (q.score > p.score && p === this.me) this.ctx.sound.play("coin", 0.5); p.score = q.score; }
+      for (const q of s.p) { const p = this.byId(q.id); if (!p) continue; p.tx = q.x; p.tz = q.z; p.ry = q.ry; if (p === this.me) this.own.server(q.x, q.z); if (q.score > p.score && p === this.me) this.ctx.sound.play("coin", 0.5); p.score = q.score; }
       if (s.lives < (this.snap?.lives ?? s.lives)) buzz(this.ctx, 40);
     } else if (g === "volley") {
       const prev = this.snap?.s as number[] | undefined;
@@ -717,6 +722,7 @@ export class DowntownScene implements Scene {
     steer = Math.max(-1, Math.min(1, steer));
     fwd = Math.max(-1, Math.min(1, fwd));
     if (inp.consumeTap() && this.game !== "spleef" && this.game !== "td" && this.game !== "shadowbox") this.press = true;
+    this.own.note(steer, fwd, now);
     this.sendAcc += dt;
     const key = `${steer.toFixed(2)}|${fwd.toFixed(2)}`;
     if (!this.finished && (key !== this.lastInput || this.press || this.sendAcc > 0.25)) {
@@ -725,12 +731,20 @@ export class DowntownScene implements Scene {
       this.lastInput = key;
       this.sendAcc = 0;
     }
+    // Spleef and Fort Timber: draw our own character where our fingers say it is (not a round trip ago).
+    const out = (this.me?.s as { out?: boolean } | undefined)?.out;
+    const mine = this.me && !this.finished && !out && this.gameTime > 0.1 ? this.own.at(now, this.ctx.net.rtt) : null;
     for (const p of this.players) {
       const k = Math.min(1, dt * 12);
       const px = p.x, pz = p.z;
-      p.x = lerp(p.x, p.tx, k);
+      if (p === this.me && mine) {
+        p.x = lerp(p.x, mine.x, Math.min(1, dt * 30));
+        p.z = lerp(p.z, mine.z, Math.min(1, dt * 30));
+      } else {
+        p.x = lerp(p.x, p.tx, k);
+        p.z = lerp(p.z, p.tz, k);
+      }
       p.y = lerp(p.y, p.ty, Math.min(1, dt * 20));
-      p.z = lerp(p.z, p.tz, k);
       p.s.moving = Math.hypot(p.x - px, p.z - pz) / Math.max(dt, 1e-3) > 0.5 ? 1 : 0;
     }
     for (const q of this.particles) { q.life += dt; q.vy -= 7 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }

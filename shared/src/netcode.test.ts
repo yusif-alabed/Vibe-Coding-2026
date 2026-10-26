@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { makeSim } from "./minigames";
 import { MoveReconciler } from "./reconcile";
 import { predictLateral } from "./racePredict";
+import { predictWalk, walkRule, type InputSample } from "./arcadePredict";
 import { validateMove } from "./movement";
 
 describe("MoveReconciler", () => {
@@ -100,4 +101,45 @@ describe("predictLateral", () => {
   it("does not steer a stunned sled", () => {
     assert.equal(predictLateral({ x: 2, steer: 0, stun: true, at: 1000 }, [{ t: 1000, v: 1 }], 1200, 150), 2);
   });
+});
+
+describe("predictWalk (minigames you walk around in)", () => {
+  type AnySim = { step(dt: number, i: Record<string, { steer: number; fwd: number; press: boolean }>): void; players: { id: string; x: number; z?: number; team?: number }[] };
+  function run(game: string, rtt: number, meIndex: number) {
+    const entrants = [{ id: "a", name: "a", isBot: false }, { id: "me", name: "me", isBot: false }];
+    const mk = () => makeSim(game as never, 5, entrants) as unknown as AnySim;
+    const sim = mk(), ideal = mk();
+    const rule = walkRule(game)!;
+    const DT = 1 / 20, up = rtt / 2, down = rtt / 2;
+    const u = (t: number) => ({ steer: Math.sin(t * 1.3) > 0.2 ? 1 : Math.sin(t * 1.3) < -0.2 ? -1 : 0, fwd: Math.cos(t * 0.9) > 0.3 ? 1 : Math.cos(t * 0.9) < -0.3 ? -1 : 0 });
+    const inp = (v: { steer: number; fwd: number }) => ({ me: { ...v, press: false }, a: { steer: 0, fwd: 0, press: false } });
+    const log: InputSample[] = [];
+    const snaps: { arrive: number; x: number; z: number }[] = [];
+    const pos = (q: AnySim) => { const p = q.players.find((y) => y.id === "me")!; return { x: p.x, z: p.z ?? 0 }; };
+    let eStale = 0, ePred = 0, n = 0;
+    for (let step = 0; step < 20 * 12; step++) {
+      const tNow = step * DT * 1000;
+      sim.step(DT, inp(u((tNow - up) / 1000)));
+      ideal.step(DT, inp(u(tNow / 1000)));
+      snaps.push({ arrive: tNow + down, ...pos(sim) });
+      log.push({ t: tNow, ...u(tNow / 1000) });
+      const got = snaps.filter((q) => q.arrive <= tNow).at(-1);
+      if (!got || tNow < 2000) continue;
+      const mirror = game === "snowball" && (sim.players.find((y) => y.id === "me")!.team ?? 0) !== 0;
+      const pr = predictWalk(rule, { x: got.x, z: got.z, at: got.arrive }, log, tNow, rtt, mirror);
+      const id = pos(ideal);
+      eStale += Math.hypot(got.x - id.x, got.z - id.z); ePred += Math.hypot(pr.x - id.x, pr.z - id.z); n++;
+    }
+    return { stale: eStale / n, pred: ePred / n, meIndex };
+  }
+
+  for (const game of ["hunt", "spleef", "td", "snowball", "dam"]) {
+    it(`${game}: your character is where your fingers put it, at 130 and 250 ms ping`, () => {
+      for (const rtt of [130, 250]) {
+        const { stale, pred } = run(game, rtt, 1);
+        assert.ok(pred < 1.0, `${game} @${rtt}ms: predicted error ${pred.toFixed(2)} units`);
+        assert.ok(pred < stale * 0.5, `${game} @${rtt}ms: prediction ${pred.toFixed(2)} should be well under the stale picture ${stale.toFixed(2)}`);
+      }
+    });
+  }
 });

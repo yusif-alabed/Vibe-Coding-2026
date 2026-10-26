@@ -1103,6 +1103,13 @@ export function buildTown(heightAt: (x: number, z: number) => number): TownMeshe
       }
       for (let i = 0; i < poles.length; i++) {
         const p0 = poles[i], p1 = poles[(i + 1) % poles.length];
+        // The wire the bulbs hang from (same sag as the bulbs), so they aren't floating in mid-air.
+        for (let k = 0; k < 8; k++) {
+          const at = (u: number): Vec3 => [p0[0] + (p1[0] - p0[0]) * u, p0[1] + (p1[1] - p0[1]) * u - Math.sin(u * Math.PI) * 0.6, p0[2] + (p1[2] - p0[2]) * u];
+          const q0 = at(k / 8), q1 = at((k + 1) / 8);
+          const dx = q1[0] - q0[0], dy = q1[1] - q0[1], dz = q1[2] - q0[2];
+          t.body.box(compose((q0[0] + q1[0]) / 2, (q0[1] + q1[1]) / 2, (q0[2] + q1[2]) / 2, Math.atan2(dx, dz), -Math.atan2(dy, Math.hypot(dx, dz)), 0, 0.035, 0.035, Math.hypot(dx, dy, dz)), [0.18, 0.13, 0.1]);
+        }
         for (let k = 1; k < 8; k++) {
           const u = k / 8;
           t.glow.sphere(compose(p0[0] + (p1[0] - p0[0]) * u, p0[1] + (p1[1] - p0[1]) * u - Math.sin(u * Math.PI) * 0.6, p0[2] + (p1[2] - p0[2]) * u, 0, 0, 0, 0.12), [C("#ffd166"), C("#ff6fb5"), C("#7ff3f0"), C("#b6ff8a")][(i + k) % 4], 3, 4);

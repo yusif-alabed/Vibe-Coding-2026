@@ -2,6 +2,7 @@ import { ARCADE_INFO, DAM, DEFAULT_LOOK, FUR_COLORS, HUNT, SNOW, type ArcadeGame
 import { compose, hash2, hexToRgb, lerp, lerpAngle, lookAt, perspective, type Vec3 } from "../engine/math";
 import { MeshBuilder } from "../engine/mesh";
 import type { GpuMesh, Renderer } from "../engine/renderer";
+import { OwnPrediction } from "./ownPrediction";
 import { h } from "../ui/dom";
 import { Joystick } from "../ui/joystick";
 import { buzz } from "../ui/life";
@@ -114,6 +115,8 @@ export class ArcadeScene implements Scene {
   private startAt: number;
   private time = 0;
   private gameTime = 0;
+  /** Runs your own character ahead of the server so it moves the instant you press a key. */
+  private own: OwnPrediction;
   private lastCount = -1;
   private sendAcc = 0;
   private lastInput = "";
@@ -144,6 +147,7 @@ export class ArcadeScene implements Scene {
       return { id: p.id, name: p.name, look, isBot: p.isBot, x: 0, z: 0, ry: 0, tx: 0, tz: 0, score: 0, tag, extra: {} };
     });
     this.me = this.players.find((p) => p.id === ctx.state.you) ?? null;
+    this.own = new OwnPrediction(this.game);
     const info = ARCADE_INFO[this.game];
     this.countdownEl = h("div.countdown", {}, "");
     this.boardEl = h("div.card.scoreboard", {});
@@ -179,7 +183,7 @@ export class ArcadeScene implements Scene {
     this.snap = s;
     const byId = (id: string) => this.players.find((p) => p.id === id);
     if (this.game === "hunt") {
-      for (const q of s.p) { const p = byId(q.id); if (!p) continue; p.tx = q.x; p.tz = q.z; p.ry = q.ry; if (q.score > p.score && p === this.me) { this.ctx.sound.play("coin"); buzz(this.ctx, 25); } p.score = q.score; }
+      for (const q of s.p) { const p = byId(q.id); if (!p) continue; p.tx = q.x; p.tz = q.z; p.ry = q.ry; if (p === this.me) this.own.server(q.x, q.z); if (q.score > p.score && p === this.me) { this.ctx.sound.play("coin"); buzz(this.ctx, 25); } p.score = q.score; }
       const fresh = (s.c as number[][]).map(([id, x, z, big]) => ({ id, x, z, big: !!big }));
       for (const c of this.cones) if (!fresh.some((f) => f.id === c.id)) this.burst(c.x, 0.6, c.z, [1, 0.84, 0.3]);
       this.cones = fresh;
@@ -195,12 +199,13 @@ export class ArcadeScene implements Scene {
       for (const q of s.p) {
         const p = byId(q.id); if (!p) continue;
         p.tx = q.x; p.score = q.score;
+        if (p === this.me) this.own.server(q.x, 0);
         if (q.hit && !p.extra.hit) { this.burst(q.x, 1.2, q.team === 0 ? -SNOW.gap / 2 : SNOW.gap / 2, [1, 1, 1]); if (p === this.me) { this.flash("BONK! ❄️"); buzz(this.ctx, 50); } this.ctx.sound.play("pop"); }
         p.extra = { team: q.team, hit: q.hit, throw: q.throw };
       }
       this.balls = (s.b as number[][]).map(([id, team, x, z]) => ({ id, team, x, z }));
     } else {
-      for (const q of s.p) { const p = byId(q.id); if (!p) continue; p.tx = q.x; if (q.score > p.score) this.ctx.sound.play("pop"); p.score = q.score; p.extra = { carry: q.carry }; }
+      for (const q of s.p) { const p = byId(q.id); if (!p) continue; p.tx = q.x; if (p === this.me) this.own.server(q.x, 0); if (q.score > p.score) this.ctx.sound.play("pop"); p.score = q.score; p.extra = { carry: q.carry }; }
       this.logs = (s.l as number[][]).map(([id, x, z]) => ({ id, x, z }));
       this.dam = { h: s.h, w: s.w, done: s.done };
     }
@@ -284,6 +289,7 @@ export class ArcadeScene implements Scene {
     steer = Math.max(-1, Math.min(1, steer));
     fwd = Math.max(-1, Math.min(1, fwd));
     if (inp.consumeTap() && this.game !== "hunt") this.press = true;
+    this.own.note(steer, fwd, now);
     this.sendAcc += dt;
     const key = `${steer.toFixed(2)}|${fwd.toFixed(2)}`;
     if (!this.finished && (key !== this.lastInput || this.press || this.sendAcc > 0.25)) {
@@ -293,11 +299,18 @@ export class ArcadeScene implements Scene {
       this.lastInput = key;
       this.sendAcc = 0;
     }
+    const mine = this.me && !this.finished && this.gameTime > 0.1 ? this.own.at(now, this.ctx.net.rtt, this.me.extra.team === 1) : null;
     for (const p of this.players) {
       const k = Math.min(1, dt * 12);
       const px = p.x, pz = p.z;
-      p.x = lerp(p.x, p.tx, k);
-      p.z = lerp(p.z, p.tz, k);
+      if (p === this.me && mine) {
+        // Our own character: where our fingers say we are, not where the server said a round trip ago.
+        p.x = lerp(p.x, mine.x, Math.min(1, dt * 30));
+        p.z = this.game === "hunt" ? lerp(p.z, mine.z, Math.min(1, dt * 30)) : lerp(p.z, p.tz, k);
+      } else {
+        p.x = lerp(p.x, p.tx, k);
+        p.z = lerp(p.z, p.tz, k);
+      }
       p.extra.moving = Math.hypot(p.x - px, p.z - pz) / Math.max(dt, 1e-3) > 0.5 ? 1 : 0;
     }
     for (const q of this.particles) { q.life += dt; q.vy -= 7 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }

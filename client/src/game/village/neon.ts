@@ -165,6 +165,20 @@ const SHOPS = new Set(["bakery", "post", "store", "flowers", "icecream", "toys",
 /** Builds all the night lights. `heightAt` places things on the ground; `bridges` gives rail points. */
 export function buildNeon(heightAt: (x: number, z: number) => number, wire: MeshBuilder, extras: { bridgeRails: Vec3[][]; fountainY: number }): NeonMeshes {
   const k = new NeonKit();
+  const POLE: Vec3 = [0.3, 0.2, 0.14];
+  /**
+   * A slim timber pole up to where a string of lights ends, so no string ever ends in thin air.
+   * `from` is where it stands (the ground by default; a terrace or a rim otherwise).
+   */
+  const pole = (x: number, z: number, top: number, from = heightAt(x, z)) => {
+    wire.cylinder(compose(x, (from + top) / 2, z, 0, 0, 0, 0.13, top - from + 0.18, 0.13), POLE, 7);
+    wire.sphere(compose(x, top + 0.12, z, 0, 0, 0, 0.18), POLE, 4, 6);
+  };
+  /** A plain wire between two points (used for the crown over the fountain). */
+  const strut = (a: Vec3, b: Vec3, w = 0.05) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], len = Math.hypot(dx, dy, dz);
+    wire.box(compose((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, Math.atan2(dx, dz), -Math.atan2(dy, Math.hypot(dx, dz)), 0, w, w, len), [0.18, 0.13, 0.1]);
+  };
   // Shop signs on little posts above the shopfront, with a contrasting neon frame.
   for (const b of TOWN_BUILDINGS) {
     if (!SHOPS.has(b.kind)) continue;
@@ -180,12 +194,16 @@ export function buildNeon(heightAt: (x: number, z: number) => number, wire: Mesh
     // A little "open" pill in the shop window.
     k.path(f, [[-b.w * 0.18 - 0.35, 1.95], [-b.w * 0.18 + 0.35, 1.95], [-b.w * 0.18 + 0.35, 2.2], [-b.w * 0.18 - 0.35, 2.2]], b.d / 2 + 0.14, NEON.lime, true);
   }
-  // Festoon lights zig-zagging across Main Street.
+  // Festoon lights zig-zagging across Main Street, hung from poles along the pavement in front of the
+  // shopfronts (which stand at about 4 m either side of the road's centre line).
   for (let x = -18, i = 0; x > -90; x -= 7, i++) {
     if (x < -64 && x > -84) continue; // the town square has its own lights
     const side = i % 2 ? 1 : -1;
-    const a: Vec3 = [x, heightAt(x, side * 5.4) + 4.7, side * 5.4];
-    const b: Vec3 = [x - 3.5, heightAt(x - 3.5, -side * 5.4) + 4.7, -side * 5.4];
+    const za = side * 4.7, zb = -side * 4.7;
+    const a: Vec3 = [x, heightAt(x, za) + 4.7, za];
+    const b: Vec3 = [x - 3.5, heightAt(x - 3.5, zb) + 4.7, zb];
+    pole(a[0], a[2], a[1]);
+    pole(b[0], b[2], b[1]);
     k.festoon(a, b, 9, 0.6, wire, i);
   }
   // Town square: strings from the bandstand roof out to four posts.
@@ -195,32 +213,54 @@ export function buildNeon(heightAt: (x: number, z: number) => number, wire: Mesh
     wire.cylinder(compose(px, py + 2.3, pz, 0, 0, 0, 0.14, 4.6, 0.14), [0.3, 0.2, 0.14], 6);
     k.festoon([px, py + 4.5, pz], [-74, heightAt(-74, 0) + 6.0, 0], 8, 0.5, wire, i);
   }
-  // Plaza: a maypole of lights from the lantern posts up to the fountain's top tier.
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.5;
-    const lx = Math.cos(a) * 11.5, lz = Math.sin(a) * 11.5;
-    k.festoon([lx, heightAt(lx, lz) + 3.1, lz], [0, extras.fountainY + 6.2, 0], 10, 0.9, wire, i * 2);
+  // Plaza: strings from the tops of the lantern posts up to a crown of lights held above the fountain's
+  // statue on three slim masts that stand on the top tier's rim.
+  {
+    const crownY = extras.fountainY + 7.9, crownR = 1.55, rimY = extras.fountainY + 4.65;
+    const ring = (a: number): Vec3 => [Math.cos(a) * crownR, crownY, Math.sin(a) * crownR];
+    for (let i = 0; i < 12; i++) {
+      const a0 = (i / 12) * Math.PI * 2, a1 = ((i + 1) / 12) * Math.PI * 2;
+      strut(ring(a0), ring(a1), 0.06);
+      k.bulb(ring(a0), FESTOON[i % FESTOON.length], 0.09);
+    }
+    for (let m = 0; m < 3; m++) {
+      const a = 0.5 + Math.PI / 6 + (m * Math.PI * 2) / 3;
+      pole(Math.cos(a) * crownR, Math.sin(a) * crownR, crownY, rimY);
+    }
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.5;
+      const lx = Math.cos(a) * 11.5, lz = Math.sin(a) * 11.5;
+      k.festoon([lx, heightAt(lx, lz) + 2.85, lz], ring(a), 10, 0.7, wire, i * 2);
+    }
   }
   // Coloured uplights in the fountain basin.
   for (let i = 0; i < 12; i++) {
     const a = (i / 12) * Math.PI * 2;
     k.bulb([Math.cos(a) * 4.6, extras.fountainY + 0.95, Math.sin(a) * 4.6], FESTOON[i % FESTOON.length], 0.14);
   }
-  // Lodge terrace: a string of bulbs along the front rail.
-  const L = (lx: number): Vec3 => {
-    const p = lodgeToWorld(lx, LODGE.depth / 2 + LODGE.terrace - 0.1);
-    return [p.x, heightAt(p.x, p.z) + 3.0, p.z];
-  };
-  for (let x = -LODGE.width / 2; x < LODGE.width / 2 - 0.1; x += LODGE.width / 4) k.festoon(L(x), L(x + LODGE.width / 4), 6, 0.35, wire, Math.round(x));
+  // Lodge terrace: strings along the front rail, hung from posts standing on the terrace.
+  {
+    const groundY = heightAt(LODGE.x, LODGE.z), floorY = groundY + 1.0, topY = groundY + 3.4;
+    const edge = LODGE.depth / 2 + LODGE.terrace - 0.15; // the railing's line
+    const span = LODGE.width - 0.8;
+    const P = (j: number): Vec3 => {
+      const p = lodgeToWorld(-LODGE.width / 2 + 0.4 + (span * j) / 4, edge);
+      return [p.x, topY, p.z];
+    };
+    for (let j = 0; j <= 4; j++) { const q = P(j); pole(q[0], q[2], q[1], floorY); }
+    for (let j = 0; j < 4; j++) k.festoon(P(j), P(j + 1), 6, 0.35, wire, j * 3);
+  }
   // Bridges: bulbs along both handrails.
   for (const rail of extras.bridgeRails) rail.forEach((p, i) => { if (i % 2 === 0) k.bulb([p[0], p[1] + 0.15, p[2]], FESTOON[i % FESTOON.length], 0.09); });
   // Fairground entrance arch.
   {
     const gx = 12, gz = 66, gy = heightAt(gx, gz);
     for (const s of [-1, 1]) wire.cylinder(compose(gx, gy + 2.4, gz + s * 3, 0, 0, 0, 0.22, 4.8, 0.22), [0.9, 0.88, 0.84], 8);
+    // A bulb-lit arch: a slim wire arc from one post top to the other, with the bulbs on it.
+    const arch = (i: number): Vec3 => { const a = (i / 16) * Math.PI; return [gx, gy + 4.8 + Math.sin(a) * 1.6, gz - Math.cos(a) * 3]; };
     for (let i = 0; i <= 16; i++) {
-      const a = (i / 16) * Math.PI;
-      k.bulb([gx, gy + 4.8 + Math.sin(a) * 1.6, gz - Math.cos(a) * 3], FESTOON[i % FESTOON.length], 0.12);
+      k.bulb(arch(i), FESTOON[i % FESTOON.length], 0.12);
+      if (i < 16) strut(arch(i), arch(i + 1), 0.07);
     }
     const f = new Frame(gx, gy, gz, -Math.PI / 2);
     k.path(f, [[-1.6, 5.6], [1.6, 5.6], [1.6, 6.3], [-1.6, 6.3]], 0, NEON.pink, true);
@@ -255,15 +295,22 @@ export function buildNeon(heightAt: (x: number, z: number) => number, wire: Mesh
     const floor = TOWN_AREAS.find((a) => a.kind === "dance");
     if (floor) for (const s of [-1, 0, 1]) {
       const ex = floor.x + floor.r + 0.4, ez = floor.z + s * (floor.r + 0.4);
+      // These end on the dance floor's lighting truss (its corner posts and top beam, built in danceStage()).
       k.festoon(f.p(s * 2.5, 6.2, club.d / 2 + 0.3), [ex, heightAt(floor.x, floor.z) + 3.6, ez], 9, 0.5, wire, s + 3);
     }
   }
-  // Lights around the Downtown plaza.
-  for (let i = 0; i < 6; i++) {
-    const a0 = (i / 6) * Math.PI * 2, a1 = ((i + 1) / 6) * Math.PI * 2;
-    const p0: Vec3 = [58 + Math.cos(a0) * 8.1, heightAt(58, 48) + 3.1, 48 + Math.sin(a0) * 8.1];
-    const p1: Vec3 = [58 + Math.cos(a1) * 8.1, heightAt(58, 48) + 3.1, 48 + Math.sin(a1) * 8.1];
-    k.festoon(p0, p1, 7, 0.4, wire, i);
+  // Lights around the Downtown plaza, strung between its four lantern posts (see plaza() in downtown.ts:
+  // they stand just outside the paving at these angles, 3 m tall).
+  {
+    const dt = TOWN_AREAS.find((a) => a.kind === "downtown");
+    if (dt) {
+      const topY = heightAt(dt.x, dt.z) + 3.05;
+      const P = (j: number): Vec3 => {
+        const a = Math.PI / 8 + (j % 4) * (Math.PI / 2);
+        return [dt.x + Math.cos(a) * (dt.r + 0.3), topY, dt.z + Math.sin(a) * (dt.r + 0.3)];
+      };
+      for (let j = 0; j < 4; j++) k.festoon(P(j), P(j + 1), 8, 0.55, wire, j * 2);
+    }
   }
   return { core: k.core, halo: k.halo };
 }
