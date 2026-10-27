@@ -156,13 +156,22 @@ if (publicUrl) {
   say("  No public link (tunnel not running).");
 }
 say();
-say(`  ★ PLAYING ON THIS COMPUTER? Use  http://localhost:${port}  — no tunnel in the way, so your ping is ~0 ms.`);
-say("    (Friends use the links above; their ping is whatever the tunnel and their internet give.)");
+say(`  ★ YOU (the host): play at  http://localhost:${port}  — it just opened in your browser.`);
+say("    Same world as your friends, but ~1 ms ping. Don't use the public link or your Vercel page on");
+say("    this computer: every move would go out to the tunnel and back (100-300 ms).");
 if (lan) say(`  Same Wi-Fi:         http://${lan}:${port}`);
 say();
 say("  Keep this window open and your computer awake. Ctrl+C stops the game.");
 say("════════════════════════════════════════════════════════════");
 say();
+
+// The host plays here, straight to the server on this computer. Through the public link (or the published
+// page) every move would travel out to the tunnel and back again — the same world, but with ~100-300 ms of
+// ping instead of ~1 ms. NO_OPEN=1 skips this.
+if (!process.env.NO_OPEN) {
+  const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
+  try { spawn(opener, [`http://localhost:${port}`], { stdio: "ignore", detached: true }).unref(); } catch { /* no browser to open */ }
+}
 
 // Report the player count now and then, so you can see friends arriving.
 let last = -1;
