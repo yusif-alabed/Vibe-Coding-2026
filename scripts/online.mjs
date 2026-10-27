@@ -53,52 +53,72 @@ if (health?.ok) {
 
 // 3. A public tunnel.
 let publicUrl = "";
+async function ngrokTunnel() {
+  say("🌐 Opening a tunnel…");
+  const region = process.env.NGROK_REGION ? ["--region", process.env.NGROK_REGION] : [];
+  // Reuse last time's address if ngrok will give it to us again (a free account has one fixed
+  // address), so the link you share and the page you publish keep working between sessions.
+  const lastFile = `${root}/game-server/data/public-url.txt`;
+  const last = existsSync(lastFile) ? readFileSync(lastFile, "utf8").trim() : "";
+  const attempts = last ? [["--url", last], []] : [[]];
+  let url = "";
+  for (const extra of attempts) {
+    const t = spawn("ngrok", ["http", String(port), "--log=stdout", ...region, ...extra], { stdio: ["ignore", "pipe", "pipe"] });
+    let exited = false;
+    t.on("exit", () => { exited = true; });
+    t.stdout.on("data", () => {});
+    t.stderr.on("data", (d) => process.stderr.write(d));
+    for (let i = 0; i < 30 && !url && !exited; i++) {
+      await wait(1000);
+      const j = await getJson("http://127.0.0.1:4040/api/tunnels");
+      url = j?.tunnels?.find((x) => x.public_url?.startsWith("https://"))?.public_url ?? "";
+    }
+    if (url) { procs.push(t); break; }
+    try { t.kill(); } catch { /* already gone */ }
+  }
+  if (!url) say("ngrok didn't give a link. Is it signed in? Try `ngrok config check`, or run `ngrok http " + port + "` yourself.");
+  else writeFileSync(lastFile, url);
+  return url;
+}
+
+async function cloudflareTunnel() {
+  say("🌐 Opening a Cloudflare tunnel…");
+  // Over TCP ("http2") the tunnel attaches to the data centre nearest you (Dubai from the UAE). The default
+  // QUIC connection landed in Tokyo from there: ~140 ms instead of ~37 ms through the tunnel. Set
+  // CF_PROTOCOL=quic to use QUIC anyway.
+  const proto = ["--protocol", process.env.CF_PROTOCOL || "http2"];
+  const t = spawn("cloudflared", ["tunnel", "--no-autoupdate", ...proto, "--url", `http://127.0.0.1:${port}`], { stdio: ["ignore", "pipe", "pipe"] });
+  // cloudflared hands out a link straight away, but the link only works once a connection to Cloudflare is
+  // registered. Some networks (schools, offices, some hotspots) block the port it needs (7844), and then
+  // the link just shows "Error 1033" — so wait for the connection, not just the link.
+  let url = "";
+  const ready = new Promise((resolve) => {
+    const onData = (d) => {
+      const s = String(d);
+      url ||= s.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)?.[0] ?? "";
+      if (url && /Registered tunnel connection/.test(s)) resolve(true);
+    };
+    t.stdout.on("data", onData);
+    t.stderr.on("data", onData);
+    t.on("exit", () => resolve(false));
+  });
+  if (await Promise.race([ready, wait(25000).then(() => false)])) { procs.push(t); return url; }
+  try { t.kill(); } catch { /* already gone */ }
+  say("Cloudflare can't connect from this network (it blocks the port Cloudflare needs).");
+  return "";
+}
+
 // Which tunnel: set TUNNEL=ngrok or TUNNEL=cloudflared to choose. Otherwise cloudflared when it's installed
 // (from the UAE it reaches a Dubai data centre, so friends nearby never route through another country),
-// else ngrok.
-const kind = process.env.TUNNEL || (has("cloudflared") ? "cloudflared" : has("ngrok") ? "ngrok" : "");
+// else ngrok. If Cloudflare can't connect from this network, ngrok is used instead.
+let kind = process.env.TUNNEL || (has("cloudflared") ? "cloudflared" : has("ngrok") ? "ngrok" : "");
 if (!process.env.NO_TUNNEL) {
-  if (kind === "ngrok" && has("ngrok")) {
-    say("🌐 Opening a tunnel…");
-    const region = process.env.NGROK_REGION ? ["--region", process.env.NGROK_REGION] : [];
-    // Reuse last time's address if ngrok will give it to us again (a free account has one fixed
-    // address), so the link you share and the page you publish keep working between sessions.
-    const lastFile = `${root}/game-server/data/public-url.txt`;
-    const last = existsSync(lastFile) ? readFileSync(lastFile, "utf8").trim() : "";
-    const attempts = last ? [["--url", last], []] : [[]];
-    for (const extra of attempts) {
-      const t = spawn("ngrok", ["http", String(port), "--log=stdout", ...region, ...extra], { stdio: ["ignore", "pipe", "pipe"] });
-      let exited = false;
-      t.on("exit", () => { exited = true; });
-      t.stdout.on("data", () => {});
-      t.stderr.on("data", (d) => process.stderr.write(d));
-      for (let i = 0; i < 30 && !publicUrl && !exited; i++) {
-        await wait(1000);
-        const j = await getJson("http://127.0.0.1:4040/api/tunnels");
-        publicUrl = j?.tunnels?.find((x) => x.public_url?.startsWith("https://"))?.public_url ?? "";
-      }
-      if (publicUrl) { procs.push(t); break; }
-      try { t.kill(); } catch { /* already gone */ }
-    }
-    if (!publicUrl) say("ngrok didn't give a link. Is it signed in? Try `ngrok config check`, or run `ngrok http " + port + "` yourself.");
-    else writeFileSync(lastFile, publicUrl);
-  } else if (kind === "cloudflared" && has("cloudflared")) {
-    say("🌐 Opening a Cloudflare tunnel…");
-    // Over TCP ("http2") the tunnel attaches to the data centre nearest you (Dubai from the UAE). The default
-    // QUIC connection landed in Tokyo from there: ~140 ms instead of ~37 ms through the tunnel. Set
-    // CF_PROTOCOL=quic to use QUIC anyway.
-    const proto = ["--protocol", process.env.CF_PROTOCOL || "http2"];
-    const t = spawn("cloudflared", ["tunnel", "--no-autoupdate", ...proto, "--url", `http://127.0.0.1:${port}`], { stdio: ["ignore", "pipe", "pipe"] });
-    procs.push(t);
-    const found = new Promise((resolve) => {
-      const onData = (d) => { const m = String(d).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/); if (m) resolve(m[0]); };
-      t.stdout.on("data", onData);
-      t.stderr.on("data", onData);
-    });
-    publicUrl = (await Promise.race([found, wait(30000).then(() => "")])) || "";
-  } else {
-    say("No tunnel tool found (install one: `brew install cloudflared` or `brew install ngrok`), so only people on your Wi-Fi can join.");
+  if (kind === "cloudflared" && has("cloudflared")) {
+    publicUrl = await cloudflareTunnel();
+    if (!publicUrl && has("ngrok") && !process.env.TUNNEL) { say("Using ngrok instead."); kind = "ngrok"; }
   }
+  if (kind === "ngrok" && has("ngrok")) publicUrl = await ngrokTunnel();
+  else if (!kind) say("No tunnel tool found (install one: `brew install cloudflared` or `brew install ngrok`), so only people on your Wi-Fi can join.");
 }
 
 // Tell the page builder where this game lives (kept out of git: it is your own address).
